@@ -5,6 +5,36 @@ instalado y **emulador arm64 funcionando**. Arranca en ~30 s.
 
 La imagen y las guías están en `emulator/` — 17 GB, no versionar.
 
+## Desde un clon limpio
+
+El repositorio no lleva binarios grandes. Tras clonar hacen falta dos cosas:
+
+1. **La librería de síntesis y las voces** (~100 MB), que descarga:
+
+   ```sh
+   tools/fetch-tts-assets.sh
+   ```
+
+   Deja `libs/sherpa-onnx.aar` y las voces en su sitio. Sin esto, `:feature:voice`
+   no compila.
+
+2. **El token de descarga de Mapbox**, solo para el sabor `bench` —en el vehículo
+   se usa el mapa del dispositivo y Mapbox no se enlaza—. Es un token `sk.` de
+   lectura de descargas, y va en `~/.gradle/gradle.properties`, **nunca en el
+   repositorio**:
+
+   ```properties
+   MAPBOX_DOWNLOADS_TOKEN=sk....
+   ```
+
+   También vale la variable de entorno del mismo nombre. Ver
+   [docs/MAP-OPTIONS.md](docs/MAP-OPTIONS.md).
+
+Con eso: `./gradlew check` y `./gradlew :app:assembleBenchDebug`.
+
+La imagen del emulador de Pleos se entrega aparte y va en `emulator/`, que está
+ignorado.
+
 ---
 
 ## 1. Entorno
