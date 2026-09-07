@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Banco de pruebas del spike 2. No forma parte del producto. -->
+        <activity
+            android:name="com.secretworld.auto.feature.voice.VoiceSpikeActivity"
+            android:exported="true"
+            android:label="Voice spike" />
+
+        <activity
+            android:name="com.secretworld.auto.feature.voice.NarrationLoopActivity"
+            android:exported="true"
+            android:label="Narration loop" />
+    </application>
+</manifest>

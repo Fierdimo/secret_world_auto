@@ -1,0 +1,28 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+
+# El emulador de Pleos: 17 GB, se entrega aparte
+emulator/
+spikes/probe/build/
+
+# Artefactos de sintesis de voz: ~100 MB, se obtienen con tools/fetch-tts-assets.sh
+libs/
+feature/voice/src/main/assets/tts/
+dist/
+
+.kotlin/
+*.apk
+
+# La voz empaquetada en el APK de banco de pruebas: 22 MB, la genera
+# tools/fetch-tts-assets.sh
+app/src/bench/assets/voices/
+
+# Grabaciones de las pruebas de sintesis: se regeneran, no se versionan
+spikes/voice/*.wav
+
+# Fuente de diseno de 60 MB, vive en Figma
+*.fig

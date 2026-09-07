@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      Sin barra de título.
+
+      Android pone una `ActionBar` con el nombre de la app a cualquier Activity que
+      no declare tema. En un móvil es inocuo; en un coche es dañino: roba alto,
+      repite un nombre que ya está en el panel, y rompe la idea de lienzo continuo
+      sobre el que se apoya toda la interfaz.
+
+      El fondo se fija al mismo negro del tema de Compose para que no haya un
+      destello blanco entre que arranca la ventana y se compone la primera pantalla.
+    -->
+    <style name="Theme.SecretWorld" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+</resources>

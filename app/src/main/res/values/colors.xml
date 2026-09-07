@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- El mismo fondo que usa el tema oscuro de Compose (SecretWorldTheme). -->
+    <color name="window_background">#FF101112</color>
+</resources>

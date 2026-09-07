@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      Banco de pruebas: la misma app, instalable en una tablet o un movil
+      corrientes. No declara el requisito de automocion porque el objetivo es
+      justo poder ejecutarla donde hay altavoces y hardware ARM real.
+
+      Lo que aqui no existe —Vehicle SDK, NaviHelper, servicios de Pleos— ya
+      estaba detras de dobles, asi que el nivel 1 del producto funciona igual.
+    -->
+    <uses-feature
+        android:name="android.hardware.type.automotive"
+        android:required="false" />
+</manifest>

@@ -1,0 +1,341 @@
+=== 1. SISTEMA ===
+modelo        : Car on arm64 emulator
+fabricante    : 42dot Co., Ltd.
+dispositivo   : crp_avd_arm64
+Android       : 14 (API 34)
+fingerprint   : CRP/crp_avd_arm64/crp_avd_arm64:14/RELEASE.Connect.v2.1.5/Connect.v2.1.5:userdebug/test-keys
+abis          : arm64-v8a
+locale        : es_ES
+
+=== 2. FEATURES ===
+android.hardware.type.automotive  : SI
+android.software.car.templates_host: SI
+android.hardware.microphone       : SI
+android.hardware.location.gps     : SI
+android.software.leanback         : no
+
+=== 3. PANTALLAS ===
+pantallas: 1
+  id=0 'Built-in Screen' 3840x1440 densidad=160dpi estado=2
+
+=== 4. PERMISOS CONCEDIDOS ===
+ACCESS_FINE_LOCATION              : CONCEDIDO
+RECORD_AUDIO                      : CONCEDIDO
+car:CAR_INFO                      : CONCEDIDO
+car:CAR_SPEED                     : CONCEDIDO
+car:CAR_POWERTRAIN                : CONCEDIDO
+car:CAR_ENERGY                    : CONCEDIDO
+car:CAR_EXTERIOR_ENVIRONMENT      : CONCEDIDO
+car:CAR_MILEAGE                   : denegado
+
+=== 5. VEHICLE SDK (spike 3) ===
+Car conectado : true
+propiedades visibles con nuestros permisos: 40
+INFO_MAKE                         : Hyundai 42dot
+INFO_MODEL                        : Connect
+PERF_VEHICLE_SPEED                : 0.0
+PERF_ODOMETER                     : ERROR SecurityException: requires android.car.permission.CAR_MILEAGE
+GEAR_SELECTION                    : 4
+PARKING_BRAKE_ON                  : false
+IGNITION_STATE                    : 4
+FUEL_LEVEL                        : 15000.0
+EV_BATTERY_LEVEL                  : 77400.0
+NIGHT_MODE                        : false
+
+=== 6. VOZ - RECONOCIMIENTO (spike 1) ===
+isRecognitionAvailable            : true
+isOnDeviceRecognitionAvailable    : false
+  ai.umos.ambientai/ai.umos.ambientai.service.AmbRecognitionService
+--- quien atiende ACTION_RECOGNIZE_SPEECH ---
+  (nadie lo atiende)
+--- quien atiende ACTION_VOICE_SEARCH_HANDS_FREE ---
+  (nadie lo atiende)
+--- reconocimiento en vivo ---
+  startListening lanzado, esperando callback...
+
+=== 7. VOZ - SINTESIS TTS (spike 2) ===
+  (ninguno para android.intent.action.TTS_SERVICE)
+--- quien atiende CHECK_TTS_DATA ---
+  (nadie lo atiende)
+TextToSpeech.onInit               : ERROR(-1)
+getEngines()                      : 0 motores
+
+=== 8. NAVEGACION (spike 4) ===
+--- geo: (traspaso estandar de destino) ---
+  (nadie lo atiende)
+--- google.navigation: ---
+  (nadie lo atiende)
+--- CATEGORY_APP_MAPS ---
+  ai.umos.maps.android.navigation.app/ai.umos.maps.android.navigation.app.MainActivity
+--- componentes de los servicios de Pleos ---
+  ai.pleos.playground.service.navi v2.0.1
+    service  ai.pleos.playground.service.navi.NaviService  [exported]
+    service  androidx.work.impl.background.systemjob.SystemJobService  [exported]
+    service  androidx.work.impl.foreground.SystemForegroundService
+    service  androidx.room.MultiInstanceInvalidationService
+    provider ai.pleos.playground.service.navi.provider.datadog.rum
+    provider ai.pleos.playground.service.navi.androidx-startup
+  ai.pleos.playground.service.vehicle v2.1.6
+    service  ai.pleos.playground.service.vehicle.VehicleService  [exported]
+    service  androidx.work.impl.background.systemjob.SystemJobService  [exported]
+    service  androidx.work.impl.foreground.SystemForegroundService
+    service  androidx.room.MultiInstanceInvalidationService
+    provider ai.pleos.playground.service.vehicle.provider.datadog.rum
+    provider ai.pleos.playground.service.vehicle.androidx-startup
+  ai.pleos.playground.account v2.1.6
+    service  ai.pleos.playground.account.service.AccountService  [exported]
+    service  androidx.work.impl.background.systemjob.SystemJobService  [exported]
+    service  androidx.work.impl.foreground.SystemForegroundService
+    service  androidx.room.MultiInstanceInvalidationService
+    provider ai.pleos.playground.account.provider.datadog.rum
+    provider ai.pleos.playground.account.androidx-startup
+  ai.pleos.gleoai.model.provider v0.0.5
+    service  ai.pleos.gleoai.model.provider.GleoAiModelProviderService
+    service  androidx.work.impl.background.systemjob.SystemJobService  [exported]
+    service  androidx.work.impl.foreground.SystemForegroundService
+    service  androidx.room.MultiInstanceInvalidationService
+    provider ai.pleos.gleoai.model.provider.fileprovider
+    provider ai.pleos.gleoai.model.provider.provider.datadog.rum
+    provider ai.pleos.gleoai.model.provider.androidx-startup
+
+=== 9. AUDIO Y MEDIA (spike 5) ===
+volumen MUSIC                     : 15/15
+requestAudioFocus                 : CONCEDIDO
+ToneGenerator                     : pitido lanzado (comprobar si suena)
+--- MediaBrowserService en el sistema ---
+  com.android.bluetooth/com.android.bluetooth.avrcpcontroller.BluetoothMediaBrowserService
+  com.android.car.radio/com.android.car.radio.service.RadioAppService
+  com.android.music/com.android.music.MediaPlaybackService
+AudioTrack escrito                : 44100 de 44100 muestras
+AudioTrack estado                 : 3 (3 = PLAYING)
+
+=== 10. UBICACION ===
+providers: [passive, fused, gps]
+passive                           : habilitado
+fused                             : habilitado
+gps                               : habilitado
+
+=== 11. PAQUETES DE LA PLATAFORMA ===
+  ai.umos.ambientai  v3.1.9.2
+  ai.pleos.playground.service.vehicle  v2.1.6
+  ai.umos.vehiclecontrol  v14
+  ai.pleos.playground.vehiclebridge.servicemeta  v14
+  ai.pleos.playground.service.navi  v2.0.1
+  ai.umos.appmarket  v2.1.7
+  ai.umos.globalsearch  v14
+  ai.umos.setupwizard  v14
+  ai.umos.callandmessage  v0.0.1
+  ai.umos.notification  v14
+  ai.umos.car.evs  v14
+  ai.umos.applibrary  v14
+  ai.umos.android.wpp.over.rfcomm  v14
+  ai.umos.mediaapp  v14
+  ai.pleos.playground.service.cap  v0.0.0-beta02
+  ai.pleos.playground.caas  v2.2.7.1
+  ai.umos.drivingview  v14
+  ai.umos.inputmethod  v1.0.41-6d851ed
+  ai.umos.android.android.auto  v14
+  ai.pleos.playground.account  v2.1.6
+  ai.umos.driverprofilemanager  v14
+  ai.pleos.sync.syslog  v1.0.4
+  ai.umos.homescreen  v14
+  ai.umos.carmodelviewer  v1.0
+  ai.pleos.gleoai.model.provider  v0.0.5
+  ai.umos.maps.android.navigation.app  v2.1.2-rc
+total ai.pleos/ai.umos: 26 de 202 paquetes instalados
+
+=== 12. SERVICIOS DE PLEOS: PERMISOS Y VINCULACION ===
+--- permisos pleos.car.permission.* solicitados ---
+  STT_SERVICE                     : CONCEDIDO
+  TTS_SERVICE                     : CONCEDIDO
+  LLM_SERVICE                     : CONCEDIDO
+  NAVI_ROUTE                      : CONCEDIDO
+  NAVI_ROUTE_SEARCH               : CONCEDIDO
+  FUSED_LOCATION                  : denegado
+  CAR_INFO                        : CONCEDIDO
+  CAR_DRIVE                       : CONCEDIDO
+  CAR_ENERGY                      : CONCEDIDO
+--- vinculacion a los servicios ---
+  SpeechService (STT/TTS): bindService devolvio true  (esperando callback)
+  LLMService: bindService devolvio true  (esperando callback)
+  NaviService: bindService devolvio true  (esperando callback)
+
+=== FIN ===
+  SpeechService (STT/TTS) => onNullBinding: el servicio existe pero NO DEVUELVE BINDER
+  NaviService => CONECTADO
+      componente : ai.pleos.playground.service.navi/.NaviService
+      interfaz   : ai.pleos.playground.navi.INaviService
+      binder vivo: true
+  LLMService => onNullBinding: el servicio existe pero NO DEVUELVE BINDER
+
+=== 1. SISTEMA ===
+modelo        : Car on arm64 emulator
+fabricante    : 42dot Co., Ltd.
+dispositivo   : crp_avd_arm64
+Android       : 14 (API 34)
+fingerprint   : CRP/crp_avd_arm64/crp_avd_arm64:14/RELEASE.Connect.v2.1.5/Connect.v2.1.5:userdebug/test-keys
+abis          : arm64-v8a
+locale        : es_ES
+
+=== 2. FEATURES ===
+android.hardware.type.automotive  : SI
+android.software.car.templates_host: SI
+android.hardware.microphone       : SI
+android.hardware.location.gps     : SI
+android.software.leanback         : no
+
+=== 3. PANTALLAS ===
+pantallas: 1
+  id=0 'Built-in Screen' 3840x1440 densidad=160dpi estado=2
+
+=== 4. PERMISOS CONCEDIDOS ===
+ACCESS_FINE_LOCATION              : CONCEDIDO
+RECORD_AUDIO                      : CONCEDIDO
+car:CAR_INFO                      : CONCEDIDO
+car:CAR_SPEED                     : CONCEDIDO
+car:CAR_POWERTRAIN                : CONCEDIDO
+car:CAR_ENERGY                    : CONCEDIDO
+car:CAR_EXTERIOR_ENVIRONMENT      : CONCEDIDO
+car:CAR_MILEAGE                   : denegado
+
+=== 5. VEHICLE SDK (spike 3) ===
+Car conectado : true
+propiedades visibles con nuestros permisos: 40
+INFO_MAKE                         : Hyundai 42dot
+INFO_MODEL                        : Connect
+PERF_VEHICLE_SPEED                : 0.0
+PERF_ODOMETER                     : ERROR SecurityException: requires android.car.permission.CAR_MILEAGE
+GEAR_SELECTION                    : 4
+PARKING_BRAKE_ON                  : false
+IGNITION_STATE                    : 4
+FUEL_LEVEL                        : 15000.0
+EV_BATTERY_LEVEL                  : 77400.0
+NIGHT_MODE                        : false
+
+=== 6. VOZ - RECONOCIMIENTO (spike 1) ===
+isRecognitionAvailable            : true
+isOnDeviceRecognitionAvailable    : false
+  ai.umos.ambientai/ai.umos.ambientai.service.AmbRecognitionService
+--- quien atiende ACTION_RECOGNIZE_SPEECH ---
+  (nadie lo atiende)
+--- quien atiende ACTION_VOICE_SEARCH_HANDS_FREE ---
+  (nadie lo atiende)
+--- reconocimiento en vivo ---
+  ya probado en esta ejecucion, no se repite
+
+=== 7. VOZ - SINTESIS TTS (spike 2) ===
+  (ninguno para android.intent.action.TTS_SERVICE)
+--- quien atiende CHECK_TTS_DATA ---
+  (nadie lo atiende)
+TextToSpeech.onInit               : ERROR(-1)
+getEngines()                      : 0 motores
+
+=== 8. NAVEGACION (spike 4) ===
+--- geo: (traspaso estandar de destino) ---
+  (nadie lo atiende)
+--- google.navigation: ---
+  (nadie lo atiende)
+--- CATEGORY_APP_MAPS ---
+  ai.umos.maps.android.navigation.app/ai.umos.maps.android.navigation.app.MainActivity
+--- componentes de los servicios de Pleos ---
+  ai.pleos.playground.service.navi v2.0.1
+    service  ai.pleos.playground.service.navi.NaviService  [exported]
+    service  androidx.work.impl.background.systemjob.SystemJobService  [exported]
+    service  androidx.work.impl.foreground.SystemForegroundService
+    service  androidx.room.MultiInstanceInvalidationService
+    provider ai.pleos.playground.service.navi.provider.datadog.rum
+    provider ai.pleos.playground.service.navi.androidx-startup
+  ai.pleos.playground.service.vehicle v2.1.6
+    service  ai.pleos.playground.service.vehicle.VehicleService  [exported]
+    service  androidx.work.impl.background.systemjob.SystemJobService  [exported]
+    service  androidx.work.impl.foreground.SystemForegroundService
+    service  androidx.room.MultiInstanceInvalidationService
+    provider ai.pleos.playground.service.vehicle.provider.datadog.rum
+    provider ai.pleos.playground.service.vehicle.androidx-startup
+  ai.pleos.playground.account v2.1.6
+    service  ai.pleos.playground.account.service.AccountService  [exported]
+    service  androidx.work.impl.background.systemjob.SystemJobService  [exported]
+    service  androidx.work.impl.foreground.SystemForegroundService
+    service  androidx.room.MultiInstanceInvalidationService
+    provider ai.pleos.playground.account.provider.datadog.rum
+    provider ai.pleos.playground.account.androidx-startup
+  ai.pleos.gleoai.model.provider v0.0.5
+    service  ai.pleos.gleoai.model.provider.GleoAiModelProviderService
+    service  androidx.work.impl.background.systemjob.SystemJobService  [exported]
+    service  androidx.work.impl.foreground.SystemForegroundService
+    service  androidx.room.MultiInstanceInvalidationService
+    provider ai.pleos.gleoai.model.provider.fileprovider
+    provider ai.pleos.gleoai.model.provider.provider.datadog.rum
+    provider ai.pleos.gleoai.model.provider.androidx-startup
+
+=== 9. AUDIO Y MEDIA (spike 5) ===
+volumen MUSIC                     : 15/15
+requestAudioFocus                 : CONCEDIDO
+ToneGenerator                     : pitido lanzado (comprobar si suena)
+--- MediaBrowserService en el sistema ---
+  com.android.bluetooth/com.android.bluetooth.avrcpcontroller.BluetoothMediaBrowserService
+  com.android.car.radio/com.android.car.radio.service.RadioAppService
+  com.android.music/com.android.music.MediaPlaybackService
+AudioTrack escrito                : 44100 de 44100 muestras
+AudioTrack estado                 : 3 (3 = PLAYING)
+
+=== 10. UBICACION ===
+providers: [passive, fused, gps]
+passive                           : habilitado
+fused                             : habilitado
+gps                               : habilitado
+
+=== 11. PAQUETES DE LA PLATAFORMA ===
+  ai.umos.ambientai  v3.1.9.2
+  ai.pleos.playground.service.vehicle  v2.1.6
+  ai.umos.vehiclecontrol  v14
+  ai.pleos.playground.vehiclebridge.servicemeta  v14
+  ai.pleos.playground.service.navi  v2.0.1
+  ai.umos.appmarket  v2.1.7
+  ai.umos.globalsearch  v14
+  ai.umos.setupwizard  v14
+  ai.umos.callandmessage  v0.0.1
+  ai.umos.notification  v14
+  ai.umos.car.evs  v14
+  ai.umos.applibrary  v14
+  ai.umos.android.wpp.over.rfcomm  v14
+  ai.umos.mediaapp  v14
+  ai.pleos.playground.service.cap  v0.0.0-beta02
+  ai.pleos.playground.caas  v2.2.7.1
+  ai.umos.drivingview  v14
+  ai.umos.inputmethod  v1.0.41-6d851ed
+  ai.umos.android.android.auto  v14
+  ai.pleos.playground.account  v2.1.6
+  ai.umos.driverprofilemanager  v14
+  ai.pleos.sync.syslog  v1.0.4
+  ai.umos.homescreen  v14
+  ai.umos.carmodelviewer  v1.0
+  ai.pleos.gleoai.model.provider  v0.0.5
+  ai.umos.maps.android.navigation.app  v2.1.2-rc
+total ai.pleos/ai.umos: 26 de 202 paquetes instalados
+
+=== 12. SERVICIOS DE PLEOS: PERMISOS Y VINCULACION ===
+--- permisos pleos.car.permission.* solicitados ---
+  STT_SERVICE                     : CONCEDIDO
+  TTS_SERVICE                     : CONCEDIDO
+  LLM_SERVICE                     : CONCEDIDO
+  NAVI_ROUTE                      : CONCEDIDO
+  NAVI_ROUTE_SEARCH               : CONCEDIDO
+  FUSED_LOCATION                  : denegado
+  CAR_INFO                        : CONCEDIDO
+  CAR_DRIVE                       : CONCEDIDO
+  CAR_ENERGY                      : CONCEDIDO
+--- vinculacion a los servicios ---
+  SpeechService (STT/TTS): bindService devolvio true  (esperando callback)
+  LLMService: bindService devolvio true  (esperando callback)
+  NaviService: bindService devolvio true  (esperando callback)
+
+=== FIN ===
+  SpeechService (STT/TTS) => onNullBinding: el servicio existe pero NO DEVUELVE BINDER
+  LLMService => onNullBinding: el servicio existe pero NO DEVUELVE BINDER
+  NaviService => CONECTADO
+      componente : ai.pleos.playground.service.navi/.NaviService
+      interfaz   : ai.pleos.playground.navi.INaviService
+      binder vivo: true
+AudioTrack cabezal 1,5s           : 11642 frames  => EL AUDIO FLUYE DE VERDAD
+AudioTrack cabezal 1,5s           : 44100 frames  => EL AUDIO FLUYE DE VERDAD
