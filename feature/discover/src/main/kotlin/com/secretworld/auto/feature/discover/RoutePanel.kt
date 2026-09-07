@@ -34,6 +34,7 @@ import com.secretworld.auto.core.designsystem.CarTheme
 import com.secretworld.auto.domain.Coordinates
 import com.secretworld.auto.domain.DrivingMode
 import com.secretworld.auto.domain.Place
+import com.secretworld.auto.domain.WakeWord
 
 /**
  * El panel acoplado al mapa.
@@ -52,7 +53,9 @@ fun RoutePanel(
     mode: DrivingMode,
     city: String?,
     nowPlaying: NowPlaying?,
+    voice: VoiceUi,
     offline: Boolean,
+    onSpeak: () -> Unit,
     onSelect: (Place) -> Unit,
     onListen: (Place) -> Unit,
     onNavigate: (Place) -> Unit,
@@ -71,7 +74,7 @@ fun RoutePanel(
             // único que el conductor va a leer.
             .padding(horizontal = d.spaceM, vertical = d.spaceXs),
     ) {
-        PanelHeader(city = city, offline = offline)
+        PanelHeader(city = city, offline = offline, voice = voice, onSpeak = onSpeak)
 
         if (CarTheme.metrics.heightDp >= COMPACT_HEIGHT) {
             Spacer(Modifier.height(d.spaceM))
@@ -160,6 +163,11 @@ fun RoutePanel(
         // tarjetas justo el alto de una: donde el usuario acababa de ver el Listen
         // del segundo sitio quedaba el del primero, y el siguiente toque reiniciaba
         // el que ya sonaba en vez de abrir el nuevo. Al pie, la lista no se mueve.
+        if (voice.visible) {
+            Spacer(Modifier.height(d.spaceS))
+            VoiceCard(voice)
+        }
+
         if (nowPlaying != null) {
             Spacer(Modifier.height(d.spaceS))
             NowPlayingCard(nowPlaying)
@@ -219,7 +227,12 @@ private fun NowPlayingCard(state: NowPlaying) {
  * app, el sitio es del viaje.
  */
 @Composable
-private fun PanelHeader(city: String?, offline: Boolean) {
+private fun PanelHeader(
+    city: String?,
+    offline: Boolean,
+    voice: VoiceUi,
+    onSpeak: () -> Unit,
+) {
     val place = city ?: "Finding where you are"
     if (CarTheme.metrics.heightDp < COMPACT_HEIGHT) {
         // Con el alto justo, la marca sobra: la app ya está en pantalla y repetir
@@ -240,11 +253,14 @@ private fun PanelHeader(city: String?, offline: Boolean) {
                     color = MaterialTheme.colorScheme.secondary,
                 )
             }
+            Spacer(Modifier.width(CarTheme.dimens.spaceS))
+            SpeakButton(voice, onSpeak)
         }
         return
     }
 
-    Column {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Column(Modifier.weight(1f)) {
         Text("Secret World", style = MaterialTheme.typography.displayMedium)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -259,6 +275,86 @@ private fun PanelHeader(city: String?, offline: Boolean) {
                     color = MaterialTheme.colorScheme.secondary,
                 )
             }
+        }
+      }
+      SpeakButton(voice, onSpeak)
+    }
+}
+
+/**
+ * Lo que ve el conductor del asistente de voz.
+ *
+ * [heard] y [answer] van juntos a propósito: enseñar solo la respuesta esconde el
+ * error más frecuente del reconocimiento, que es haber entendido otra cosa. Ver
+ * lo que se oyó es lo que permite al usuario corregirse.
+ */
+data class VoiceUi(
+    val listening: Boolean = false,
+    /** El micrófono está abierto en permanencia, esperando la palabra clave. */
+    val handsFree: Boolean = false,
+    val heard: String? = null,
+    val answer: String? = null,
+) {
+    val visible: Boolean get() = listening || heard != null || answer != null
+}
+
+@Composable
+private fun SpeakButton(voice: VoiceUi, onSpeak: () -> Unit) {
+    // Escuchando, el botón deja de invitar y pasa a informar: es la unica senal
+    // de que el microfono esta abierto, y eso no se puede dejar sin decir.
+    // Con escucha permanente el botón deja de ser la forma de hablar y pasa a ser
+    // dos cosas: **la señal de que el micrófono está vivo** —que no se puede
+    // ocultar— y la salida para quien prefiera pulsar antes que decir el nombre.
+    CarSecondaryButton(
+        label = when {
+            voice.listening -> "Listening…"
+            voice.handsFree -> "“${WakeWord.SPOKEN.replaceFirstChar { it.uppercase() }}”"
+            else -> "Speak"
+        },
+        onClick = onSpeak,
+        dense = true,
+    )
+}
+
+/** La tira del asistente, al pie: lo que se oyó y lo que se contesta. */
+@Composable
+private fun VoiceCard(voice: VoiceUi) {
+    val d = CarTheme.dimens
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(d.cardCorner))
+            .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.16f))
+            .padding(d.spaceS),
+    ) {
+        Text(
+            // Sin esto, un "no te he oido" aparecia bajo el rotulo "You said",
+            // atribuyendole al conductor una frase que no dijo.
+            text = when {
+                voice.listening -> "Listening…"
+                voice.heard != null -> "You said"
+                else -> "Secret World"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.secondary,
+        )
+        if (voice.heard != null) {
+            Text(
+                text = "“${voice.heard}”",
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (voice.answer != null) {
+            Spacer(Modifier.height(d.spaceXs))
+            Text(
+                text = voice.answer,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

@@ -35,8 +35,13 @@ class NarrationController(
         data class InstallingVoice(val percent: Int) : State
         data class Synthesizing(val placeName: String) : State
         data class Playing(val placeName: String, val durationMs: Int) : State
+        /** Una respuesta del asistente, no un lugar del catálogo. */
+        data class Speaking(val text: String, val preparing: Boolean) : State
         data class Failed(val reason: String) : State
     }
+
+    /** Donde se deja la respuesta hablada del momento. Se sobrescribe siempre. */
+    private val replyPath = File(context.cacheDir, "reply.wav").absolutePath
 
     private val installer = VoiceInstaller(context)
     private val synthesizer = PiperSpeechSynthesizer(installer)
@@ -142,6 +147,43 @@ class NarrationController(
                 val duration = player.play(File(path)) { _state.value = State.Idle }
                 _state.value = if (duration != null) {
                     State.Playing(place.name, duration)
+                } else {
+                    State.Failed("no se pudo reproducir")
+                }
+            }
+        }
+    }
+
+    /**
+     * Dice [text] con la misma voz que narra.
+     *
+     * Es lo que permite **contestar** a una orden hablada y no solo obedecerla en
+     * silencio: "hay tres sitios cerca", "eso todavía no lo sé hacer". El motor es
+     * el mismo de la narración, así que una respuesta no depende de la red ni de
+     * que Pleos publique su `TTS_SERVICE`.
+     *
+     * Se corta lo que hubiera sonando **antes** de sintetizar: el fichero de
+     * respuesta es único y reescribirlo mientras se reproduce es pedir un chasquido.
+     */
+    fun say(text: String) {
+        scope.launch(Dispatchers.IO) {
+            if (!installer.isInstalled(language)) {
+                _state.value = State.Failed("todavia no hay voz instalada")
+                return@launch
+            }
+            withContext(Dispatchers.Main) { player.stop() }
+            _state.value = State.Speaking(text, preparing = true)
+
+            val result = runCatching { synthesizer.synthesizeToFile(text, language, replyPath) }
+            if (result.isFailure) {
+                _state.value = State.Failed(result.exceptionOrNull()?.message ?: "fallo al sintetizar")
+                return@launch
+            }
+
+            withContext(Dispatchers.Main) {
+                val duration = player.play(File(replyPath)) { _state.value = State.Idle }
+                _state.value = if (duration != null) {
+                    State.Speaking(text, preparing = false)
                 } else {
                     State.Failed("no se pudo reproducir")
                 }

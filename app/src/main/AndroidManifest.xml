@@ -13,6 +13,17 @@
     <uses-permission android:name="pleos.car.permission.CAR_INFO" />
     <uses-permission android:name="pleos.car.permission.CAR_DRIVE" />
 
+    <!--
+        Desde Android 11 una app solo ve los servicios que declara. Sin esto,
+        SpeechRecognizer.isRecognitionAvailable() responde false aunque el
+        reconocedor esté instalado, y el micrófono no llega a abrirse.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+
     <application
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.SecretWorld"
