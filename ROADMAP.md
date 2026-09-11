@@ -43,27 +43,33 @@ audio propio). Es el punto de go / no-go real.
 
 ## Dónde estamos de verdad
 
-Actualizado el 2026‑09‑04. Conviene ser exacto, porque es fácil confundir una
+Actualizado el 2026‑09‑10. Conviene ser exacto, porque es fácil confundir una
 prueba de concepto con un producto.
 
 **Lo construido es una prueba de concepto técnica.** Demuestra que el producto se
 puede hacer y que rinde. No demuestra que alguien lo quiera usar, porque todavía
 no hay nada que usar.
 
-### Lo que ve hoy un usuario que abre la app *(actualizado el 2026‑09‑04)*
+### Lo que ve hoy un usuario que abre la app *(actualizado el 2026‑09‑10)*
 
 - **El catálogo real de Secret World** por posición: nombres, fotos, textos y
   ciudad, servidos por `POST /places/cards`. En Roma devuelve 32 lugares útiles.
 - Un **mapa permanente** con esos lugares encima: Mapbox en el banco de pruebas,
   lienzo propio en el vehículo.
 - **Narración que suena**, sintetizada en el dispositivo y preparada por delante.
+- **Órdenes por voz sin tocar nada** *(2026‑09‑07)*: se dice *"Siky"* y, en la
+  misma frase, una de las cuatro órdenes del nivel 1 —"cuéntame más", "llévame
+  ahí", "sáltalo", "¿qué hay cerca?"—. La gramática vive en el dominio, en Kotlin
+  puro y auditable; la respuesta se habla con el mismo motor que narra.
 - Cuatro pantallas: home, detalle, itinerario y ajustes.
 - Respaldo sin cobertura: 18 lugares reales guardados, y la app **dice** que está
   en modo respaldo en vez de quedarse en blanco.
 
-Lo que sigue faltando, y no es poco: el **vehículo es simulado**, el contenido no
-está reescrito para ser oído, el itinerario es de demostración porque los reales
-exigen cuenta, y **"Llévame ahí" no hace nada** — espera la librería de Pleos.
+Lo que sigue faltando, y no es poco: la **escucha no es eficiente** —se reabre el
+reconocedor en cada frase, no hay detector de palabra clave—, el **mapa del
+vehículo no enseña calles**, **"Llévame ahí" no fija destino**, el **vehículo es
+simulado**, el contenido no está reescrito para ser oído y el itinerario es de
+demostración porque los reales exigen cuenta.
 
 ### Lo que sí quedó demostrado, y no era gratis
 
@@ -91,12 +97,27 @@ En orden de cuánto acercan el producto a alguien que lo usaría:
    **la brecha más visible**: los textos del catálogo son de longitud artículo y
    se están recortando a las primeras frases como apaño. Sigue siendo la ruta
    crítica y no es trabajo de desarrollo.
-3. **Posición real del vehículo** en lugar del simulador.
-4. **"Llévame ahí" funcionando** — bloqueado en la librería cliente de Pleos.
-5. **Cuenta vinculada**, para que favoritos e itinerarios aparezcan en el coche.
+3. **Detección de voz eficiente.** Las órdenes ya funcionan, pero la escucha
+   permanente es *reabrir* el `SpeechRecognizer` de AOSP en cada frase: no es un
+   detector de palabra clave, gasta más de lo que debe y, si el reconocedor tira
+   de red, depende de ella. La pieza es el detector *offline* de **sherpa-onnx**,
+   que ya está en el proyecto para la síntesis, delante del reconocedor: el
+   micrófono solo se abre cuando suena "Siky".
+4. **Mapa real en el vehículo.** El lienzo propio sitúa, pero no enseña calles, y
+   sin calles el mapa no orienta a nadie. El nativo de Pleos sigue detrás de
+   `NaviService` sin librería cliente, así que el plan es **adelantar Mapbox
+   también al sabor `vehicle` como puente** —ya funciona en el banco de pruebas—,
+   sin renunciar al nativo cuando llegue. Queda la licencia de automoción y servir
+   la clave desde el backend. Ver [docs/MAP-OPTIONS.md](docs/MAP-OPTIONS.md).
+5. **Navegación.** Hoy "Llévame ahí" contesta en voz alta que no puede fijar
+   destino; es honesto, pero no es el producto. Bloqueado en la librería cliente
+   de Pleos (`NaviHelper`), y `geo:` no lo atiende nadie. Si la entrega se alarga,
+   hay que decidir alternativa en vez de esperar.
+6. **Posición real del vehículo** en lugar del simulador.
+7. **Cuenta vinculada**, para que favoritos e itinerarios aparezcan en el coche.
 
-Con 1 y 2 la app ya sería algo que un turista podría encender en un viaje. Sin
-ellas, no.
+Con 1 y 2 la app ya sería algo que un turista podría encender en un viaje; con 3,
+4 y 5, algo que se puede usar conduciendo. Sin ellas, no.
 
 ## Fase 1 — El MVP acordado · 4–6 semanas
 
@@ -110,10 +131,13 @@ acotado.
 - [ ] Room, caché y `AudioPrefetcher`.
 - [ ] `TourQueue` v1 y `NarrationTrigger` (anticipación por velocidad).
 - [ ] Servicio de media e integración con el centro multimedia del vehículo.
-- [ ] `IntentRouter` sobre vocabulario cerrado: "cuéntame más", "llévame ahí", "sáltalo", "¿qué hay cerca?".
+- [x] **Vocabulario cerrado con palabra de activación** *(2026‑09‑07)*: gramática en el dominio para "cuéntame más", "llévame ahí", "sáltalo" y "¿qué hay cerca?", con *"Siky"* al principio de la frase y pruebas sobre transcripciones sucias. Micrófono por `SpeechRecognizer` de AOSP: el `SpeechService` de Pleos acepta la conexión pero su `onBind` devuelve `null`.
+- [ ] **Detector de palabra clave *offline*** delante del reconocedor, con sherpa-onnx. Es lo que convierte la escucha permanente en algo que se puede dejar encendido.
 - [ ] Traspaso de destino vía NaviHelper.
 - [x] **Motor TTS embebido con descarga de voces al primer uso** *(2026‑09‑03)*: `VoiceInstaller` con progreso, verificación `sha256` e instalación atómica, probado de extremo a extremo contra un CDN local.
 - [x] **Síntesis por delante a caché de disco** *(2026‑09‑03)*: `NarrationPrefetcher` en el dominio con presupuesto y política LRU, `DiskNarrationStore` en disco, y bucle completo probado con vehículo simulado — **cero esperas en el momento de narrar**.
+- [ ] **Spike: LLM de intenciones en el dispositivo** (Gemma 3 1B int4, MediaPipe o llama.cpp). Solo entiende y llama a las órdenes existentes; entra detrás de la gramática cuando esta devuelve `NotUnderstood`. Medir en hardware real: RAM residente, latencia por frase con y sin caché de prefijo, y acierto sobre ~50 frases fuera de gramática en inglés e italiano. Go/no-go: < 1,5 s y < 1,5 GB.
+- [ ] **Primer arranque con ventana «Descargando actualizaciones»** (SPEC RF‑1.8.7–1.8.9): paquete de idioma —voz, reconocimiento, palabra de activación— y LLM por el mismo `VoiceInstaller`. **En pruebas van empaquetados**; la build de tienda no. Probar desde dispositivo limpio antes del envío.
 - [ ] Cargar el motor de voz al arrancar la app y **persistir la caché entre sesiones**: es lo que falta para cumplir RNF‑1 en arranque en frío.
 - [ ] Prueba en modo avión: el nivel 1 completo debe funcionar sin red, voces ya descargadas.
 - [ ] **Contenido**: piloto de ~200 lugares en **inglés e italiano**, formato conversacional.

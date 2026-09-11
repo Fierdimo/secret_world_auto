@@ -6,13 +6,18 @@ construida sobre el contenido, el backend y la marca de Secret World, pero como
 **producto nuevo**, no como port de la app móvil.
 
 > **Estado: MVP demostrativo funcionando.** Catálogo **real** de Secret World por
-> posición, narración por voz sintetizada en el dispositivo, y una interfaz de
-> automoción con el **mapa como lienzo permanente** — Mapbox en el banco de
-> pruebas, mapa del dispositivo en el vehículo. Cuatro pantallas: home, detalle,
+> posición, narración por voz sintetizada en el dispositivo, **órdenes por voz sin
+> tocar la pantalla** —palabra de activación *"Siky"* y vocabulario cerrado— y una
+> interfaz de automoción con el **mapa como lienzo permanente** — Mapbox en el
+> banco de pruebas, lienzo propio en el vehículo. Cuatro pantallas: home, detalle,
 > itinerario y ajustes. Capturas en [spikes/ui/](spikes/ui/).
 >
-> Sigue sin ser producto: el contenido no está reescrito para ser oído, "Llévame
-> ahí" espera la librería de Pleos, y no hay cuenta vinculada. Ver
+> Sigue sin ser producto. Tres brechas técnicas abiertas, por orden de trabajo:
+> **detección de voz eficiente** (hoy se reabre el reconocedor de AOSP en cada
+> frase, no hay detector de palabra clave), **mapa real en el vehículo** (puente
+> con Mapbox mientras Pleos no entregue el nativo) y **navegación** ("Llévame
+> ahí" no fija destino). Y, fuera del código: el contenido no está reescrito para
+> ser oído y no hay cuenta vinculada. Ver
 > [ROADMAP.md § Dónde estamos de verdad](ROADMAP.md#dónde-estamos-de-verdad).
 
 ## El producto en una frase
