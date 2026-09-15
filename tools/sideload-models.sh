@@ -30,7 +30,7 @@ push_zip () {
 
 push_zip kws-en
 push_zip vad
-push_zip asr-whisper-base
+push_zip asr-nemo-multi
 
 if [ -f "$DIST/gemma3-1b-it-int4.task" ]; then
   echo "→ llm-gemma3-1b (~530 MB, tarda)"

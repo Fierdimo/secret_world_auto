@@ -35,6 +35,7 @@ object PlaceMapper {
             city = city,
             imageUrl = imageUrlOf(dto),
             summary = text,
+            contentLanguage = VoiceLanguage.fromTag(dto.languageCode),
         )
     }
 

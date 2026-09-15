@@ -19,7 +19,7 @@ OUT="$HERE/dist/models"
 mkdir -p "$OUT"
 
 KWS=sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01
-ASR=sherpa-onnx-whisper-base
+ASR=sherpa-onnx-nemo-fast-conformer-transducer-en-de-es-fr-14288-int8
 
 pack () {
   # pack <id> <dir con el contenido>
@@ -76,18 +76,21 @@ if [ ! -f "$OUT/vad.zip" ]; then
 fi
 
 # --- Reconocedor de ordenes -------------------------------------------------
-# tiny se probo primero: "what's nearby" salia como "watch the nerve". base lo
-# entiende y tarda ~3x, aun por debajo del segundo en un movil medio.
-if [ ! -f "$OUT/asr-whisper-base.zip" ]; then
-  echo "descargando ASR ($ASR, multilingue, int8)..."
+# Whisper tiny y base se probaron primero: tiny oia "watch the nerve" por
+# "what's nearby"; base entendia el ingles y destrozaba el espanol ("Ghe va a mi
+# a la bopa" por "llevame a La Popa"). El FastConformer de NVIDIA (en, es, fr,
+# de) es 6x mas rapido y entiende los dos idiomas.
+if [ ! -f "$OUT/asr-nemo-multi.zip" ]; then
+  echo "descargando ASR ($ASR, en/es/fr/de, int8)..."
   curl -sL -o "$WORK/asr.tar.bz2" "$BASE/asr-models/$ASR.tar.bz2"
   tar -xjf "$WORK/asr.tar.bz2" -C "$WORK"
   mkdir -p "$WORK/asr"
-  cp "$WORK/$ASR/base-encoder.int8.onnx" "$WORK/asr/encoder.onnx"
-  cp "$WORK/$ASR/base-decoder.int8.onnx" "$WORK/asr/decoder.onnx"
-  cp "$WORK/$ASR/base-tokens.txt" "$WORK/asr/tokens.txt"
-  echo "Whisper (OpenAI), MIT. Exportado por k2-fsa/sherpa-onnx." > "$WORK/asr/LICENCE.txt"
-  pack asr-whisper-base "$WORK/asr"
+  cp "$WORK/$ASR/encoder.int8.onnx" "$WORK/asr/encoder.onnx"
+  cp "$WORK/$ASR/decoder.int8.onnx" "$WORK/asr/decoder.onnx"
+  cp "$WORK/$ASR/joiner.int8.onnx" "$WORK/asr/joiner.onnx"
+  cp "$WORK/$ASR/tokens.txt" "$WORK/asr/tokens.txt"
+  echo "NVIDIA NeMo FastConformer (en/de/es/fr), CC-BY-4.0. Exportado por k2-fsa/sherpa-onnx." > "$WORK/asr/LICENCE.txt"
+  pack asr-nemo-multi "$WORK/asr"
 fi
 
 # --- LLM de intenciones -----------------------------------------------------

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="close">Cerrar</string>
+    <string name="listen">Escuchar</string>
+    <string name="take_me_there">Llévame</string>
+    <string name="start_itinerary">Empezar itinerario</string>
+    <string name="open">Abrir</string>
+    <string name="settings">Ajustes</string>
+    <string name="narration_language">Idioma de narración</string>
+    <string name="installed_voice">Voz instalada</string>
+    <string name="catalogue">Catálogo</string>
+    <string name="remove_voice">Quitar voz</string>
+    <string name="account">Cuenta</string>
+    <string name="account_hint">Vincular tu cuenta de Secret World con un código corto todavía no está hecho. Hasta entonces, favoritos e itinerarios se quedan en tu teléfono.</string>
+    <string name="voice_on_device">%1$d MB en el dispositivo</string>
+    <string name="voice_missing">no instalada</string>
+    <string name="catalogue_live">en vivo · %1$d lugares</string>
+    <string name="catalogue_fallback">respaldo sin conexión</string>
+    <string name="catalogue_poi">lugares reales · %1$d, sin historias</string>
+    <string name="catalogue_loading">cargando</string>
+</resources>

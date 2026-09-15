@@ -17,6 +17,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import com.secretworld.auto.feature.parked.R
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,7 +69,7 @@ fun PlaceDetailPanel(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            CarSecondaryButton(label = "Close", onClick = onClose)
+            CarSecondaryButton(label = stringResource(R.string.close), onClick = onClose)
         }
 
         if (place.imageUrl != null) {
@@ -85,8 +87,8 @@ fun PlaceDetailPanel(
 
         Spacer(Modifier.height(d.spaceS))
         Row(horizontalArrangement = Arrangement.spacedBy(d.spaceXs)) {
-            CarButton(label = "Listen", onClick = onListen)
-            CarSecondaryButton(label = "Take me there", onClick = onNavigate)
+            CarButton(label = stringResource(R.string.listen), onClick = onListen)
+            CarSecondaryButton(label = stringResource(R.string.take_me_there), onClick = onNavigate)
         }
 
         if (place.summary != null) {

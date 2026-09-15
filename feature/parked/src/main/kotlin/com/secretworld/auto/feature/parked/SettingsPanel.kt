@@ -14,6 +14,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import com.secretworld.auto.feature.parked.R
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,30 +52,29 @@ fun SettingsPanel(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top,
         ) {
-            Text("Settings", style = MaterialTheme.typography.titleLarge)
-            CarSecondaryButton(label = "Close", onClick = onClose)
+            Text(stringResource(R.string.settings), style = MaterialTheme.typography.titleLarge)
+            CarSecondaryButton(label = stringResource(R.string.close), onClick = onClose)
         }
 
         Spacer(Modifier.height(d.spaceM))
 
-        SettingRow("Narration language", voiceLanguage)
+        SettingRow(stringResource(R.string.narration_language), voiceLanguage)
         SettingRow(
-            label = "Installed voice",
-            value = if (voiceInstalled) "$voiceSizeMb MB on device" else "not installed",
+            label = stringResource(R.string.installed_voice),
+            value = if (voiceInstalled) stringResource(R.string.voice_on_device, voiceSizeMb) else stringResource(R.string.voice_missing),
         )
-        SettingRow("Catalogue", catalogueSource)
+        SettingRow(stringResource(R.string.catalogue), catalogueSource)
 
         Spacer(Modifier.height(d.spaceS))
         if (voiceInstalled) {
-            CarSecondaryButton(label = "Remove voice", onClick = onRemoveVoice)
+            CarSecondaryButton(label = stringResource(R.string.remove_voice), onClick = onRemoveVoice)
         }
 
         Spacer(Modifier.height(d.spaceL))
-        Text("Account", style = MaterialTheme.typography.bodyLarge)
+        Text(stringResource(R.string.account), style = MaterialTheme.typography.bodyLarge)
         Spacer(Modifier.height(d.spaceXs))
         Text(
-            text = "Linking your Secret World account with a short code is not built yet. " +
-                "Until it is, favourites and itineraries stay on your phone.",
+            text = stringResource(R.string.account_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

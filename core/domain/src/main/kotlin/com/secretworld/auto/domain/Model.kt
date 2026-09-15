@@ -25,10 +25,14 @@ data class Coordinates(val latitude: Double, val longitude: Double) {
     }
 }
 
-/** Idioma de voz. La v1 solo sintetiza estos dos (SPEC RF-1.7). */
+/**
+ * Idioma de voz. La v1 sintetiza inglés e italiano (SPEC RF-1.7); el español
+ * entró para poder probar en Colombia, donde está el banco de pruebas.
+ */
 enum class VoiceLanguage(val code: String) {
     ENGLISH("en"),
-    ITALIAN("it");
+    ITALIAN("it"),
+    SPANISH("es");
 
     companion object {
         fun fromTag(tag: String?): VoiceLanguage? =
@@ -52,6 +56,11 @@ data class Place(
     val imageUrl: String? = null,
     /** Texto de la ficha. La narración se deriva de aquí. */
     val summary: String? = null,
+    /**
+     * Idioma en que está escrito [summary], si se sabe. Cuando no coincide con
+     * el de la voz, hay que traducir antes de narrar.
+     */
+    val contentLanguage: VoiceLanguage? = null,
 ) {
     fun hasNarrationIn(language: VoiceLanguage): Boolean = language in languages
 }

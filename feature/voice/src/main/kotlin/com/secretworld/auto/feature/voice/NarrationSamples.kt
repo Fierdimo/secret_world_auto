@@ -55,5 +55,16 @@ object NarrationSamples {
     fun forLanguage(language: VoiceLanguage): String = when (language) {
         VoiceLanguage.ENGLISH -> english
         VoiceLanguage.ITALIAN -> italian
+        VoiceLanguage.SPANISH -> spanish
     }
+
+    /** La misma pieza, en español: el banco de pruebas está en Colombia. */
+    val spanish: String = """
+        A tu derecha se acerca la tumba de Cecilia Metella, uno de los monumentos
+        más reconocibles de la antigua vía Apia. Es un gran cilindro de piedra,
+        construido hace unos dos mil años para la hija de un cónsul, y convertido
+        después en fortaleza por una familia medieval a la que le gustaban las
+        vistas y los peajes que podía cobrar. Ahí sigue, casi intacta, desde antes
+        del nacimiento de Cristo.
+    """.trimIndent().replace("\n", " ")
 }

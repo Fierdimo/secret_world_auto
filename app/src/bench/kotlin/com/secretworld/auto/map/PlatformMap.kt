@@ -9,6 +9,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.mapbox.maps.extension.compose.annotation.generated.CircleAnnotation
+import com.mapbox.maps.extension.compose.annotation.generated.PolylineAnnotation
 import com.mapbox.common.MapboxOptions
 import com.mapbox.geojson.Point
 import com.mapbox.maps.EdgeInsets
@@ -57,10 +58,15 @@ fun PlatformMap(state: MapState, modifier: Modifier = Modifier) {
     // justo debajo de ella y no se ve dónde está uno.
     val bottomInset = with(density) { BOTTOM_BAR.toPx().toDouble() }
 
+    // Con ruta activa se acerca la cámara: lo que importa son las próximas
+    // calles, no la ciudad. Sin ruta, la ciudad, para situar.
+    val navigating = state.route.size >= 2
+    val zoom = if (navigating) ROUTE_ZOOM else CITY_ZOOM
+
     val viewport = rememberMapViewportState {
         setCameraOptions {
             center(Point.fromLngLat(centre.longitude, centre.latitude))
-            zoom(CITY_ZOOM)
+            zoom(zoom)
             bearing(state.vehicle.headingDegrees ?: 0.0)
             pitch(DRIVING_PITCH)
             padding(EdgeInsets(0.0, leftInset, bottomInset, 0.0))
@@ -109,11 +115,27 @@ fun PlatformMap(state: MapState, modifier: Modifier = Modifier) {
             )
         },
     ) {
-        MapEffect(centre, state.vehicle.headingDegrees) { _ ->
+        MapEffect(centre, state.vehicle.headingDegrees, navigating) { _ ->
             viewport.setCameraOptions {
                 center(Point.fromLngLat(centre.longitude, centre.latitude))
                 bearing(state.vehicle.headingDegrees ?: 0.0)
+                zoom(zoom)
                 padding(EdgeInsets(0.0, leftInset, bottomInset, 0.0))
+            }
+        }
+
+        // La ruta, debajo de los marcadores: una línea gruesa en el color de
+        // acento, con borde oscuro para que se lea sobre cualquier calle.
+        if (navigating) {
+            val line = state.route.map { Point.fromLngLat(it.longitude, it.latitude) }
+            PolylineAnnotation(points = line) {
+                lineColor = Ink
+                lineWidth = 9.0 * scale
+                lineOpacity = 0.9
+            }
+            PolylineAnnotation(points = line) {
+                lineColor = Highlight
+                lineWidth = 5.0 * scale
             }
         }
 
@@ -151,6 +173,8 @@ private val Ink = Color(0xFF101112)
 /** El mismo estilo que usa la app móvil, para que la marca se reconozca. */
 private const val DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
 private const val CITY_ZOOM = 14.5
+/** Con ruta: las dos próximas manzanas. */
+private const val ROUTE_ZOOM = 16.0
 /** Algo de inclinación: en un coche mirar el mapa en picado desorienta. */
 private const val DRIVING_PITCH = 45.0
 private val ORNAMENT_MARGIN = 12.dp

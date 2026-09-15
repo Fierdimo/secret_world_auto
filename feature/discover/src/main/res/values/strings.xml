@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="brand">Secret World</string>
+    <string name="section_driving">On your route</string>
+    <string name="section_parked">Around you</string>
+    <string name="nothing_around">Nothing worth telling around here yet.</string>
+    <string name="finding_where">Finding where you are</string>
+    <string name="offline">offline</string>
+    <string name="now_playing">Now playing</string>
+    <string name="preparing">Preparing</string>
+    <string name="listening">Listening…</string>
+    <string name="speak">Speak</string>
+    <string name="you_said">You said</string>
+    <string name="listen">Listen</string>
+    <string name="take_me">Take me</string>
+    <string name="details">Details</string>
+    <string name="nav_to">To %1$s</string>
+    <string name="nav_arrived">You have arrived</string>
+    <string name="nav_end">End</string>
+</resources>

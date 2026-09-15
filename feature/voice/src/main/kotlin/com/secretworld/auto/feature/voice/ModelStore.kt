@@ -51,14 +51,15 @@ object ModelCatalog {
     )
 
     /**
-     * Reconocedor de ordenes: Whisper base multilingue, int8. Ingles e italiano.
-     * Se probo tiny (60 MB) y entendia "watch the nerve" por "what's nearby".
+     * Reconocedor de ordenes: FastConformer de NVIDIA, en/es/fr/de, int8. Se
+     * probaron Whisper tiny y base: tiny oia "watch the nerve" por "what's
+     * nearby", base destrozaba el espanol. Este es 6x mas rapido y entiende los dos.
      */
     val ASR = ModelPack(
-        id = "asr-whisper-base",
-        url = "asr-whisper-base.zip",
-        bytes = 94365397L,
-        sha256 = "4edc5a47cd506aca24e33e37c9bb1ec311a09a3dcce9c6383c4a38eec9f6746f",
+        id = "asr-nemo-multi",
+        url = "asr-nemo-multi.zip",
+        bytes = 103517461L,
+        sha256 = "2afeacfd2c147a019586cd46b7e09c54cc2a6a73499a4987792215de30d898b1",
         marker = "tokens.txt",
         licence = "MIT (OpenAI Whisper)",
     )

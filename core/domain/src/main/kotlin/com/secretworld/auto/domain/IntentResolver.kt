@@ -68,7 +68,12 @@ interface LanguageModel {
     /** Si se puede llamar ahora. Un modelo que aún se está cargando no lo está. */
     val ready: Boolean
 
-    suspend fun complete(prefix: String, request: String): String
+    /**
+     * @param singleLine si la respuesta es una línea y se corta en el primer
+     *   salto —lo normal: elegir una herramienta—, o un texto entero, como una
+     *   traducción.
+     */
+    suspend fun complete(prefix: String, request: String, singleLine: Boolean = true): String
 }
 
 /**
@@ -88,6 +93,7 @@ class LlmIntentResolver(
     private val model: LanguageModel,
     /** Desde dónde se mide lo que está cerca, para que el modelo pueda decirlo. */
     private val position: () -> Coordinates? = { null },
+    private val language: VoiceLanguage = VoiceLanguage.ENGLISH,
     /**
      * A quién contarle que el modelo falló. El dominio no tiene registro; sin
      * esto, un fallo del modelo es indistinguible de "no entendí" y nadie se
@@ -102,7 +108,7 @@ class LlmIntentResolver(
         // es el segundo. Después, lo cercano que no estuviera ya.
         val shortlist = (memory.listed + candidates).distinctBy { it.id }.take(MAX_CANDIDATES)
         val reply = try {
-            model.complete(IntentPrompt.PREFIX, IntentPrompt.request(heard, shortlist, memory, position()))
+            model.complete(IntentPrompt.PREFIX, IntentPrompt.request(heard, shortlist, memory, position(), language))
         } catch (e: Exception) {
             onFailure(e)
             return Resolution(VoiceCommand.NotUnderstood(heard))
@@ -150,7 +156,7 @@ object IntentPrompt {
         |$WHAT_IS_NEARBY — list what is around ("what's nearby", "anything around here", misheard as "what's new by", "glass new buy"). Name the places from the list with their distance and end with a question.
         |$TELL_ME_ABOUT N — narrate place N from the list. "That", "this one", "there" = the place playing now. "The second one" = 2. Say a few words of introduction, the narration follows.
         |$TELL_ME_MORE — more about the place playing now.
-        |$TAKE_ME_THERE — navigate to the place playing now. Navigation is not available yet: say so kindly.
+        |$TAKE_ME_THERE N — drive to place N ("take me to", "directions to", "let's go to"). Without N: the place playing now. Say you're routing there.
         |$SKIP — skip the current place.
         |$STOP — stop talking ("enough", "quiet"). Say one word.
         |$CLARIFY — you understood a request but not which place: ask which one.
@@ -167,6 +173,8 @@ object IntentPrompt {
         |$STOP | Sure.
         |Driver: "the second one please"
         |$TELL_ME_ABOUT 2 | Circus Maximus it is.
+        |Driver: "let's drive to the forum"
+        |$TAKE_ME_THERE 1 | Routing you to the Roman Forum, 300 metres from here.
         |Driver: "cosa c'è qui vicino"
         |$WHAT_IS_NEARBY | Qui vicino ci sono il Foro Romano, a 300 metri, e il Circo Massimo. Ti racconto uno dei due?
         |Driver: "which one is the old market"
@@ -175,7 +183,17 @@ object IntentPrompt {
     """.trimMargin()
 
     /** La parte que cambia: los lugares de ahora, la conversación reciente y lo que se acaba de oír. */
-    fun request(heard: String, candidates: List<Place>, memory: ConversationMemory, here: Coordinates? = null): String = buildString {
+    fun request(
+        heard: String,
+        candidates: List<Place>,
+        memory: ConversationMemory,
+        here: Coordinates? = null,
+        language: VoiceLanguage = VoiceLanguage.ENGLISH,
+    ): String = buildString {
+        // El idioma se dice explícitamente: con una frase corta el modelo no
+        // siempre lo adivina, y contestar en el idioma equivocado es lo que
+        // más rompe la ilusión de que hay alguien escuchando.
+        appendLine("Driver language: ${when (language) { VoiceLanguage.SPANISH -> "Spanish"; VoiceLanguage.ITALIAN -> "Italian"; else -> "English" }}. Answer in that language.")
         // Nombres cortos y con distancia: es lo que el modelo necesita para
         // redactar, y nada más. Cada token de más se lee en cada orden.
         append("Places: ")
@@ -240,7 +258,7 @@ object IntentPrompt {
         SKIP -> VoiceCommand.Skip
         WHAT_IS_NEARBY -> VoiceCommand.WhatIsNearby
         TELL_ME_MORE -> VoiceCommand.TellMeMore
-        TAKE_ME_THERE -> VoiceCommand.TakeMeThere
+        TAKE_ME_THERE -> VoiceCommand.TakeMeThere(number?.let { candidates.getOrNull(it - 1) } ?: focus)
         TELL_ME_ABOUT -> {
             val place = number?.let { candidates.getOrNull(it - 1) } ?: focus
             if (place != null) VoiceCommand.TellMeAbout(place) else VoiceCommand.NotUnderstood(heard)

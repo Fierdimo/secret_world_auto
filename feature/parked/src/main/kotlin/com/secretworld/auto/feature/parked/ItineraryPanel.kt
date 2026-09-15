@@ -19,6 +19,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import com.secretworld.auto.feature.parked.R
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,11 +69,11 @@ fun ItineraryPanel(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            CarSecondaryButton(label = "Close", onClick = onClose)
+            CarSecondaryButton(label = stringResource(R.string.close), onClick = onClose)
         }
 
         Spacer(Modifier.height(d.spaceS))
-        CarButton(label = "Start itinerary", onClick = onStart)
+        CarButton(label = stringResource(R.string.start_itinerary), onClick = onStart)
         Spacer(Modifier.height(d.spaceS))
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(d.spaceXs)) {
@@ -99,7 +101,7 @@ fun ItineraryPanel(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    CarSecondaryButton(label = "Open", onClick = { onSelect(place) })
+                    CarSecondaryButton(label = stringResource(R.string.open), onClick = { onSelect(place) })
                 }
             }
         }

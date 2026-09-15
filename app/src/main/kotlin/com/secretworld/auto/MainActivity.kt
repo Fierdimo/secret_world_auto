@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.lifecycleScope
 import com.secretworld.auto.core.data.CatalogueRepository
 import com.secretworld.auto.core.data.DeviceIdentity
@@ -52,7 +53,21 @@ import com.secretworld.auto.core.designsystem.CarSecondaryButton
 import com.secretworld.auto.core.designsystem.CarTheme
 import com.secretworld.auto.core.designsystem.SecretWorldTheme
 import com.secretworld.auto.core.platform.DrivingModeController
+import com.secretworld.auto.core.data.MapboxApi
+import com.secretworld.auto.core.data.WikipediaPlaces
+import com.secretworld.auto.core.data.MapboxRouter
+import com.secretworld.auto.core.platform.DeviceVehicleSource
 import com.secretworld.auto.core.platform.SimulatedVehicleSource
+import com.secretworld.auto.core.platform.VehicleSource
+import com.secretworld.auto.domain.NavigationGuide
+import com.secretworld.auto.domain.Route
+import com.secretworld.auto.domain.Router
+import com.secretworld.auto.feature.discover.NavigationUi
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.stateIn
 import com.secretworld.auto.domain.ConversationMemory
 import com.secretworld.auto.domain.Coordinates
 import com.secretworld.auto.domain.DrivingMode
@@ -82,6 +97,7 @@ import com.secretworld.auto.feature.voice.ModelStore
 import com.secretworld.auto.feature.voice.NarrationController
 import com.secretworld.auto.feature.voice.OnDeviceVoiceInput
 import com.secretworld.auto.feature.voice.SystemVoiceInput
+import com.secretworld.auto.feature.voice.TranslatingNarrationTexts
 import com.secretworld.auto.feature.voice.VoiceInput
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -99,7 +115,38 @@ import kotlinx.coroutines.launch
  */
 class MainActivity : ComponentActivity() {
 
-    private val vehicle = SimulatedVehicleSource(ROME, headingDegrees = 20.0)
+    /**
+     * El vehículo: simulado o el dispositivo real, según haya permiso de
+     * ubicación. Se conmuta en caliente, y todo lo demás lee [vehicle] sin saber
+     * cuál de los dos hay detrás.
+     */
+    private val simulated = SimulatedVehicleSource(ROME, headingDegrees = 20.0)
+    private var device: DeviceVehicleSource? = null
+    private val source = MutableStateFlow<VehicleSource>(simulated)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val vehicle: VehicleSource by lazy {
+        object : VehicleSource {
+            override val state: StateFlow<com.secretworld.auto.domain.VehicleState> =
+                source.flatMapLatest { it.state }.stateIn(lifecycleScope, SharingStarted.Eagerly, simulated.state.value)
+        }
+    }
+
+    private lateinit var router: Router
+
+    /** La ruta en curso y su guía. `null` cuando no se navega. */
+    private val activeRoute = MutableStateFlow<Route?>(null)
+    private var guide: NavigationGuide? = null
+    private val announced = mutableSetOf<String>()
+    private var lastReroute = 0L
+
+    /**
+     * La ubicación se pide al arrancar, no al primer uso: sin ella la app no
+     * sabe dónde está el coche y todo lo demás es una demostración.
+     */
+    private val askForLocation = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> if (granted) useDeviceLocation() }
     private val queue = TourQueue(maxDistanceMeters = 25_000.0)
     private lateinit var catalogue: CatalogueRepository
     private lateinit var mapKeys: MapCredentials
@@ -110,6 +157,14 @@ class MainActivity : ComponentActivity() {
 
     /** Lo que el asistente recuerda de la conversación: foco, lo enumerado, las últimas frases. */
     private val memory = ConversationMemory()
+
+    /**
+     * El idioma de la app: el del dispositivo si tiene voz, inglés si no. Manda
+     * sobre la voz, el reconocedor, la gramática, las frases y el catálogo.
+     */
+    private val language: VoiceLanguage by lazy {
+        VoiceLanguage.fromTag(java.util.Locale.getDefault().language) ?: VoiceLanguage.ENGLISH
+    }
     private var onDevice: OnDeviceVoiceInput? = null
     private var gemma: GemmaLanguageModel? = null
 
@@ -141,10 +196,16 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val api = SecretWorldApi.create(DeviceIdentity.of(this))
-        catalogue = CatalogueRepository(api)
         mapKeys = MapCredentials(api)
-        narration = NarrationController(this, catalogue, lifecycleScope, VoiceLanguage.ENGLISH)
+        val mapbox = MapboxApi.create()
+        catalogue = CatalogueRepository(api, wikipedia = WikipediaPlaces())
+        router = MapboxRouter(mapbox, mapKeys, language)
+        if (DeviceVehicleSource(this, ROME).hasPermission) useDeviceLocation() else askForLocation.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        // La voz se monta antes que la narración: si hay modelo de lenguaje, la
+        // narración traduce con él lo que el catálogo no tenga en el idioma.
         setUpVoice()
+        val texts = gemma?.let { TranslatingNarrationTexts(this, catalogue, it) } ?: catalogue
+        narration = NarrationController(this, texts, lifecycleScope, language)
         val modeController = DrivingModeController(vehicle, lifecycleScope)
 
         setContent {
@@ -165,6 +226,8 @@ class MainActivity : ComponentActivity() {
                 var answer by remember { mutableStateOf<String?>(null) }
                 var heard by remember { mutableStateOf<String?>(null) }
                 val listening by handsFree.enabled.collectAsState()
+                val route by activeRoute.collectAsState()
+                var navigationUi by remember { mutableStateOf<NavigationUi?>(null) }
 
                 // La clave del mapa se pide al backend, no viaja en el APK.
                 LaunchedEffect(Unit) { mapboxToken = mapKeys.mapboxToken() }
@@ -176,32 +239,74 @@ class MainActivity : ComponentActivity() {
                     vehicleState.position.longitude,
                 )
                 LaunchedEffect(positionKey) {
-                    catalogueResult = catalogue.nearby(vehicleState.position)
+                    catalogueResult = catalogue.nearby(vehicleState.position, language = language)
                 }
 
                 val places = catalogueResult?.places.orEmpty()
                 val upcoming = remember(places, positionKey, mode, skipped) {
-                    queue.next(vehicleState, places, skipped, VoiceLanguage.ENGLISH, limit = 12)
+                    queue.next(vehicleState, places, skipped, language, limit = 12)
                         .ifEmpty {
                             places.filter { it.id !in skipped }
                                 .sortedBy { vehicleState.position.distanceTo(it.position) }
                         }
                 }
 
+                // Seguir la ruta con cada posición: cuánto queda, qué maniobra
+                // toca, si se ha llegado o si hay que recalcular.
+                LaunchedEffect(vehicleState, route) {
+                    val current = route ?: run { navigationUi = null; return@LaunchedEffect }
+                    val progress = guide?.progress(vehicleState) ?: return@LaunchedEffect
+                    navigationUi = NavigationUi(
+                        destination = Phrasebook.shortName(current.destination),
+                        remaining = Phrasebook.spokenDistance(progress.remainingMeters, language).replace("right here", "here").replace("aquí mismo", "aquí"),
+                        eta = Phrasebook.spokenDuration(progress.remainingSeconds, language).replace(Regex(" minut(es|os|e|o)"), " min"),
+                        instruction = progress.nextStep?.instruction,
+                        instructionDistance = progress.nextStep?.let {
+                            when {
+                                progress.metersToNextStep < 100 -> if (language == VoiceLanguage.SPANISH) "ahora" else "now"
+                                language == VoiceLanguage.SPANISH -> "en ${Phrasebook.spokenDistance(progress.metersToNextStep, language)}"
+                                else -> "in ${Phrasebook.spokenDistance(progress.metersToNextStep)}"
+                            }
+                        },
+                        arrived = progress.arrived,
+                    )
+                    val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
+                    when {
+                        progress.arrived -> {
+                            narration.say(Phrasebook.arrived(c, current.destination))
+                            endNavigation()
+                        }
+                        progress.offRoute && vehicleState.speedMetersPerSecond > 1.0 -> reroute(current, vehicleState.position, c)
+                        progress.shouldAnnounce -> {
+                            val step = progress.nextStep ?: return@LaunchedEffect
+                            val key = "${step.at.latitude},${step.at.longitude}"
+                            if (announced.add(key)) {
+                                narration.say(Phrasebook.maneuver(c, progress.metersToNextStep, step.instruction))
+                            }
+                        }
+                    }
+                }
+
                 LaunchedEffect(Unit) { narration.ensureVoice() }
                 // Las frases fijas del asistente se sintetizan antes de que hagan
                 // falta: la primera respuesta también tiene que ser inmediata.
-                LaunchedEffect(narration.voiceInstalled) { if (narration.voiceInstalled) narration.prewarm(FIXED_REPLIES) }
+                LaunchedEffect(narration.voiceInstalled) { if (narration.voiceInstalled) narration.prewarm(fixedReplies(language)) }
                 // El micrófono se abre con la pantalla y se cierra con ella: una app
                 // que escucha cuando no está delante no se lo merece.
                 val ready by voiceReady.collectAsState()
                 LaunchedEffect(ready) { if (ready && handsFree.possible) handsFree.enable() }
 
                 // Con palabra de activación, "escuchando" significa que acaba de
-                // sonar "Siky": la app se calla para no dictarse a sí misma. Con
+                // sonar la palabra: la app se calla para no dictarse a sí misma. Con
                 // el reconocedor del sistema ese estado es permanente y no dice nada.
                 LaunchedEffect(voiceState) {
                     if (voiceInput.continuous && voiceState is VoiceInput.State.Listening) narration.stop()
+                }
+                // Y al revés: mientras habla, no escucha. Sin cancelación de eco
+                // lo único que oiría es a sí misma.
+                LaunchedEffect(narrationState) {
+                    onDevice?.muted = narrationState !is NarrationController.State.Idle &&
+                        narrationState !is NarrationController.State.Failed
                 }
                 LaunchedEffect(upcoming.joinToString { it.id }) { narration.prefetch(upcoming) }
 
@@ -215,7 +320,7 @@ class MainActivity : ComponentActivity() {
                     // que separa una orden de una conversación entre ocupantes, y
                     // lo que no la lleva se descarta **en silencio**: contestar a
                     // todo sería peor que no oír.
-                    val order = if (said.direct) said.text else WakeWord.commandIn(said.text)
+                    val order = if (said.direct) said.text else WakeWord.commandIn(said.text, language)
                     if (order == null) {
                         voiceInput.acknowledge()
                         return@LaunchedEffect
@@ -225,9 +330,9 @@ class MainActivity : ComponentActivity() {
                         // La despertaron sin pedirle nada: contesta y, **cuando
                         // termine de hablar**, abre el turno. Antes no: abriría el
                         // micrófono sobre su propia voz y se transcribiría a sí misma.
-                        answer = YES
+                        answer = yes(language)
                         voiceInput.acknowledge()
-                        narration.say(YES) { voiceInput.listenForAnswer() }
+                        narration.say(yes(language)) { voiceInput.listenForAnswer() }
                         return@LaunchedEffect
                     }
 
@@ -237,7 +342,7 @@ class MainActivity : ComponentActivity() {
                     Log.i("SWVoice", "«$order» → ${resolution.command::class.simpleName} en ${(System.nanoTime() - resolvedAt) / 1_000_000} ms" +
                         " (LLM ${gemma?.let { if (it.ready) "listo" else "cargando" } ?: "ausente"})" +
                         (resolution.reply?.let { " · dice: «$it»" } ?: ""))
-                    val context = Phrasebook.Context(vehicleState.position, upcoming, memory)
+                    val context = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
                     val reply = obey(resolution, context) { place ->
                         skipped = skipped + place.id
                     }
@@ -304,7 +409,7 @@ class MainActivity : ComponentActivity() {
                             // verdad. Unir puntos de interés sueltos pintaría una
                             // carretera que no existe, y eso en un mapa es peor
                             // que no dibujar nada.
-                            route = if (panel is Panel.Itinerary) {
+                            route = route?.points ?: if (panel is Panel.Itinerary) {
                                 upcoming.take(5).map { it.position }
                             } else {
                                 emptyList()
@@ -349,6 +454,7 @@ class MainActivity : ComponentActivity() {
                                 result = catalogueResult,
                                 nowPlaying = nowPlayingOf(narrationState, tick),
                                 voice = voiceUiOf(voiceState, heard, answer, listening),
+                                navigation = navigationUi,
                                 onSpeak = ::speak,
                                 onPanel = { panel = it },
                             )
@@ -382,6 +488,7 @@ class MainActivity : ComponentActivity() {
         result: CatalogueRepository.Result?,
         nowPlaying: NowPlaying?,
         voice: VoiceUi,
+        navigation: NavigationUi?,
         onSpeak: () -> Unit,
         onPanel: (Panel) -> Unit,
     ) {
@@ -397,18 +504,23 @@ class MainActivity : ComponentActivity() {
                 onSpeak = onSpeak,
                 onSelect = { onPanel(Panel.Detail(it)) },
                 onListen = { play(it) },
-                onNavigate = { onPanel(Panel.Detail(it)) },
+                onNavigate = { navigateTo(it) },
+                navigation = navigation,
+                onStopNavigation = { endNavigation() },
             )
 
             is Panel.Detail -> PlaceDetailPanel(
                 place = panel.place,
                 onListen = { play(panel.place) },
-                onNavigate = { /* NaviHelper pendiente: ver docs/PLEOS-SDK-SURFACE.md */ },
+                onNavigate = {
+                    navigateTo(panel.place)
+                    onPanel(Panel.Home)
+                },
                 onClose = { onPanel(Panel.Home) },
             )
 
             Panel.Itinerary -> ItineraryPanel(
-                title = "A morning in ${upcoming.firstOrNull()?.city ?: "town"}",
+                title = if (language == VoiceLanguage.SPANISH) "Una mañana en ${upcoming.firstOrNull()?.city ?: "la ciudad"}" else "A morning in ${upcoming.firstOrNull()?.city ?: "town"}",
                 stops = upcoming.take(5),
                 onSelect = { onPanel(Panel.Detail(it)) },
                 onStart = { upcoming.firstOrNull()?.let { play(it) } },
@@ -416,13 +528,14 @@ class MainActivity : ComponentActivity() {
             )
 
             Panel.Settings -> SettingsPanel(
-                voiceLanguage = "English",
+                voiceLanguage = when (language) { VoiceLanguage.SPANISH -> "Español"; VoiceLanguage.ITALIAN -> "Italiano"; else -> "English" },
                 voiceInstalled = narration.voiceInstalled,
                 voiceSizeMb = 21,
                 catalogueSource = when (result?.source) {
-                    CatalogueRepository.Source.LIVE -> "live · ${result.places.size} places"
-                    CatalogueRepository.Source.FALLBACK -> "offline fallback"
-                    null -> "loading"
+                    CatalogueRepository.Source.LIVE -> stringResource(com.secretworld.auto.feature.parked.R.string.catalogue_live, result.places.size)
+                    CatalogueRepository.Source.FALLBACK -> stringResource(com.secretworld.auto.feature.parked.R.string.catalogue_fallback)
+                    CatalogueRepository.Source.POI -> stringResource(com.secretworld.auto.feature.parked.R.string.catalogue_poi, result.places.size)
+                    null -> stringResource(com.secretworld.auto.feature.parked.R.string.catalogue_loading)
                 },
                 onRemoveVoice = { },
                 onClose = { onPanel(Panel.Home) },
@@ -443,6 +556,7 @@ class MainActivity : ComponentActivity() {
         answer: String?,
         handsFreeOn: Boolean,
     ) = VoiceUi(
+        wakeWord = WakeWord.spoken(language),
         listening = state is VoiceInput.State.Listening && !handsFreeOn,
         handsFree = handsFreeOn,
         heard = heard,
@@ -540,10 +654,18 @@ class MainActivity : ComponentActivity() {
                 reply
             }
 
-            VoiceCommand.TakeMeThere -> {
-                val reply = said ?: Phrasebook.noNavigation(c)
-                narration.say(reply)
-                reply
+            is VoiceCommand.TakeMeThere -> {
+                val target = command.place ?: memory.focus ?: memory.listed.firstOrNull()
+                if (target == null) {
+                    val reply = Phrasebook.noDestination(c)
+                    narration.say(reply) { voiceInput.listenForAnswer() }
+                    reply
+                } else {
+                    val reply = said ?: Phrasebook.routingTo(c, target)
+                    narration.say(reply)
+                    navigateTo(target, announce = false)
+                    reply
+                }
             }
 
             VoiceCommand.Skip -> {
@@ -586,7 +708,69 @@ class MainActivity : ComponentActivity() {
     /** Narra un lugar y lo deja en foco: a partir de aquí, "eso" es esto. */
     private fun play(place: Place) {
         memory.focusOn(place)
+        if (catalogue.textFor(place, language).isNullOrBlank()) {
+            // Un lugar real sin ficha: se sabe dónde está, no su historia. Decirlo
+            // es mejor que un "no hay texto" en la pantalla.
+            val c = Phrasebook.Context(vehicle.state.value.position, memory.listed, memory, language)
+            narration.say(Phrasebook.noStory(c, place))
+            return
+        }
         narration.listen(place)
+    }
+
+    // ------------------------------------------------------------------ navegación
+
+    /**
+     * Traza la ruta hasta [place] y la deja activa: el mapa la dibuja, la guía la
+     * sigue y las maniobras se anuncian. Es lo que en el vehículo hará NaviHelper
+     * cuando Pleos lo publique; hasta entonces, Mapbox (docs/MAP-OPTIONS.md).
+     */
+    private fun navigateTo(place: Place, announce: Boolean = true) {
+        memory.focusOn(place)
+        lifecycleScope.launch {
+            val here = vehicle.state.value.position
+            val c = Phrasebook.Context(here, memory.listed, memory, language)
+            if (announce) narration.say(Phrasebook.routingTo(c, place))
+            val found = router.route(here, place)
+            if (found == null) {
+                narration.say(Phrasebook.noRoute(c, place))
+                return@launch
+            }
+            startNavigation(found)
+            narration.say(Phrasebook.routeFound(c, found))
+        }
+    }
+
+    private fun startNavigation(route: Route) {
+        guide = NavigationGuide(route)
+        announced.clear()
+        activeRoute.value = route
+        Log.i("SWNav", "ruta a ${route.destination.name}: %.0f m, %.0f s, ${route.steps.size} maniobras".format(route.distanceMeters, route.durationSeconds))
+    }
+
+    private fun endNavigation() {
+        activeRoute.value = null
+        guide = null
+        announced.clear()
+    }
+
+    /** Fuera de la ruta y en marcha: se recalcula, como mucho cada quince segundos. */
+    private fun reroute(current: Route, here: Coordinates, c: Phrasebook.Context) {
+        val now = System.currentTimeMillis()
+        if (now - lastReroute < REROUTE_EVERY_MS) return
+        lastReroute = now
+        lifecycleScope.launch {
+            val found = router.route(here, current.destination) ?: return@launch
+            narration.say(Phrasebook.rerouting(c))
+            startNavigation(found)
+        }
+    }
+
+    /** Pasa del simulador a la posición real del dispositivo. */
+    private fun useDeviceLocation() {
+        val real = device ?: DeviceVehicleSource(this, ROME).also { device = it }
+        real.start()
+        source.value = real
     }
 
     /**
@@ -601,7 +785,7 @@ class MainActivity : ComponentActivity() {
      */
     private fun setUpVoice() {
         val models = ModelStore(this)
-        val local = OnDeviceVoiceInput(this, models, VoiceLanguage.ENGLISH)
+        val local = OnDeviceVoiceInput(this, models, language)
         val llm = GemmaLanguageModel(this, models)
 
         voiceInput = if (local.available) local.also { onDevice = it } else SystemVoiceInput(this)
@@ -609,7 +793,7 @@ class MainActivity : ComponentActivity() {
         resolver = LayeredIntentResolver(
             grammar = GrammarIntentResolver(),
             fallback = if (llm.available) {
-                LlmIntentResolver(llm.also { gemma = it }, position = { vehicle.state.value.position }) {
+                LlmIntentResolver(llm.also { gemma = it }, position = { vehicle.state.value.position }, language = language) {
                     Log.e("SWVoice", "el LLM no contestó", it)
                 }
             } else {
@@ -663,9 +847,17 @@ class MainActivity : ComponentActivity() {
                 CarSecondaryButton("Itinerary", { onPanel(Panel.Itinerary) }, compact = true)
                 CarSecondaryButton("Settings", { onPanel(Panel.Settings) }, compact = true)
             }
-            CarSecondaryButton("Park", { vehicle.park() }, compact = true)
-            CarSecondaryButton("Drive", { vehicle.drive() }, compact = true)
-            CarSecondaryButton("+1 km", { vehicle.advance(40.0) }, compact = true)
+            // Los mandos del simulador solo con el simulador; con GPS real, el
+            // botón cambia de uno a otro.
+            val simulating = source.collectAsState().value === simulated
+            if (simulating) {
+                CarSecondaryButton("Park", { simulated.park() }, compact = true)
+                CarSecondaryButton("Drive", { simulated.drive() }, compact = true)
+                CarSecondaryButton("+1 km", { simulated.advance(40.0) }, compact = true)
+                if (device?.hasPermission == true) CarSecondaryButton("GPS", { useDeviceLocation() }, compact = true)
+            } else {
+                CarSecondaryButton("Sim", { source.value = simulated }, compact = true)
+            }
             CarSecondaryButton("Quiet", { narration.stop() }, compact = true)
         }
     }
@@ -678,6 +870,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        device?.stop()
         onDevice?.release()
         gemma?.release()
     }
@@ -692,12 +885,17 @@ class MainActivity : ComponentActivity() {
     private companion object {
         /** Cuánto se queda en pantalla una respuesta del asistente. */
         const val ANSWER_LINGER_MS = 8_000L
+        const val REROUTE_EVERY_MS = 15_000L
 
-        /** Lo que se dice al oír "Siky" a secas. */
-        const val YES = "Yes?"
+        /** Lo que se dice al oír "Siky" a secas, por idioma. */
+        fun yes(language: VoiceLanguage) = if (language == VoiceLanguage.SPANISH) "¿Sí?" else "Yes?"
 
         /** Las frases sin contexto, que se pueden sintetizar por adelantado. */
-        val FIXED_REPLIES = listOf(YES, "Okay.", "Sure.", "Alright, I'll be quiet.", "There's nothing playing to skip.", "Nothing to skip right now.")
+        fun fixedReplies(language: VoiceLanguage) = if (language == VoiceLanguage.SPANISH) {
+            listOf(yes(language), "Vale.", "Listo.", "Me callo.", "No hay nada sonando que saltar.", "Nada que saltar ahora mismo.", "Recalculando.", "Nueva ruta.")
+        } else {
+            listOf(yes(language), "Okay.", "Sure.", "Alright, I'll be quiet.", "There's nothing playing to skip.", "Nothing to skip right now.", "Recalculating.", "New route.")
+        }
         /**
          * Se arranca en Roma porque es donde el catálogo tiene densidad real, y
          * junto al Circo Máximo en vez de encima del Coliseo: si el vehículo nace

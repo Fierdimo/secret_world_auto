@@ -28,7 +28,7 @@ class LlmIntentResolverTest {
     private class Canned(private val reply: String, override val ready: Boolean = true) : LanguageModel {
         val prefixes = mutableListOf<String>()
         val requests = mutableListOf<String>()
-        override suspend fun complete(prefix: String, request: String): String {
+        override suspend fun complete(prefix: String, request: String, singleLine: Boolean): String {
             prefixes += prefix
             requests += request
             return reply

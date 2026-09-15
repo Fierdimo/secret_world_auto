@@ -17,7 +17,7 @@ import com.k2fsa.sherpa.onnx.KeywordSpotterConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
-import com.k2fsa.sherpa.onnx.OfflineWhisperModelConfig
+import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
 import com.k2fsa.sherpa.onnx.OnlineModelConfig
 import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 import com.k2fsa.sherpa.onnx.SileroVadModelConfig
@@ -42,13 +42,18 @@ import java.io.File
  * decir si ha sonado "Siky". El reconocedor de verdad —Whisper— solo se
  * ejecuta sobre la frase que viene después, delimitada por el detector de voz.
  *
- * Cómo se encadena, en un solo hilo de audio:
+ * Cómo se encadena, en un solo hilo de audio. Hay **dos formas de despertar**,
+ * según el idioma ([WakeWord]): el detector de palabras clave solo sabe inglés.
  *
  * ```
- * micrófono ──▶ [KWS] ──"siky"──▶ [VAD] ──frase──▶ [Whisper] ──▶ Heard(texto)
- *                 ▲                                                  │
- *                 └──────────────── vuelve a vigilar ◀───────────────┘
+ * inglés:   micrófono ──▶ [KWS] ──"hey secret"──▶ [VAD] ──frase──▶ [Whisper] ──▶ Heard
+ * español:  micrófono ──▶ [VAD] ──frase──▶ [Whisper] ──¿empieza por "hola secreto"?──▶ Heard
+ *                                                       └── no ──▶ se descarta en silencio
  * ```
+ *
+ * La segunda transcribe **todo** lo que se dice en el coche, y eso cuesta CPU:
+ * ~0,5 s de Whisper por cada frase que oiga. Es el precio de un idioma que el
+ * detector no conoce, y está anotado como coste a medir en el ROADMAP.
  *
  * Todo lo de sherpa-onnx se toca **solo desde ese hilo**: sus objetos no son
  * seguros entre hilos y compartirlos es la forma más rápida de un cierre nativo.
@@ -72,6 +77,12 @@ class OnDeviceVoiceInput(
             PackageManager.PERMISSION_GRANTED
 
     override val continuous: Boolean = true
+
+    /** Cómo se despierta en este idioma. */
+    private val wake = WakeWord.forLanguage(language)
+
+    /** Sin tokens para el detector, se despierta por transcripción. */
+    private val wakeByTranscript: Boolean = wake.keywordTokens == null
 
     /** Los tres motores. Se crean juntos en [load] y solo los usa el hilo de audio. */
     private class Engines(val spotter: KeywordSpotter, val vad: Vad, val recognizer: OfflineRecognizer) {
@@ -103,6 +114,15 @@ class OnDeviceVoiceInput(
     @Volatile
     private var abortRequested = false
 
+    /**
+     * Mientras la app habla, no escucha. Sin cancelación de eco, lo que oye en
+     * ese momento es a sí misma: transcribirlo gasta CPU y, con la vigilancia
+     * por transcripción, podría hasta despertarse con su propia voz. Se pierde
+     * la interrupción por voz, que en este dispositivo ya no funcionaba.
+     */
+    @Volatile
+    var muted: Boolean = false
+
     @Volatile
     private var running = false
     private var thread: Thread? = null
@@ -119,8 +139,13 @@ class OnDeviceVoiceInput(
             val asr = requireNotNull(models.dirFor(ModelCatalog.ASR)) { "falta ${ModelCatalog.ASR.id}" }
 
             val started = System.nanoTime()
+            // La palabra del idioma, escrita para el detector. El fichero del
+            // paquete es solo un ejemplo: manda [WakeWord].
+            val keywords = File(context.cacheDir, "keywords-${language.code}.txt").apply {
+                writeText((wake.keywordTokens ?: WakeWord.forLanguage(VoiceLanguage.ENGLISH).keywordTokens!!) + " @wake\n")
+            }
             val built = Engines(
-                spotter = KeywordSpotter(config = spotterConfig(kws)),
+                spotter = KeywordSpotter(config = spotterConfig(kws, keywords)),
                 vad = Vad(config = vadConfig(vad)),
                 recognizer = OfflineRecognizer(config = recognizerConfig(asr)),
             )
@@ -204,7 +229,14 @@ class OnDeviceVoiceInput(
 
     // ------------------------------------------------------------------ hilo de audio
 
-    private enum class Mode { SPOT, CAPTURE }
+    private enum class Mode {
+        /** Vigilando con el detector de palabras clave. */
+        SPOT,
+        /** Vigilando por transcripción: cada frase se escribe y se mira si empieza por la palabra. */
+        LISTEN_ALL,
+        /** Capturando una orden. */
+        CAPTURE,
+    }
 
     @SuppressLint("MissingPermission")
     private fun audioLoop() {
@@ -249,8 +281,8 @@ class OnDeviceVoiceInput(
         var spotChunks = 0
         val pcm = ShortArray(CHUNK_SAMPLES)
         val chunk = FloatArray(CHUNK_SAMPLES)
-        var mode = Mode.SPOT
-        var capture: Capture? = null
+        var mode = if (wakeByTranscript) Mode.LISTEN_ALL else Mode.SPOT
+        var capture: Capture? = if (wakeByTranscript) Capture(direct = false, preRoll = emptyList(), transcriptWake = true) else null
         // Los últimos chunks, siempre: cuando "Siky" se confirma, la orden ya ha
         // empezado a sonar, y sin esto se pierde su primera sílaba.
         val recent = ArrayDeque<FloatArray>()
@@ -266,7 +298,7 @@ class OnDeviceVoiceInput(
             record.routedDevice?.let { Log.i(TAG, "micrófono en uso: ${it.productName} (tipo ${it.type})") }
             while (running) {
                 // Sin vigilancia ni orden pendiente no hay nada que oír.
-                if (mode == Mode.SPOT && !spotting && !directRequested) break
+                if (mode != Mode.CAPTURE && !spotting && !directRequested) break
 
                 val n = record.read(pcm, 0, pcm.size, AudioRecord.READ_BLOCKING)
                 if (n <= 0) continue
@@ -280,6 +312,14 @@ class OnDeviceVoiceInput(
                     Log.d(TAG, "nivel medio del micrófono: %.4f (%s)".format(levelAcc / levelChunks, mode))
                     levelAcc = 0.0
                     levelChunks = 0
+                }
+
+                if (muted && mode != Mode.CAPTURE) {
+                    // Se sigue leyendo el micrófono —para que no se acumule— y
+                    // se tira lo leído.
+                    recent.clear()
+                    if (mode == Mode.LISTEN_ALL) capture = Capture(direct = false, preRoll = emptyList(), transcriptWake = true)
+                    continue
                 }
 
                 if (abortRequested) {
@@ -297,7 +337,7 @@ class OnDeviceVoiceInput(
                     while (recent.size > PRE_ROLL_CHUNKS) recent.removeFirst()
                 }
 
-                if (directRequested && mode == Mode.SPOT) {
+                if (directRequested && mode != Mode.CAPTURE) {
                     directRequested = false
                     capture = Capture(direct = true, preRoll = emptyList(), answer = answerExpected)
                     answerExpected = false
@@ -334,18 +374,35 @@ class OnDeviceVoiceInput(
                         }
                     }
 
+                    Mode.LISTEN_ALL -> {
+                        // Cada frase que suena se transcribe. Si empieza por la
+                        // palabra, es una orden; si no, no iba con nosotros.
+                        val current = capture ?: Capture(direct = false, preRoll = emptyList(), transcriptWake = true).also { capture = it }
+                        if (current.feed(chunk, n, engines.vad)) {
+                            finish(current, engines, chime)
+                            capture = Capture(direct = false, preRoll = emptyList(), transcriptWake = true)
+                            engines.vad.reset()
+                        }
+                    }
+
                     Mode.CAPTURE -> {
                         val current = capture ?: continue
                         val done = current.feed(chunk, n, engines.vad)
                         if (done) {
-                            finish(current, engines)
-                            capture = null
-                            // Flujo nuevo, no reset: durante la captura el
-                            // detector no ha oído nada y su estado ya no vale.
-                            spotStream.release()
-                            spotStream = engines.spotter.createStream()
-                            spotChunks = 0
-                            mode = Mode.SPOT
+                            finish(current, engines, chime)
+                            engines.vad.reset()
+                            if (wakeByTranscript) {
+                                capture = Capture(direct = false, preRoll = emptyList(), transcriptWake = true)
+                                mode = Mode.LISTEN_ALL
+                            } else {
+                                capture = null
+                                // Flujo nuevo, no reset: durante la captura el
+                                // detector no ha oído nada y su estado ya no vale.
+                                spotStream.release()
+                                spotStream = engines.spotter.createStream()
+                                spotChunks = 0
+                                mode = Mode.SPOT
+                            }
                         }
                     }
                 }
@@ -374,13 +431,25 @@ class OnDeviceVoiceInput(
      * consonantes con las que distingue una de otra. Whisper lleva bien el
      * silencio; lo que no lleva bien es que le recorten.
      */
-    private inner class Capture(val direct: Boolean, preRoll: List<FloatArray>, val answer: Boolean = false) {
+    private inner class Capture(
+        val direct: Boolean,
+        preRoll: List<FloatArray>,
+        val answer: Boolean = false,
+        /**
+         * Vigilancia por transcripción: no hay palabra clave delante, así que
+         * esta captura empieza en silencio y espera lo que haga falta a que
+         * alguien hable; el silencio previo se recorta al transcribir.
+         */
+        val transcriptWake: Boolean = false,
+    ) {
         private val startedAt = System.nanoTime()
         private val window = FloatArray(VAD_WINDOW)
         private var filled = 0
         private var speechSeen = false
         /** Índice de muestra hasta el que se ha oído hablar. */
         private var lastSpeechAt = 0
+        /** Índice de muestra en que empezó a hablar. */
+        private var firstSpeechAt = 0
         private var total = 0
         val samples = ArrayList<Float>(SAMPLE_RATE * 10)
 
@@ -403,6 +472,7 @@ class OnDeviceVoiceInput(
                     vad.acceptWaveform(window)
                     filled = 0
                     if (vad.isSpeechDetected()) {
+                        if (!speechSeen) firstSpeechAt = total
                         speechSeen = true
                         lastSpeechAt = total
                     }
@@ -415,6 +485,15 @@ class OnDeviceVoiceInput(
             val silenceMs = (total - lastSpeechAt) * 1000L / SAMPLE_RATE
             // Habló y luego calló lo bastante.
             if (speechSeen && silenceMs > END_SILENCE_MS) return true
+            if (transcriptWake) {
+                // Vigilando: el silencio no acaba nada, y para no acumular audio
+                // sin fin se descarta lo que ya no puede ser el principio de una frase.
+                if (!speechSeen && samples.size > SAMPLE_RATE * 2) {
+                    samples.subList(0, samples.size - SAMPLE_RATE / 2).clear()
+                    total = samples.size
+                }
+                return speechSeen && (total - firstSpeechAt) * 1000L / SAMPLE_RATE > MAX_CAPTURE_MS
+            }
             // Nunca habló: se le esperó lo razonable. Tras una pregunta, más:
             // decidir entre tres sitios lleva un momento.
             if (!speechSeen && elapsedMs > (if (answer) NO_ANSWER_MS else NO_SPEECH_MS)) return true
@@ -430,14 +509,16 @@ class OnDeviceVoiceInput(
         fun audio(): FloatArray? {
             if (!speechSeen) return null
             val lead = SAMPLE_RATE * LEAD_SILENCE_MS / 1000
+            val start = (firstSpeechAt - SAMPLE_RATE * PRE_SPEECH_MS / 1000).coerceAtLeast(0)
             val end = minOf(samples.size, lastSpeechAt + SAMPLE_RATE * TAIL_MS / 1000)
-            return FloatArray(lead + end) { if (it < lead) 0f else samples[it - lead] }
+            return FloatArray(lead + (end - start)) { if (it < lead) 0f else samples[start + it - lead] }
         }
     }
 
-    private fun finish(capture: Capture, engines: Engines) {
+    private fun finish(capture: Capture, engines: Engines, chime: ToneGenerator?) {
         val audio = capture.audio()
         if (audio == null) {
+            if (capture.transcriptWake) return
             Log.i(TAG, "sin habla tras ${if (capture.answer) "la pregunta" else "la palabra de activación"}")
             _state.value = when {
                 // Una pregunta sin respuesta no es un fallo: se vuelve a vigilar.
@@ -463,20 +544,36 @@ class OnDeviceVoiceInput(
         val audioMs = audio.size * 1000L / SAMPLE_RATE
         Log.i(TAG, "oído en ${decodeMs} ms (${audioMs} ms de audio): «$text»")
 
-        // Whisper transcribe "Siky" con la ortografía que le apetece; si cuela al
-        // principio de la orden, se le quita para que la gramática no lo vea.
-        val order = WakeWord.commandIn(text) ?: text
+        val afterWake = WakeWord.commandIn(text, language)
+        if (capture.transcriptWake) {
+            // Vigilando por transcripción: sin la palabra delante, no iba con
+            // nosotros y se descarta en silencio. Con ella, el toque de "te oí"
+            // llega ahora, que es cuando se sabe.
+            if (afterWake == null) {
+                // Se anota lo que se descarta: es como crece la lista de formas
+                // en que el reconocedor escribe la palabra.
+                Log.d(TAG, "sin palabra de activación, descartado: «$text»")
+                return
+            }
+            chime?.startTone(ToneGenerator.TONE_PROP_ACK, CHIME_MS)
+            _state.value = VoiceInput.State.Heard(afterWake, direct = true)
+            return
+        }
+
+        // Tras el detector, Whisper puede haber escrito también la palabra; si
+        // cuela al principio de la orden, se le quita para que la gramática no la vea.
+        val order = afterWake ?: text
         _state.value = when {
             order.isNotBlank() -> VoiceInput.State.Heard(order, direct = true)
             capture.direct -> VoiceInput.State.Failed("I didn't catch that")
-            // "Siky" a secas: la pantalla decide qué contestar.
+            // La palabra a secas: la pantalla decide qué contestar.
             else -> VoiceInput.State.Heard("", direct = true)
         }
     }
 
     // ------------------------------------------------------------------ configuración
 
-    private fun spotterConfig(dir: File) = KeywordSpotterConfig(
+    private fun spotterConfig(dir: File, keywords: File) = KeywordSpotterConfig(
         featConfig = FeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
         modelConfig = OnlineModelConfig(
             transducer = OnlineTransducerModelConfig(
@@ -489,7 +586,7 @@ class OnDeviceVoiceInput(
             numThreads = 1,
             provider = "cpu",
         ),
-        keywordsFile = File(dir, "keywords.txt").absolutePath,
+        keywordsFile = keywords.absolutePath,
         // Medido con voz sintética: a 0,25 —el valor por defecto— "Siky" a secas
         // no dispara; a 0,1 dispara y las frases parecidas ("sick", "silky",
         // "seek the key") siguen sin hacerlo. Es un nombre inventado: el modelo
@@ -519,19 +616,18 @@ class OnDeviceVoiceInput(
 
     private fun recognizerConfig(dir: File) = OfflineRecognizerConfig(
         featConfig = FeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
+        // FastConformer de NVIDIA, multilingüe (en, es, fr, de): decide el idioma
+        // solo. Medido frente a Whisper base: seis veces más rápido y entiende
+        // el español, que Whisper destrozaba.
         modelConfig = OfflineModelConfig(
-            whisper = OfflineWhisperModelConfig(
+            transducer = OfflineTransducerModelConfig(
                 encoder = File(dir, "encoder.onnx").absolutePath,
                 decoder = File(dir, "decoder.onnx").absolutePath,
-                language = language.code,
-                task = "transcribe",
-                tailPaddings = -1,
+                joiner = File(dir, "joiner.onnx").absolutePath,
             ),
             tokens = File(dir, "tokens.txt").absolutePath,
-            modelType = "whisper",
-            // Whisper solo corre sobre la frase, no en continuo: aquí sí compensa
-            // pedir hilos. Medido en un móvil de 8 núcleos: base con 2 hilos, 760 ms.
-            numThreads = 4,
+            modelType = "nemo_transducer",
+            numThreads = 2,
             provider = "cpu",
         ),
         decodingMethod = "greedy_search",
@@ -560,6 +656,8 @@ class OnDeviceVoiceInput(
          */
         const val PRE_ROLL_CHUNKS = 3
         const val LEAD_SILENCE_MS = 400
+        /** Cuánto se conserva antes de la primera palabra al vigilar por transcripción. */
+        const val PRE_SPEECH_MS = 300
         const val KEYWORD_THRESHOLD = 0.1f
         const val CHIME_VOLUME = 60
         const val CHIME_MS = 120

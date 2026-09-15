@@ -113,16 +113,27 @@ En orden de cuánto acercan el producto a alguien que lo usaría:
      new by", "glass new buy"). El LLM lo absorbe —«What's new? Bye?» →
      `what_is_nearby`— pero cuesta ~1,5 s más. Whisper *small* está descargado
      para medir si el tiempo compensa.
-4. **Mapa real en el vehículo.** El lienzo propio sitúa, pero no enseña calles, y
-   sin calles el mapa no orienta a nadie. El nativo de Pleos sigue detrás de
-   `NaviService` sin librería cliente, así que el plan es **adelantar Mapbox
-   también al sabor `vehicle` como puente** —ya funciona en el banco de pruebas—,
-   sin renunciar al nativo cuando llegue. Queda la licencia de automoción y servir
-   la clave desde el backend. Ver [docs/MAP-OPTIONS.md](docs/MAP-OPTIONS.md).
-5. **Navegación.** Hoy "Llévame ahí" contesta en voz alta que no puede fijar
-   destino; es honesto, pero no es el producto. Bloqueado en la librería cliente
-   de Pleos (`NaviHelper`), y `geo:` no lo atiende nadie. Si la entrega se alarga,
-   hay que decidir alternativa en vez de esperar.
+4. ~~Mapa real~~ / ~~Navegación~~ **hechos en el banco de pruebas el
+   2026‑09‑15**, por Mapbox como puente: posición real del dispositivo
+   (`LocationManager`, sin Play Services), rutas por Mapbox Directions dibujadas
+   en el mapa, guía por maniobras en voz alta, recálculo al salirse y aviso de
+   llegada. Medido en Cartagena: "Ey Sícret, llévame al cerro de la Popa" →
+   ruta de 7,2 km con 15 maniobras. Lo que sigue abierto es lo de siempre: en
+   el vehículo, `NaviHelper` de Pleos.
+5. **Lugares reales con texto.** El catálogo editorial tiene tres fichas por
+   ciudad. Se suman los de **Wikipedia por geolocalización** —22 monumentos en
+   10 km de Cartagena, con introducción en el idioma y foto—, filtrando
+   eventos, provincias y aeropuertos. Licencia CC BY-SA: hay que atribuir.
+6. **Reconocimiento:** Whisper base destrozaba el español. Se cambió por el
+   FastConformer multilingüe de NVIDIA (en/es/fr/de): 6× más rápido (~110 ms
+   por frase en el móvil) y entiende los dos idiomas. La palabra de activación
+   es **por idioma**: "Hey Secret" con el detector de palabras clave en
+   inglés; "Ey Sícret" por transcripción en español, porque el detector solo
+   sabe inglés y ninguna palabra española le dispara (medido: 0/4 en todas).
+   Coste a medir: en español se transcribe todo lo que se dice en el coche.
+7. **Contenido en el idioma.** Lo del catálogo solo existe en inglés; se
+   traduce en el dispositivo con Gemma una vez por lugar (10–20 s en segundo
+   plano). Correcto, no literario: la traducción editorial sigue siendo humana.
 6. **Posición real del vehículo** en lugar del simulador.
 7. **Cuenta vinculada**, para que favoritos e itinerarios aparezcan en el coche.
 

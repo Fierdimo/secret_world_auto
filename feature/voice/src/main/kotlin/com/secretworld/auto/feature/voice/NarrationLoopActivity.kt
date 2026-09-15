@@ -174,6 +174,9 @@ class NarrationLoopActivity : Activity() {
                     "Coming up on your right is $name, one of the landmarks of the ancient Appian Way. " +
                         "It has stood beside this road for nearly two thousand years, watching traffic " +
                         "pass in both directions."
+                VoiceLanguage.SPANISH ->
+                    "A tu derecha se acerca $name, uno de los monumentos de la antigua vía Apia. " +
+                        "Lleva casi dos mil años junto a esta carretera viendo pasar el tráfico."
                 VoiceLanguage.ITALIAN ->
                     "Sulla destra sta arrivando $name, uno dei monumenti dell'antica via Appia. " +
                         "E accanto a questa strada da quasi duemila anni."

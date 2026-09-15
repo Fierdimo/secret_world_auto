@@ -20,8 +20,12 @@ sealed interface VoiceCommand {
     /** "Cuéntame más" → segundo nivel de contenido sobre lo que suena. */
     data object TellMeMore : VoiceCommand
 
-    /** "Llévame ahí" → fija el destino en el navegador del vehículo. */
-    data object TakeMeThere : VoiceCommand
+    /**
+     * "Llévame ahí", "llévame al Foro" → traza la ruta y la sigue.
+     *
+     * @param place el destino nombrado, o `null` si es "ahí": el lugar en foco.
+     */
+    data class TakeMeThere(val place: Place?) : VoiceCommand
 
     /** "Sáltalo", "ahora no" → descarta y pasa al siguiente. */
     data object Skip : VoiceCommand
@@ -85,7 +89,8 @@ object VoiceGrammar {
         if (words.hasAny(SKIP)) return VoiceCommand.Skip
         if (words.hasAny(NEARBY)) return VoiceCommand.WhatIsNearby
         if (words.hasAny(MORE)) return VoiceCommand.TellMeMore
-        if (words.hasAny(NAVIGATE)) return VoiceCommand.TakeMeThere
+        // "Llévame al Foro" nombra el destino; "llévame ahí" es el lugar en foco.
+        if (words.hasAny(NAVIGATE)) return VoiceCommand.TakeMeThere(resolve(heard, candidates) ?: focus)
 
         // Un lugar nombrado gana siempre al deíctico: si dice "cuéntame el Foro"
         // mientras suena otra cosa, quiere el Foro.
@@ -131,9 +136,11 @@ object VoiceGrammar {
             ?.first
     }
 
+    private val ACCENTS = mapOf('á' to 'a', 'é' to 'e', 'í' to 'i', 'ó' to 'o', 'ú' to 'u', 'ü' to 'u', 'ñ' to 'n')
+
     /** ¿Contiene la frase alguna de estas expresiones, como palabras enteras y seguidas? */
     private fun List<String>.hasAny(phrases: List<String>): Boolean = phrases.any { phrase ->
-        val needle = phrase.split(' ')
+        val needle = normalise(phrase).split(' ')
         indices.any { start -> start + needle.size <= size && subList(start, start + needle.size) == needle }
     }
 
@@ -143,15 +150,31 @@ object VoiceGrammar {
 
     private fun normalise(text: String): String =
         text.lowercase()
+            // Sin acentos: el reconocedor los pone o no según le suene, y
+            // "que hay cerca" y "qué hay cerca" tienen que ser lo mismo.
+            .map { ACCENTS[it] ?: it }
             .map { if (it.isLetterOrDigit() || it.isWhitespace()) it else ' ' }
             .joinToString("")
             .split(' ')
             .filter { it.isNotBlank() }
             .joinToString(" ")
 
+    /**
+     * Las órdenes, en inglés y en español a la vez. No hace falta saber el
+     * idioma para reconocerlas: las palabras no se pisan entre sí, y el
+     * conductor puede mezclar. Lo que sí importa es no incluir palabras
+     * corrientes: "para" es "stop" en español pero también "hacia", así que
+     * cuenta solo como "para ya" o con la orden completa.
+     */
     /** Órdenes de corte. Se comprueban las primeras, a propósito. */
-    private val STOP = listOf("stop", "quiet", "silence", "be quiet", "shut up", "enough")
-    private val SKIP = listOf("skip", "not now", "next one", "next place", "later")
+    private val STOP = listOf(
+        "stop", "quiet", "silence", "be quiet", "shut up", "enough",
+        "para ya", "cállate", "callate", "silencio", "basta", "detente", "alto", "ya está", "ya esta",
+    )
+    private val SKIP = listOf(
+        "skip", "not now", "next one", "next place", "later",
+        "salta", "sáltalo", "saltalo", "siguiente", "ahora no", "pásalo", "pasalo",
+    )
     /**
      * Incluye cómo lo oye Whisper: "new by", "newbie" y "near by" son "nearby"
      * dicho en un coche. Medido, no supuesto.
@@ -159,20 +182,31 @@ object VoiceGrammar {
     private val NEARBY = listOf(
         "nearby", "near by", "new by", "newbie", "near me", "close by", "around me",
         "around here", "what s around", "whats around", "what is around", "around",
+        "cerca", "alrededor", "por aquí", "por aqui", "qué hay aquí", "que hay aqui", "cerca de mí", "cerca de mi",
     )
-    private val MORE = listOf("tell me more", "more about", "go on", "keep going", "continue")
-    private val NAVIGATE = listOf("take me there", "take me to", "navigate", "drive me", "go there", "directions")
+    private val MORE = listOf(
+        "tell me more", "more about", "go on", "keep going", "continue",
+        "cuéntame más", "cuentame mas", "dime más", "dime mas", "sigue", "continúa", "continua",
+    )
+    private val NAVIGATE = listOf(
+        "take me there", "take me to", "navigate", "drive me", "go there", "directions",
+        // "lleva mi" y "lleva me" son "llévame" partido por el reconocedor. Medido.
+        "llévame", "llevame", "lleva mi", "lleva me", "llévanos", "llevanos", "lleva a", "vamos a", "vamos al", "vamos para", "vamos ahí", "vamos ahi", "vamos allí", "vamos alli", "vamos allá", "vamos alla", "cómo llego", "como llego", "ruta a", "ruta al", "ir a", "ir al", "navega",
+    )
 
     /** Deícticos: solo tienen sentido con un lugar en foco. */
-    private val DEICTIC = listOf("that", "this", "it", "there", "that one", "this one")
+    private val DEICTIC = listOf(
+        "that", "this", "it", "there", "that one", "this one",
+        "eso", "esto", "ahí", "ahi", "ese", "esa", "aquello", "allí", "alli",
+    )
 
     /** Sin "one", "two"…: "that one" y "next one" no son ordinales. */
     private val ORDINALS = mapOf(
-        "first" to 0, "1st" to 0,
-        "second" to 1, "2nd" to 1,
-        "third" to 2, "3rd" to 2,
-        "fourth" to 3, "4th" to 3,
-        "fifth" to 4, "5th" to 4,
+        "first" to 0, "1st" to 0, "primero" to 0, "primera" to 0,
+        "second" to 1, "2nd" to 1, "segundo" to 1, "segunda" to 1,
+        "third" to 2, "3rd" to 2, "tercero" to 2, "tercera" to 2,
+        "fourth" to 3, "4th" to 3, "cuarto" to 3, "cuarta" to 3,
+        "fifth" to 4, "5th" to 4, "quinto" to 4, "quinta" to 4,
     )
 
     /**
@@ -183,5 +217,7 @@ object VoiceGrammar {
         "the", "and", "for", "with", "from", "que", "los", "las",
         "tell", "about", "what", "who", "was", "were", "this", "that", "there",
         "please", "hey", "secret", "world",
+        "del", "por", "para", "con", "una", "uno", "unos", "unas", "qué", "cuéntame", "cuentame",
+        "sobre", "hay", "cerca", "dime", "háblame", "hablame", "lugar", "sitio", "vamos", "llévame", "llevame",
     )
 }

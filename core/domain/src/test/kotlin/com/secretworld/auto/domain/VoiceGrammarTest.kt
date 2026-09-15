@@ -47,9 +47,12 @@ class VoiceGrammarTest {
 
     @Test
     fun `pide que le lleven`() {
-        listOf("take me there", "navigate there", "take me to the forum").forEach {
-            assertEquals(VoiceCommand.TakeMeThere, VoiceGrammar.parse(it, places), "con «$it»")
+        listOf("take me there", "navigate there").forEach {
+            assertEquals(VoiceCommand.TakeMeThere(null), VoiceGrammar.parse(it, places), "con «$it»")
         }
+        // "Ahí" es el lugar en foco; un nombre manda sobre el foco.
+        assertEquals(VoiceCommand.TakeMeThere(cecilia), VoiceGrammar.parse("take me there", places, focus = cecilia))
+        assertEquals(VoiceCommand.TakeMeThere(forum), VoiceGrammar.parse("take me to the forum", places, focus = cecilia))
     }
 
     @Test
@@ -62,6 +65,23 @@ class VoiceGrammarTest {
     fun `un lugar nombrado gana al que esta sonando`() {
         val command = VoiceGrammar.parse("what is the circus maximus", places, focus = forum)
         assertEquals(VoiceCommand.TellMeAbout(circus), command)
+    }
+
+    @Test
+    fun `en español, con y sin acentos`() {
+        assertEquals(VoiceCommand.WhatIsNearby, VoiceGrammar.parse("qué hay cerca", places))
+        assertEquals(VoiceCommand.WhatIsNearby, VoiceGrammar.parse("que hay por aqui", places))
+        assertEquals(VoiceCommand.Stop, VoiceGrammar.parse("cállate ya", places))
+        assertEquals(VoiceCommand.Stop, VoiceGrammar.parse("para ya", places))
+        assertEquals(VoiceCommand.Skip, VoiceGrammar.parse("el siguiente", places))
+        assertEquals(VoiceCommand.TellMeMore, VoiceGrammar.parse("cuéntame más", places, focus = forum))
+        assertEquals(VoiceCommand.TellMeAbout(forum), VoiceGrammar.parse("háblame del roman forum", places))
+        assertEquals(VoiceCommand.TellMeAbout(cecilia), VoiceGrammar.parse("qué es eso", places, focus = cecilia))
+        assertEquals(VoiceCommand.TakeMeThere(circus), VoiceGrammar.parse("llévame al circus maximus", places))
+        assertEquals(VoiceCommand.TakeMeThere(cecilia), VoiceGrammar.parse("vamos allí", places, focus = cecilia))
+        // "para" a secas es una preposición, no una orden.
+        assertEquals(VoiceCommand.TakeMeThere(forum), VoiceGrammar.parse("llévame para el forum", places))
+        assertEquals(VoiceCommand.TellMeAbout(forum), VoiceGrammar.parse("el segundo", places, listed = listOf(circus, forum)))
     }
 
     @Test

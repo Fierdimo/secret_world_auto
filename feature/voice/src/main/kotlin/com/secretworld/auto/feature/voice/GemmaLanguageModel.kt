@@ -120,7 +120,7 @@ class GemmaLanguageModel(
         LlmInference.createFromOptions(context, options)
     }
 
-    override suspend fun complete(prefix: String, request: String): String = withContext(Dispatchers.IO) {
+    override suspend fun complete(prefix: String, request: String, singleLine: Boolean): String = withContext(Dispatchers.IO) {
         Log.d(TAG, "petición al LLM: ${request.lines().lastOrNull { it.isNotBlank() }}")
         val llm = engine ?: error("el LLM no está cargado")
         lock.withLock {
@@ -128,9 +128,12 @@ class GemmaLanguageModel(
             // "no entendí" y nadie sabe que el modelo no llegó a hablar.
             try {
                 val started = System.nanoTime()
-                val session = if (canClone) {
-                    val root = baseSession(llm, prefix)
-                    runCatching { root.cloneSession() }.getOrElse {
+                // Solo el prefijo precalentado se clona. Otro prefijo —una
+                // traducción— va en sesión propia y no toca la base: si la
+                // sustituyera, la siguiente orden volvería a pagar los 4 s.
+                val cached = base?.takeIf { canClone && basePrefix == prefix }
+                val session = if (cached != null) {
+                    runCatching { cached.cloneSession() }.getOrElse {
                         Log.w(TAG, "este backend no clona sesiones; cada petición procesará el prefijo entero")
                         canClone = false
                         freshSession(llm).also { it.addQueryChunk(prefix) }
@@ -142,7 +145,7 @@ class GemmaLanguageModel(
 
                 try {
                     session.addQueryChunk(request)
-                    val reply = firstLine(session)
+                    val reply = if (singleLine) firstLine(session) else session.generateResponse()
                     val totalMs = (System.nanoTime() - started) / 1_000_000
                     Log.i(TAG, "LLM: ${totalMs} ms (prefijo ${prefixMs} ms, ${if (canClone) "clonado" else "sin caché"}) → ${reply.trim().take(120)}")
                     reply

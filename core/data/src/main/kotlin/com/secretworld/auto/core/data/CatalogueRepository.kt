@@ -18,10 +18,19 @@ import kotlinx.coroutines.withContext
  */
 class CatalogueRepository(
     private val api: SecretWorldApi,
+    /**
+     * Lugares reales alrededor, de Wikipedia, con su texto. Se **suman** al
+     * catálogo editorial: sin ellos una ciudad tiene tres fichas y poco que ver.
+     */
+    private val wikipedia: WikipediaPlaces? = null,
 ) : NarrationTextSource {
 
-    /** Qué origen sirvió los últimos datos, para que la interfaz pueda ser honesta. */
-    enum class Source { LIVE, FALLBACK }
+    /**
+     * Qué origen sirvió los últimos datos, para que la interfaz pueda ser honesta.
+     *
+     * [POI] significa que no hubo catálogo y lo que hay viene de Wikipedia.
+     */
+    enum class Source { LIVE, FALLBACK, POI }
 
     data class Result(
         val places: List<Place>,
@@ -65,7 +74,7 @@ class CatalogueRepository(
             }
         }.getOrElse { error ->
             fallback(error.message ?: error::class.simpleName ?: "error de red")
-        }
+        }.let { catalogue -> withWikipedia(catalogue, position, language) }
 
         result.places.forEach { place -> place.summary?.let { texts[place.id] = it } }
         lastKey = key
@@ -75,6 +84,35 @@ class CatalogueRepository(
 
     private fun fallback(reason: String) =
         Result(CuratedCatalogue.places.deduplicate(), Source.FALLBACK, reason)
+
+    /**
+     * Suma lo de Wikipedia a lo del catálogo, sin repetir lo que ya está.
+     *
+     * Lo del catálogo va primero: es contenido editorial y es lo que el producto
+     * vende. Si el catálogo no tenía nada de aquí —el respaldo es Roma, y el
+     * coche puede estar en cualquier parte—, se queda solo Wikipedia y se dice.
+     */
+    private suspend fun withWikipedia(catalogue: Result, position: Coordinates, language: VoiceLanguage): Result {
+        val wiki = wikipedia ?: return catalogue
+        val around = wiki.around(position, language)
+        if (around.places.isEmpty()) return catalogue
+
+        val nearEnough = catalogue.places.filter { position.distanceTo(it.position) < NEAR_ENOUGH_METERS }
+        val known = nearEnough.map { normalise(it.name) }
+        val extra = around.places
+            .filterNot { wikiPlace -> known.any { it.contains(normalise(wikiPlace.name)) || normalise(wikiPlace.name).contains(it) } }
+            // El catálogo trae ciudad; Wikipedia la sabe aparte. Que todos digan la misma.
+            .map { if (it.city == null) it.copy(city = nearEnough.firstOrNull()?.city ?: around.city) else it }
+        val merged = (nearEnough + extra).sortedBy { position.distanceTo(it.position) }
+        return if (nearEnough.isEmpty()) {
+            Result(merged, Source.POI, catalogue.failure)
+        } else {
+            Result(merged, catalogue.source, catalogue.failure)
+        }
+    }
+
+    private fun normalise(name: String): String =
+        name.lowercase().filter { it.isLetterOrDigit() || it == ' ' }.split(' ').filter { it.length > 3 }.joinToString(" ")
 
     /**
      * El catálogo tiene **varias fichas del mismo monumento** —el Coliseo aparece
@@ -98,5 +136,7 @@ class CatalogueRepository(
 
     private companion object {
         const val DEFAULT_RADIUS_KM = 25
+        /** Más lejos que esto, un lugar no es "de alrededor" para nadie. */
+        const val NEAR_ENOUGH_METERS = 50_000.0
     }
 }

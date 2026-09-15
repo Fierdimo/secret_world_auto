@@ -38,6 +38,16 @@ object VoiceCatalog {
             licence = "LJ Speech, dominio publico",
         ),
         VoicePack(
+            language = VoiceLanguage.SPANISH,
+            url = "es.zip",
+            bytes = 14931149L,
+            sha256 = "33284b4066a4b84cfda45bbbfd7b79f720f867f6528ef5859a2abe649604199f",
+            // x_low a propósito: es la más rápida de sintetizar. Se probó ald
+            // (es_MX, medium) y sonaba con una prosodia rara; aquí manda la
+            // velocidad de respuesta sobre la calidad de la voz.
+            licence = "carlfm (es_ES, x_low), dominio público",
+        ),
+        VoicePack(
             language = VoiceLanguage.ITALIAN,
             url = "it.zip",
             bytes = 22493504L,

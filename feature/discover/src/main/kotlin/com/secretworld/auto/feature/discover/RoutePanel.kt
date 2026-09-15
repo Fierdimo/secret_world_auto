@@ -23,6 +23,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import com.secretworld.auto.feature.discover.R
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,7 +36,6 @@ import com.secretworld.auto.core.designsystem.CarTheme
 import com.secretworld.auto.domain.Coordinates
 import com.secretworld.auto.domain.DrivingMode
 import com.secretworld.auto.domain.Place
-import com.secretworld.auto.domain.WakeWord
 
 /**
  * El panel acoplado al mapa.
@@ -60,6 +61,8 @@ fun RoutePanel(
     onListen: (Place) -> Unit,
     onNavigate: (Place) -> Unit,
     modifier: Modifier = Modifier,
+    navigation: NavigationUi? = null,
+    onStopNavigation: () -> Unit = {},
 ) {
     val d = CarTheme.dimens
     val driving = mode == DrivingMode.DRIVING
@@ -76,10 +79,17 @@ fun RoutePanel(
     ) {
         PanelHeader(city = city, offline = offline, voice = voice, onSpeak = onSpeak)
 
+        // La ruta activa va lo primero: mientras se navega es lo único que se
+        // mira de reojo, y la lista de lugares pasa a segundo plano.
+        if (navigation != null) {
+            Spacer(Modifier.height(d.spaceS))
+            NavigationCard(navigation, onStopNavigation)
+        }
+
         if (CarTheme.metrics.heightDp >= COMPACT_HEIGHT) {
             Spacer(Modifier.height(d.spaceM))
             Text(
-                text = if (driving) "On your route" else "Around you",
+                text = stringResource(if (driving) R.string.section_driving else R.string.section_parked),
                 style = MaterialTheme.typography.titleLarge,
             )
         }
@@ -88,7 +98,7 @@ fun RoutePanel(
         if (places.isEmpty()) {
             // Preferir el silencio al relleno vale también para la pantalla.
             Text(
-                text = "Nothing worth telling around here yet.",
+                text = stringResource(R.string.nothing_around),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -175,6 +185,58 @@ fun RoutePanel(
     }
 }
 
+/** La ruta en curso, tal como se enseña: a dónde, cuánto queda y qué hacer ahora. */
+data class NavigationUi(
+    val destination: String,
+    /** "1.2 km", "300 m". */
+    val remaining: String,
+    /** "6 min". */
+    val eta: String,
+    /** "Turn left onto Via Sacra", o null si el proveedor no da maniobras. */
+    val instruction: String?,
+    /** "in 200 m". */
+    val instructionDistance: String?,
+    val arrived: Boolean = false,
+)
+
+@Composable
+private fun NavigationCard(state: NavigationUi, onStop: () -> Unit) {
+    val d = CarTheme.dimens
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(d.cardCorner))
+            .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f))
+            .padding(d.spaceS),
+    ) {
+        Text(
+            text = if (state.arrived) stringResource(R.string.nav_arrived) else stringResource(R.string.nav_to, state.destination),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.secondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        // La maniobra es lo grande: es lo que hay que hacer ahora.
+        Text(
+            text = state.instruction ?: state.destination,
+            style = MaterialTheme.typography.titleLarge,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = listOfNotNull(state.instructionDistance, "${state.remaining} · ${state.eta}").joinToString("  ·  "),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            CarSecondaryButton(label = stringResource(R.string.nav_end), onClick = onStop, compact = true)
+        }
+    }
+}
+
 /** Lo que suena ahora, con progreso real. Sin esto la app parece muda aunque hable. */
 data class NowPlaying(
     val placeName: String,
@@ -194,7 +256,7 @@ private fun NowPlayingCard(state: NowPlaying) {
             .padding(d.spaceS),
     ) {
         Text(
-            text = if (state.preparing) "Preparing" else "Now playing",
+            text = stringResource(if (state.preparing) R.string.preparing else R.string.now_playing),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
         )
@@ -233,7 +295,7 @@ private fun PanelHeader(
     voice: VoiceUi,
     onSpeak: () -> Unit,
 ) {
-    val place = city ?: "Finding where you are"
+    val place = city ?: stringResource(R.string.finding_where)
     if (CarTheme.metrics.heightDp < COMPACT_HEIGHT) {
         // Con el alto justo, la marca sobra: la app ya está en pantalla y repetir
         // su nombre costaba una línea entera —una tarjeta de lugar menos—. Lo que
@@ -248,7 +310,7 @@ private fun PanelHeader(
             )
             if (offline) {
                 Text(
-                    text = "  ·  offline",
+                    text = "  ·  " + stringResource(R.string.offline),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.secondary,
                 )
@@ -261,7 +323,7 @@ private fun PanelHeader(
 
     Row(verticalAlignment = Alignment.CenterVertically) {
       Column(Modifier.weight(1f)) {
-        Text("Secret World", style = MaterialTheme.typography.displayMedium)
+        Text(stringResource(R.string.brand), style = MaterialTheme.typography.displayMedium)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = place,
@@ -270,7 +332,7 @@ private fun PanelHeader(
             )
             if (offline) {
                 Text(
-                    text = "  ·  offline",
+                    text = "  ·  " + stringResource(R.string.offline),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.secondary,
                 )
@@ -289,6 +351,8 @@ private fun PanelHeader(
  * lo que se oyó es lo que permite al usuario corregirse.
  */
 data class VoiceUi(
+    /** La palabra de activación del idioma, para enseñarla en el botón. */
+    val wakeWord: String = "Hey Secret",
     val listening: Boolean = false,
     /** El micrófono está abierto en permanencia, esperando la palabra clave. */
     val handsFree: Boolean = false,
@@ -307,9 +371,9 @@ private fun SpeakButton(voice: VoiceUi, onSpeak: () -> Unit) {
     // ocultar— y la salida para quien prefiera pulsar antes que decir el nombre.
     CarSecondaryButton(
         label = when {
-            voice.listening -> "Listening…"
-            voice.handsFree -> "“${WakeWord.SPOKEN.replaceFirstChar { it.uppercase() }}”"
-            else -> "Speak"
+            voice.listening -> stringResource(R.string.listening)
+            voice.handsFree -> "“${voice.wakeWord}”"
+            else -> stringResource(R.string.speak)
         },
         onClick = onSpeak,
         dense = true,
@@ -331,9 +395,9 @@ private fun VoiceCard(voice: VoiceUi) {
             // Sin esto, un "no te he oido" aparecia bajo el rotulo "You said",
             // atribuyendole al conductor una frase que no dijo.
             text = when {
-                voice.listening -> "Listening…"
-                voice.heard != null -> "You said"
-                else -> "Secret World"
+                voice.listening -> stringResource(R.string.listening)
+                voice.heard != null -> stringResource(R.string.you_said)
+                else -> stringResource(R.string.brand)
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.secondary,
@@ -402,15 +466,15 @@ private fun PlaceEntry(
         }
         Spacer(Modifier.height(d.spaceXs))
         Row(horizontalArrangement = Arrangement.spacedBy(d.spaceXs)) {
-            CarButton(label = "Listen", onClick = onListen, dense = dense)
+            CarButton(label = stringResource(R.string.listen), onClick = onListen, dense = dense)
             // Si no cabe, no se recorta: se deja para la ficha, que se abre
             // tocando la tarjeta y donde el botón sí tiene sitio.
             if (showNavigate) {
-                CarSecondaryButton(label = "Take me", onClick = onNavigate, dense = dense)
+                CarSecondaryButton(label = stringResource(R.string.take_me), onClick = onNavigate, dense = dense)
             }
             // El detalle solo tiene sentido con el coche parado: es texto largo.
             if (showDetails) {
-                CarSecondaryButton(label = "Details", onClick = onSelect, dense = dense)
+                CarSecondaryButton(label = stringResource(R.string.details), onClick = onSelect, dense = dense)
             }
         }
     }
