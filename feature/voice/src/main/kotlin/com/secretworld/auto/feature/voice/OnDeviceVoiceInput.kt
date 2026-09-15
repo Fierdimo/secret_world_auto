@@ -95,6 +95,10 @@ class OnDeviceVoiceInput(
     @Volatile
     private var directRequested = false
 
+    /** La orden directa pendiente es la respuesta a una pregunta nuestra. */
+    @Volatile
+    private var answerExpected = false
+
     /** Se pidió cortar la frase en curso. La atiende el hilo de audio. */
     @Volatile
     private var abortRequested = false
@@ -147,6 +151,11 @@ class OnDeviceVoiceInput(
             spotting = true
         }
         ensureThread()
+    }
+
+    override fun listenForAnswer() {
+        answerExpected = true
+        listen(direct = true)
     }
 
     override fun cancel() {
@@ -235,7 +244,9 @@ class OnDeviceVoiceInput(
         // el reconocedor está trabajando en la primera.
         val chime = runCatching { ToneGenerator(AudioManager.STREAM_MUSIC, CHIME_VOLUME) }.getOrNull()
 
-        val spotStream = engines.spotter.createStream()
+        var spotStream = engines.spotter.createStream()
+        // Chunks de vigilancia desde la última renovación del flujo del detector.
+        var spotChunks = 0
         val pcm = ShortArray(CHUNK_SAMPLES)
         val chunk = FloatArray(CHUNK_SAMPLES)
         var mode = Mode.SPOT
@@ -288,7 +299,8 @@ class OnDeviceVoiceInput(
 
                 if (directRequested && mode == Mode.SPOT) {
                     directRequested = false
-                    capture = Capture(direct = true, preRoll = emptyList())
+                    capture = Capture(direct = true, preRoll = emptyList(), answer = answerExpected)
+                    answerExpected = false
                     recent.clear()
                     engines.vad.reset()
                     mode = Mode.CAPTURE
@@ -297,6 +309,16 @@ class OnDeviceVoiceInput(
 
                 when (mode) {
                     Mode.SPOT -> {
+                        // El detector es un modelo en streaming y arrastra estado
+                        // desde que se abrió el flujo. Medido: reconoce "Siky" al
+                        // arrancar y deja de hacerlo tras unos minutos de audio
+                        // continuo, con el micrófono oyendo perfectamente. Un
+                        // flujo nuevo cada poco lo mantiene como recién abierto.
+                        if (++spotChunks >= SPOT_RENEW_CHUNKS) {
+                            spotStream.release()
+                            spotStream = engines.spotter.createStream()
+                            spotChunks = 0
+                        }
                         spotStream.acceptWaveform(chunk.copyOf(n), SAMPLE_RATE)
                         while (engines.spotter.isReady(spotStream)) engines.spotter.decode(spotStream)
                         val keyword = engines.spotter.getResult(spotStream).keyword
@@ -318,7 +340,11 @@ class OnDeviceVoiceInput(
                         if (done) {
                             finish(current, engines)
                             capture = null
-                            engines.spotter.reset(spotStream)
+                            // Flujo nuevo, no reset: durante la captura el
+                            // detector no ha oído nada y su estado ya no vale.
+                            spotStream.release()
+                            spotStream = engines.spotter.createStream()
+                            spotChunks = 0
                             mode = Mode.SPOT
                         }
                     }
@@ -348,7 +374,7 @@ class OnDeviceVoiceInput(
      * consonantes con las que distingue una de otra. Whisper lleva bien el
      * silencio; lo que no lleva bien es que le recorten.
      */
-    private inner class Capture(val direct: Boolean, preRoll: List<FloatArray>) {
+    private inner class Capture(val direct: Boolean, preRoll: List<FloatArray>, val answer: Boolean = false) {
         private val startedAt = System.nanoTime()
         private val window = FloatArray(VAD_WINDOW)
         private var filled = 0
@@ -389,8 +415,9 @@ class OnDeviceVoiceInput(
             val silenceMs = (total - lastSpeechAt) * 1000L / SAMPLE_RATE
             // Habló y luego calló lo bastante.
             if (speechSeen && silenceMs > END_SILENCE_MS) return true
-            // Nunca habló: se le esperó lo razonable.
-            if (!speechSeen && elapsedMs > NO_SPEECH_MS) return true
+            // Nunca habló: se le esperó lo razonable. Tras una pregunta, más:
+            // decidir entre tres sitios lleva un momento.
+            if (!speechSeen && elapsedMs > (if (answer) NO_ANSWER_MS else NO_SPEECH_MS)) return true
             // Habla sin parar: en marcha no hay órdenes de ocho segundos.
             return elapsedMs > MAX_CAPTURE_MS
         }
@@ -411,12 +438,13 @@ class OnDeviceVoiceInput(
     private fun finish(capture: Capture, engines: Engines) {
         val audio = capture.audio()
         if (audio == null) {
-            Log.i(TAG, "sin habla tras la palabra de activación")
-            // "Siky" a secas, sin orden detrás: la pantalla decide qué contestar.
-            _state.value = if (capture.direct) {
-                VoiceInput.State.Failed("I didn't catch that")
-            } else {
-                VoiceInput.State.Heard("", direct = true)
+            Log.i(TAG, "sin habla tras ${if (capture.answer) "la pregunta" else "la palabra de activación"}")
+            _state.value = when {
+                // Una pregunta sin respuesta no es un fallo: se vuelve a vigilar.
+                capture.answer -> VoiceInput.State.Idle
+                capture.direct -> VoiceInput.State.Failed("I didn't catch that")
+                // "Siky" a secas, sin orden detrás: la pantalla decide qué contestar.
+                else -> VoiceInput.State.Heard("", direct = true)
             }
             return
         }
@@ -518,7 +546,10 @@ class OnDeviceVoiceInput(
         const val VAD_WINDOW = 512
         /** Cada cuántas lecturas de 100 ms se registra el nivel: cada 5 s. */
         const val LEVEL_EVERY_CHUNKS = 50
+        /** Cada cuántas lecturas de vigilancia se renueva el flujo del detector: 20 s. */
+        const val SPOT_RENEW_CHUNKS = 200
         const val NO_SPEECH_MS = 2_000L
+        const val NO_ANSWER_MS = 4_000L
         /** Silencio tras la última palabra que da la frase por terminada. */
         const val END_SILENCE_MS = 500L
         /** Cuánto se conserva después de la última palabra. */

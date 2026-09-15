@@ -50,6 +50,13 @@ interface VoiceInput {
     fun listen(direct: Boolean = true)
 
     /**
+     * Abre el turno **después de una pregunta** del asistente. Como [listen]
+     * directo, pero con más paciencia y sin reproche: si el conductor no
+     * contesta, no ha pasado nada, se vuelve a vigilar.
+     */
+    fun listenForAnswer() = listen(direct = true)
+
+    /**
      * Cancela la orden en curso. Si había vigilancia de la palabra de activación,
      * **sigue**: pulsar el botón para cortar una frase no es pedir que se apague.
      */

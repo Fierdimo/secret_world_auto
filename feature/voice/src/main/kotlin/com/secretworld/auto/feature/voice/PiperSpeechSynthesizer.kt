@@ -32,7 +32,10 @@ class PiperSpeechSynthesizer(private val installer: VoiceInstaller) : SpeechSynt
     ): Synthesis {
         val tts = engineFor(language)
         val started = System.nanoTime()
-        val audio = tts.generate(text, 0, 1.0f)
+        // Una sintesis a la vez por motor. Dos a la vez —una respuesta por
+        // frases mientras se prepara la siguiente— no van el doble de lentas:
+        // van cuatro veces mas lentas, y el motor no promete ser seguro entre hilos.
+        val audio = synchronized(tts) { tts.generate(text, 0, 1.0f) }
         val elapsed = (System.nanoTime() - started) / 1_000_000_000.0
 
         require(audio.save(outputPath)) { "no se pudo escribir $outputPath" }

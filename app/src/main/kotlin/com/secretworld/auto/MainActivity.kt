@@ -61,6 +61,8 @@ import com.secretworld.auto.domain.IntentPrompt
 import com.secretworld.auto.domain.IntentResolver
 import com.secretworld.auto.domain.LayeredIntentResolver
 import com.secretworld.auto.domain.LlmIntentResolver
+import com.secretworld.auto.domain.Resolution
+import com.secretworld.auto.domain.Phrasebook
 import com.secretworld.auto.domain.Place
 import com.secretworld.auto.domain.TourQueue
 import com.secretworld.auto.domain.VoiceCommand
@@ -225,16 +227,18 @@ class MainActivity : ComponentActivity() {
                         // micrófono sobre su propia voz y se transcribiría a sí misma.
                         answer = YES
                         voiceInput.acknowledge()
-                        narration.say(YES) { voiceInput.listen() }
+                        narration.say(YES) { voiceInput.listenForAnswer() }
                         return@LaunchedEffect
                     }
 
                     heard = order
                     val resolvedAt = System.nanoTime()
-                    val command = resolver.resolve(order, upcoming, memory)
-                    Log.i("SWVoice", "«$order» → ${command::class.simpleName} en ${(System.nanoTime() - resolvedAt) / 1_000_000} ms" +
-                        " (LLM ${gemma?.let { if (it.ready) "listo" else "cargando" } ?: "ausente"})")
-                    val reply = obey(command, upcoming, vehicleState.position) { place ->
+                    val resolution = resolver.resolve(order, upcoming, memory)
+                    Log.i("SWVoice", "«$order» → ${resolution.command::class.simpleName} en ${(System.nanoTime() - resolvedAt) / 1_000_000} ms" +
+                        " (LLM ${gemma?.let { if (it.ready) "listo" else "cargando" } ?: "ausente"})" +
+                        (resolution.reply?.let { " · dice: «$it»" } ?: ""))
+                    val context = Phrasebook.Context(vehicleState.position, upcoming, memory)
+                    val reply = obey(resolution, context) { place ->
                         skipped = skipped + place.id
                     }
                     memory.remember(order, reply)
@@ -492,79 +496,90 @@ class MainActivity : ComponentActivity() {
     /**
      * Ejecuta la orden y devuelve **lo que se le contesta al conductor**.
      *
-     * Dos reglas de fondo:
+     * Tres reglas de fondo:
      *
      * - Lo que no se sabe hacer **se dice en voz alta**, no se ignora. "Llévame
      *   ahí" no funciona porque la librería de navegación de Pleos no es pública
      *   (ver docs/OPEN-QUESTIONS.md), y callarse eso deja al conductor esperando
      *   una maniobra que nunca llega.
-     * - Narrar un lugar ya **es** la respuesta: encima no se habla, se narra.
+     * - La frase la pone quien mejor la sepa poner: si el modelo redactó una con
+     *   el contexto que se le dio, esa; si fue la gramática, el [Phrasebook] con
+     *   el mismo contexto. Nunca una frase fija sin más.
+     * - Cuando se pregunta algo, el turno se abre **al terminar de hablar**.
      */
     private fun obey(
-        command: VoiceCommand,
-        around: List<Place>,
-        here: Coordinates,
+        resolution: Resolution,
+        c: Phrasebook.Context,
         onSkip: (Place) -> Unit,
-    ): String = when (command) {
-        is VoiceCommand.TellMeAbout -> {
-            play(command.place)
-            command.place.name
-        }
-
-        VoiceCommand.WhatIsNearby -> {
-            // Enumerar, no narrar: "¿qué hay cerca?" pide una lista, y el lugar
-            // más cercano ya lo narra la cola sola. Con distancia, que es lo que
-            // en un coche convierte un nombre en una decisión, y con pregunta al
-            // final, que es lo que hace que "el segundo" signifique algo después.
-            val nearby = around.take(3)
-            memory.listed(nearby)
-            val reply = if (nearby.isEmpty()) {
-                NOTHING_NEARBY
-            } else {
-                "Around you: " + nearby.joinToString("; ") { "${it.name}, ${spokenDistance(here.distanceTo(it.position))}" } +
-                    ". Which one?"
+    ): String {
+        val said = resolution.reply
+        return when (val command = resolution.command) {
+            is VoiceCommand.TellMeAbout -> {
+                // Una breve introducción y, cuando termine, la narración. Sin
+                // introducción, narrar sin más es la respuesta, como antes.
+                val intro = said ?: Phrasebook.playing(c, command.place)
+                memory.focusOn(command.place)
+                narration.say(intro) { narration.listen(command.place) }
+                intro
             }
-            narration.say(reply) { if (nearby.isNotEmpty()) voiceInput.listen() }
-            reply
-        }
 
-        VoiceCommand.TellMeMore -> {
-            val reply = memory.focus?.let { "I only have one level of content for ${it.name} so far." } ?: NO_MORE
-            narration.say(reply)
-            reply
-        }
+            VoiceCommand.WhatIsNearby -> {
+                // Enumerar, no narrar: "¿qué hay cerca?" pide una lista. Con
+                // distancia, y con pregunta al final para que "el segundo"
+                // signifique algo después.
+                val nearby = c.around.take(3)
+                memory.listed(nearby)
+                val reply = said ?: if (nearby.isEmpty()) Phrasebook.nothingNearby(c) else Phrasebook.nearby(c, nearby)
+                narration.say(reply) { if (nearby.isNotEmpty()) voiceInput.listenForAnswer() }
+                reply
+            }
 
-        VoiceCommand.TakeMeThere -> {
-            narration.say(NO_NAVIGATION)
-            NO_NAVIGATION
-        }
+            VoiceCommand.TellMeMore -> {
+                val reply = said ?: Phrasebook.noMore(c)
+                narration.say(reply)
+                reply
+            }
 
-        VoiceCommand.Skip -> {
-            val current = memory.focus ?: around.firstOrNull()
-            if (current == null) {
-                narration.say(NOTHING_TO_SKIP)
-                NOTHING_TO_SKIP
-            } else {
+            VoiceCommand.TakeMeThere -> {
+                val reply = said ?: Phrasebook.noNavigation(c)
+                narration.say(reply)
+                reply
+            }
+
+            VoiceCommand.Skip -> {
+                val current = memory.focus ?: c.around.firstOrNull()
+                if (current == null) {
+                    val reply = said ?: Phrasebook.nothingToSkip(c)
+                    narration.say(reply)
+                    reply
+                } else {
+                    narration.stop()
+                    onSkip(current)
+                    val next = c.around.firstOrNull { it.id != current.id }
+                    val reply = said ?: Phrasebook.skipped(c, current, next)
+                    narration.say(reply)
+                    reply
+                }
+            }
+
+            VoiceCommand.Stop -> {
                 narration.stop()
-                onSkip(current)
-                "Skipped ${current.name}."
+                val reply = said ?: Phrasebook.stopped(c)
+                narration.say(reply)
+                reply
             }
-        }
 
-        VoiceCommand.Stop -> {
-            narration.stop()
-            STOPPED
-        }
+            is VoiceCommand.Clarify -> {
+                // Entendió a medias: pregunta y, cuando termine, abre el turno.
+                narration.say(command.question) { voiceInput.listenForAnswer() }
+                command.question
+            }
 
-        is VoiceCommand.Clarify -> {
-            // Entendió a medias: pregunta y, cuando termine, abre el turno.
-            narration.say(command.question) { voiceInput.listen() }
-            command.question
-        }
-
-        is VoiceCommand.NotUnderstood -> {
-            narration.say(NOT_UNDERSTOOD)
-            NOT_UNDERSTOOD
+            is VoiceCommand.NotUnderstood -> {
+                val reply = Phrasebook.notUnderstood(c)
+                narration.say(reply)
+                reply
+            }
         }
     }
 
@@ -572,13 +587,6 @@ class MainActivity : ComponentActivity() {
     private fun play(place: Place) {
         memory.focusOn(place)
         narration.listen(place)
-    }
-
-    /** Distancias como se dicen, no como se miden: nadie oye "1 437 metros". */
-    private fun spokenDistance(meters: Double): String = when {
-        meters < 100 -> "right here"
-        meters < 950 -> "${(meters / 50).toInt() * 50} metres"
-        else -> "%.1f kilometres".format(meters / 1000).replace(".0 ", " ")
     }
 
     /**
@@ -601,7 +609,9 @@ class MainActivity : ComponentActivity() {
         resolver = LayeredIntentResolver(
             grammar = GrammarIntentResolver(),
             fallback = if (llm.available) {
-                LlmIntentResolver(llm.also { gemma = it }) { Log.e("SWVoice", "el LLM no contestó", it) }
+                LlmIntentResolver(llm.also { gemma = it }, position = { vehicle.state.value.position }) {
+                    Log.e("SWVoice", "el LLM no contestó", it)
+                }
             } else {
                 null
             },
@@ -683,15 +693,11 @@ class MainActivity : ComponentActivity() {
         /** Cuánto se queda en pantalla una respuesta del asistente. */
         const val ANSWER_LINGER_MS = 8_000L
 
-        /** Las frases fijas del asistente. Se sintetizan por adelantado. */
+        /** Lo que se dice al oír "Siky" a secas. */
         const val YES = "Yes?"
-        const val STOPPED = "Stopped."
-        const val NOTHING_TO_SKIP = "Nothing to skip."
-        const val NOTHING_NEARBY = "I don't have anything worth telling around here."
-        const val NO_MORE = "Nothing is playing right now."
-        const val NO_NAVIGATION = "I can't set a destination yet: the navigation library isn't public."
-        const val NOT_UNDERSTOOD = "I can play a place, tell you what's nearby, skip it, or stop."
-        val FIXED_REPLIES = listOf(YES, STOPPED, NOTHING_TO_SKIP, NOTHING_NEARBY, NO_MORE, NO_NAVIGATION, NOT_UNDERSTOOD)
+
+        /** Las frases sin contexto, que se pueden sintetizar por adelantado. */
+        val FIXED_REPLIES = listOf(YES, "Okay.", "Sure.", "Alright, I'll be quiet.", "There's nothing playing to skip.", "Nothing to skip right now.")
         /**
          * Se arranca en Roma porque es donde el catálogo tiene densidad real, y
          * junto al Circo Máximo en vez de encima del Coliseo: si el vehículo nace

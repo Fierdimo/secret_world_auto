@@ -17,13 +17,22 @@ interface IntentResolver {
      * @param memory lo que se recuerda de la conversación: el lugar en foco, lo
      *   último enumerado y las últimas frases.
      */
-    suspend fun resolve(heard: String, candidates: List<Place>, memory: ConversationMemory): VoiceCommand
+    suspend fun resolve(heard: String, candidates: List<Place>, memory: ConversationMemory): Resolution
 }
+
+/**
+ * Lo que se entendió y, si quien lo entendió sabe redactar, lo que hay que decir.
+ *
+ * @param reply la frase para el conductor, o `null` para que la ponga el
+ *   [Phrasebook]. La gramática no redacta; el modelo sí, con el contexto que
+ *   se le dio.
+ */
+data class Resolution(val command: VoiceCommand, val reply: String? = null)
 
 /** La gramática cerrada del nivel 1, envuelta. No hace nada que no hiciera ya. */
 class GrammarIntentResolver : IntentResolver {
-    override suspend fun resolve(heard: String, candidates: List<Place>, memory: ConversationMemory): VoiceCommand =
-        VoiceGrammar.parse(heard, candidates, memory.focus, memory.listed)
+    override suspend fun resolve(heard: String, candidates: List<Place>, memory: ConversationMemory): Resolution =
+        Resolution(VoiceGrammar.parse(heard, candidates, memory.focus, memory.listed))
 }
 
 /**
@@ -39,9 +48,9 @@ class LayeredIntentResolver(
     private val fallback: IntentResolver?,
 ) : IntentResolver {
 
-    override suspend fun resolve(heard: String, candidates: List<Place>, memory: ConversationMemory): VoiceCommand {
+    override suspend fun resolve(heard: String, candidates: List<Place>, memory: ConversationMemory): Resolution {
         val first = grammar.resolve(heard, candidates, memory)
-        if (first !is VoiceCommand.NotUnderstood || fallback == null) return first
+        if (first.command !is VoiceCommand.NotUnderstood || fallback == null) return first
         return fallback.resolve(heard, candidates, memory)
     }
 }
@@ -77,6 +86,8 @@ interface LanguageModel {
  */
 class LlmIntentResolver(
     private val model: LanguageModel,
+    /** Desde dónde se mide lo que está cerca, para que el modelo pueda decirlo. */
+    private val position: () -> Coordinates? = { null },
     /**
      * A quién contarle que el modelo falló. El dominio no tiene registro; sin
      * esto, un fallo del modelo es indistinguible de "no entendí" y nadie se
@@ -85,16 +96,16 @@ class LlmIntentResolver(
     private val onFailure: (Throwable) -> Unit = {},
 ) : IntentResolver {
 
-    override suspend fun resolve(heard: String, candidates: List<Place>, memory: ConversationMemory): VoiceCommand {
-        if (!model.ready || heard.isBlank()) return VoiceCommand.NotUnderstood(heard)
+    override suspend fun resolve(heard: String, candidates: List<Place>, memory: ConversationMemory): Resolution {
+        if (!model.ready || heard.isBlank()) return Resolution(VoiceCommand.NotUnderstood(heard))
         // Lo último enumerado va delante: si el conductor dice "el segundo", ese
         // es el segundo. Después, lo cercano que no estuviera ya.
         val shortlist = (memory.listed + candidates).distinctBy { it.id }.take(MAX_CANDIDATES)
         val reply = try {
-            model.complete(IntentPrompt.PREFIX, IntentPrompt.request(heard, shortlist, memory))
+            model.complete(IntentPrompt.PREFIX, IntentPrompt.request(heard, shortlist, memory, position()))
         } catch (e: Exception) {
             onFailure(e)
-            return VoiceCommand.NotUnderstood(heard)
+            return Resolution(VoiceCommand.NotUnderstood(heard))
         }
         return IntentPrompt.parse(reply, heard, shortlist, memory.focus)
     }
@@ -133,43 +144,49 @@ object IntentPrompt {
      * partir por espacios.
      */
     val PREFIX: String = """
-        |You map what a driver says to ONE tool. The app narrates places near the car. The driver may speak English or Italian, and the speech recogniser makes mistakes: judge by sound and meaning, not spelling.
+        |You are the voice of a driving companion app that narrates places near the car. You map what the driver says to ONE tool and say one short, warm sentence back. The driver may speak English or Italian: answer in the driver's language. The speech recogniser makes mistakes: judge by sound and meaning, not spelling.
         |
         |Tools:
-        |$WHAT_IS_NEARBY — list what is around ("what's nearby", "anything around here", misheard as "what's new by", "glass new buy").
-        |$TELL_ME_ABOUT N — narrate place N from the list. "That", "this one", "there" = the place playing now. "The second one" = 2.
+        |$WHAT_IS_NEARBY — list what is around ("what's nearby", "anything around here", misheard as "what's new by", "glass new buy"). Name the places from the list with their distance and end with a question.
+        |$TELL_ME_ABOUT N — narrate place N from the list. "That", "this one", "there" = the place playing now. "The second one" = 2. Say a few words of introduction, the narration follows.
         |$TELL_ME_MORE — more about the place playing now.
-        |$TAKE_ME_THERE — navigate to the place playing now.
+        |$TAKE_ME_THERE — navigate to the place playing now. Navigation is not available yet: say so kindly.
         |$SKIP — skip the current place.
-        |$STOP — stop talking ("enough", "quiet").
-        |$CLARIFY: QUESTION — a request you understood but not which place; ask a short question.
-        |$NONE — not talking to the assistant.
+        |$STOP — stop talking ("enough", "quiet"). Say one word.
+        |$CLARIFY — you understood a request but not which place: ask which one.
+        |$NONE — the driver was not talking to the assistant. Say nothing.
         |
-        |Answer with one line: the tool, then a number or question if needed. Nothing else.
+        |Answer with ONE line: the tool, the number if needed, then " | " and what to say: one or two short sentences, under 25 words. Nothing else.
         |
+        |Places: 1. The Roman Forum, 300 metres 2. Circus Maximus, 650 metres 3. Basilica of St. Cecilia, 1.2 kilometres
         |Driver: "can you tell me something about that church over there"
-        |$TELL_ME_ABOUT 2
-        |Driver: "what else is there to see around here"
-        |$WHAT_IS_NEARBY
+        |$TELL_ME_ABOUT 3 | Of course — the Basilica of St. Cecilia, just over a kilometre away.
         |Driver: "glass new buy"
-        |$WHAT_IS_NEARBY
+        |$WHAT_IS_NEARBY | Right around you there's the Roman Forum, 300 metres ahead, and Circus Maximus a bit further. Want to hear about either?
         |Driver: "ok that's enough thanks"
-        |$STOP
+        |$STOP | Sure.
         |Driver: "the second one please"
-        |$TELL_ME_ABOUT 2
+        |$TELL_ME_ABOUT 2 | Circus Maximus it is.
+        |Driver: "cosa c'è qui vicino"
+        |$WHAT_IS_NEARBY | Qui vicino ci sono il Foro Romano, a 300 metri, e il Circo Massimo. Ti racconto uno dei due?
         |Driver: "which one is the old market"
-        |$CLARIFY: Do you mean the Campo de' Fiori market?
+        |$CLARIFY | I'm not sure which market you mean — the one near the Forum?
         |
     """.trimMargin()
 
     /** La parte que cambia: los lugares de ahora, la conversación reciente y lo que se acaba de oír. */
-    fun request(heard: String, candidates: List<Place>, memory: ConversationMemory): String = buildString {
-        appendLine("Places, as last listed to the driver and then by distance:")
-        // Nombres cortos: "The mosaics of the Basilica of St. Cecilia in Trastevere"
-        // son doce tokens que el modelo lee en cada orden y no necesita.
-        candidates.forEachIndexed { index, place -> appendLine("${index + 1}. ${place.name.split(' ').take(6).joinToString(" ")}") }
-        if (candidates.isEmpty()) appendLine("(none)")
-        appendLine("Currently playing: ${memory.focus?.name ?: "nothing"}")
+    fun request(heard: String, candidates: List<Place>, memory: ConversationMemory, here: Coordinates? = null): String = buildString {
+        // Nombres cortos y con distancia: es lo que el modelo necesita para
+        // redactar, y nada más. Cada token de más se lee en cada orden.
+        append("Places: ")
+        candidates.forEachIndexed { index, place ->
+            append("${index + 1}. ")
+            append(if (here != null) Phrasebook.named(place, here) else Phrasebook.shortName(place))
+            append(' ')
+        }
+        if (candidates.isEmpty()) append("(none)")
+        appendLine()
+        appendLine("Playing now: ${memory.focus?.let { Phrasebook.shortName(it) } ?: "nothing"}")
         append(memory.transcript())
         appendLine("Driver: \"${heard.trim()}\"")
     }
@@ -180,26 +197,35 @@ object IntentPrompt {
      * empeña, y es estricta con el resto: herramienta desconocida o número
      * fuera de la lista es "no entendí", nunca una acción.
      */
-    fun parse(reply: String, heard: String, candidates: List<Place>, focus: Place?): VoiceCommand {
+    fun parse(reply: String, heard: String, candidates: List<Place>, focus: Place?): Resolution {
         val line = reply.lineSequence()
             .map { it.trim().trim('`', '*', '"', '\'') }
             // Ni la valla de código ni la etiqueta "json" que la acompaña son la respuesta.
             .firstOrNull { it.isNotEmpty() && !it.equals("json", ignoreCase = true) && !it.startsWith("Driver:", ignoreCase = true) }
-            ?: return VoiceCommand.NotUnderstood(heard)
+            ?: return Resolution(VoiceCommand.NotUnderstood(heard))
 
         JSON_OBJECT.find(line)?.let { json ->
-            val tool = stringField(json.value, "tool") ?: return VoiceCommand.NotUnderstood(heard)
-            return command(tool, intField(json.value, "place"), stringField(json.value, "question"), heard, candidates, focus)
+            val tool = stringField(json.value, "tool") ?: return Resolution(VoiceCommand.NotUnderstood(heard))
+            return Resolution(command(tool, intField(json.value, "place"), stringField(json.value, "question"), heard, candidates, focus))
         }
 
-        // La herramienta puede venir con adornos ("The tool: what_is_nearby");
-        // se busca su nombre en cualquier parte de la línea, no en la primera palabra.
-        val found = TOOL_NAME.find(line) ?: return VoiceCommand.NotUnderstood(heard)
+        // Herramienta a la izquierda de la barra, frase a la derecha. La
+        // herramienta puede venir con adornos ("The tool: what_is_nearby"); se
+        // busca su nombre en cualquier parte, no en la primera palabra.
+        val head = line.substringBefore('|')
+        val spoken = if (line.contains('|')) line.substringAfter('|').trim().trim('"').takeIf { it.isNotEmpty() } else null
+        val found = TOOL_NAME.find(head) ?: return Resolution(VoiceCommand.NotUnderstood(heard))
         val tool = found.value.lowercase()
-        val rest = line.substring(found.range.last + 1).trim()
+        val rest = head.substring(found.range.last + 1).trim()
         val number = Regex("\\d+").find(rest)?.value?.toIntOrNull()
-        val question = rest.trimStart(':', '-', ' ').ifEmpty { null }
-        return command(tool, number, question, heard, candidates, focus)
+        // La pregunta de una aclaración es la frase misma; si no la hay, lo que
+        // siga al nombre en la parte izquierda (forma antigua "clarify: …").
+        val question = spoken ?: rest.trimStart(':', '-', ' ').ifEmpty { null }
+        val command = command(tool, number, question, heard, candidates, focus)
+        // Una frase que dice algo solo se acepta con una orden entendida: si el
+        // modelo no supo qué herramienta era, tampoco se fía uno de su frase.
+        val reply = spoken?.takeIf { command !is VoiceCommand.NotUnderstood && it.length <= MAX_REPLY_CHARS }
+        return Resolution(command, reply)
     }
 
     private fun command(
@@ -241,6 +267,9 @@ object IntentPrompt {
      * inicializarse **solo en el dispositivo**. Las pruebas no lo ven.
      */
     private val JSON_OBJECT = Regex("\\{[^{}]*\\}")
+
+    /** Más largo que esto no es una frase para decir conduciendo. */
+    private const val MAX_REPLY_CHARS = 220
 
     private val TOOL_NAME = Regex(
         listOf(TELL_ME_ABOUT, WHAT_IS_NEARBY, TELL_ME_MORE, TAKE_ME_THERE, SKIP, STOP, CLARIFY, NONE)

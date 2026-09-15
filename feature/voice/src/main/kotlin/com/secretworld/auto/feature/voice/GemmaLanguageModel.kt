@@ -101,7 +101,7 @@ class GemmaLanguageModel(
                     probe.addQueryChunk("Driver: \"stop\"\n")
                     firstLine(probe)
                 } finally {
-                    probe.close()
+                    closeWhenIdle(probe)
                 }
             }
                 .onSuccess { Log.i(TAG, "prefijo del LLM preparado en ${(System.nanoTime() - started) / 1_000_000} ms") }
@@ -147,7 +147,7 @@ class GemmaLanguageModel(
                     Log.i(TAG, "LLM: ${totalMs} ms (prefijo ${prefixMs} ms, ${if (canClone) "clonado" else "sin caché"}) → ${reply.trim().take(120)}")
                     reply
                 } finally {
-                    session.close()
+                    closeWhenIdle(session)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "el LLM falló", e)
@@ -206,6 +206,23 @@ class GemmaLanguageModel(
         return result
     }
 
+    /**
+     * Cierra una sesión cuya generación se acaba de cancelar.
+     *
+     * MediaPipe avisa de `done` antes de haber terminado del todo, y cerrar en
+     * ese instante lanza "Previous invocation still processing". Se reintenta
+     * un momento; si no cede, se deja sin cerrar y se anota: una sesión huérfana
+     * es un poco de memoria, un cierre que lanza es una orden sin respuesta.
+     */
+    private suspend fun closeWhenIdle(session: LlmInferenceSession) {
+        repeat(CLOSE_RETRIES) { attempt ->
+            val closed = runCatching { session.close() }.isSuccess
+            if (closed) return
+            kotlinx.coroutines.delay(CLOSE_RETRY_MS)
+            if (attempt == CLOSE_RETRIES - 1) Log.w(TAG, "la sesión del LLM no se dejó cerrar; se abandona")
+        }
+    }
+
     private fun freshSession(llm: LlmInference): LlmInferenceSession {
         val options = LlmInferenceSession.LlmInferenceSessionOptions.builder()
             // Determinista: elegir una herramienta no es tarea creativa.
@@ -243,5 +260,7 @@ class GemmaLanguageModel(
         /** Más que esto y algo va mal: la respuesta son cinco tokens. */
         const val GENERATION_TIMEOUT_MS = 8_000L
         const val CANCEL_GRACE_MS = 3_000L
+        const val CLOSE_RETRIES = 10
+        const val CLOSE_RETRY_MS = 100L
     }
 }

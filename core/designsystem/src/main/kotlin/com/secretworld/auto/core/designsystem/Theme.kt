@@ -1,6 +1,7 @@
 package com.secretworld.auto.core.designsystem
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -75,11 +76,20 @@ fun SecretWorldTheme(
         )
     }
 
+    val colors = if (darkTheme) DarkColors else LightColors
     CompositionLocalProvider(LocalCarMetrics provides metrics) {
         MaterialTheme(
-            colorScheme = if (darkTheme) DarkColors else LightColors,
+            colorScheme = colors,
             typography = typographyFor(metrics.text),
-            content = content,
-        )
+        ) {
+            // MaterialTheme fija la paleta pero **no el color del contenido**: eso
+            // lo hace Surface, y la app pinta sus fondos con `background(...)`
+            // porque el mapa va debajo. Sin esto, todo Text sin color explícito
+            // hereda el negro por defecto de Compose: negro sobre negro.
+            CompositionLocalProvider(
+                LocalContentColor provides colors.onBackground,
+                content = content,
+            )
+        }
     }
 }
