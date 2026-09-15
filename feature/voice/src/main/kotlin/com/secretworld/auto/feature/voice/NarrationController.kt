@@ -40,8 +40,13 @@ class NarrationController(
         data class Failed(val reason: String) : State
     }
 
-    /** Donde se deja la respuesta hablada del momento. Se sobrescribe siempre. */
-    private val replyPath = File(context.cacheDir, "reply.wav").absolutePath
+    /**
+     * Respuestas ya sintetizadas, por texto. Las frases del asistente son pocas y
+     * se repiten —"Yes?", "Stopped."—, y sintetizarlas cada vez es lo que hace
+     * que conteste con medio segundo de retraso. Se sintetizan una vez y se
+     * reproducen al instante.
+     */
+    private val replies = File(context.cacheDir, "replies").apply { mkdirs() }
 
     private val installer = VoiceInstaller(context)
     private val synthesizer = PiperSpeechSynthesizer(installer)
@@ -165,23 +170,33 @@ class NarrationController(
      * Se corta lo que hubiera sonando **antes** de sintetizar: el fichero de
      * respuesta es único y reescribirlo mientras se reproduce es pedir un chasquido.
      */
-    fun say(text: String) {
+    fun say(text: String, onDone: (() -> Unit)? = null) {
         scope.launch(Dispatchers.IO) {
             if (!installer.isInstalled(language)) {
                 _state.value = State.Failed("todavia no hay voz instalada")
                 return@launch
             }
             withContext(Dispatchers.Main) { player.stop() }
-            _state.value = State.Speaking(text, preparing = true)
 
-            val result = runCatching { synthesizer.synthesizeToFile(text, language, replyPath) }
-            if (result.isFailure) {
-                _state.value = State.Failed(result.exceptionOrNull()?.message ?: "fallo al sintetizar")
-                return@launch
+            val file = replyFile(text)
+            if (!file.isFile) {
+                _state.value = State.Speaking(text, preparing = true)
+                val result = runCatching { synthesizer.synthesizeToFile(text, language, file.absolutePath) }
+                if (result.isFailure) {
+                    file.delete()
+                    _state.value = State.Failed(result.exceptionOrNull()?.message ?: "fallo al sintetizar")
+                    return@launch
+                }
             }
 
             withContext(Dispatchers.Main) {
-                val duration = player.play(File(replyPath)) { _state.value = State.Idle }
+                val duration = player.play(file) {
+                    _state.value = State.Idle
+                    // Lo que haya que hacer **después** de hablar —abrir el turno,
+                    // por ejemplo— va aquí y no antes: abrir el micrófono mientras
+                    // suena la respuesta es transcribirse a uno mismo.
+                    onDone?.invoke()
+                }
                 _state.value = if (duration != null) {
                     State.Speaking(text, preparing = false)
                 } else {
@@ -189,6 +204,30 @@ class NarrationController(
                 }
             }
         }
+    }
+
+    /**
+     * Sintetiza por adelantado las frases fijas del asistente, para que la
+     * primera vez que hagan falta ya estén. Se llama cuando la voz está instalada.
+     */
+    fun prewarm(texts: List<String>) {
+        if (!installer.isInstalled(language)) return
+        scope.launch(Dispatchers.IO) {
+            texts.forEach { text ->
+                val file = replyFile(text)
+                if (file.isFile) return@forEach
+                runCatching { synthesizer.synthesizeToFile(text, language, file.absolutePath) }
+                    .onFailure { file.delete() }
+            }
+            Log.i(TAG, "respuestas fijas preparadas: ${texts.size}")
+        }
+    }
+
+    private fun replyFile(text: String): File {
+        val digest = java.security.MessageDigest.getInstance("SHA-1")
+            .digest("${language.code}:$text".toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        return File(replies, "$digest.wav")
     }
 
     fun stop() {

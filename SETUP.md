@@ -32,6 +32,26 @@ El repositorio no lleva binarios grandes. Tras clonar hacen falta dos cosas:
 
 Con eso: `./gradlew check` y `./gradlew :app:assembleBenchDebug`.
 
+3. **Los modelos de escucha y el LLM**, solo para probar la voz en el
+   dispositivo. No hacen falta para compilar: sin ellos la app usa el
+   reconocedor del sistema y la gramática sola, y lo dice en el `logcat`.
+
+   ```sh
+   tools/fetch-voice-models.sh      # KWS + VAD + Whisper tiny → dist/models/*.zip
+   tools/sideload-models.sh         # los copia con adb al dispositivo conectado
+   ```
+
+   El LLM (Gemma 3 1B, 555 MB) lo baja el mismo script de una copia sin puerta
+   de Hugging Face y lo comprueba contra el `sha256` del fichero oficial de
+   `litert-community/Gemma3-1B-IT`, que está detrás de un formulario. Es el
+   mismo fichero byte a byte; la licencia (Gemma Terms of Use) aplica igual.
+
+   **Esto es la comodidad de desarrollo de SPEC RF‑1.8.9**: la app de tienda
+   descarga y verifica todo esto en la primera ejecución; lo cargado a mano va
+   sin verificar al directorio externo de la app y solo lo busca ahí porque
+   quien lo puso es quien prueba. Para ver qué encontró:
+   `adb logcat -s SWVoice SWVoiceInput SWVoiceLlm`.
+
 La imagen del emulador de Pleos se entrega aparte y va en `emulator/`, que está
 ignorado.
 

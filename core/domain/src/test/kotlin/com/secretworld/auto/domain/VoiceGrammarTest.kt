@@ -65,6 +65,38 @@ class VoiceGrammarTest {
     }
 
     @Test
+    fun `los deicticos son palabras enteras, no subcadenas`() {
+        // "little" contiene "it" y "with" también: ninguna es un "eso".
+        assertIs<VoiceCommand.NotUnderstood>(VoiceGrammar.parse("last little biome", places, focus = cecilia))
+        assertIs<VoiceCommand.NotUnderstood>(VoiceGrammar.parse("with a city", places, focus = cecilia))
+        assertEquals(VoiceCommand.TellMeAbout(cecilia), VoiceGrammar.parse("what is it", places, focus = cecilia))
+    }
+
+    @Test
+    fun `nearby como lo oye whisper`() {
+        listOf("what's new by", "what's newbie", "what is near by", "anything close by").forEach {
+            assertEquals(VoiceCommand.WhatIsNearby, VoiceGrammar.parse(it, places), "con «$it»")
+        }
+    }
+
+    @Test
+    fun `un ordinal se apoya en lo ultimo enumerado`() {
+        val listed = listOf(circus, forum, cecilia)
+        assertEquals(VoiceCommand.TellMeAbout(forum), VoiceGrammar.parse("the second one", places, listed = listed))
+        assertEquals(VoiceCommand.TellMeAbout(circus), VoiceGrammar.parse("first", places, listed = listed))
+        // Sin enumeración previa un ordinal no significa nada.
+        assertIs<VoiceCommand.NotUnderstood>(VoiceGrammar.parse("the second one", places))
+    }
+
+    @Test
+    fun `un "what's" sin deictico ni nombre no es una orden`() {
+        // Narrar el primer lugar aquí sería inventarse una orden; lo correcto es
+        // dejarlo pasar al modelo de lenguaje.
+        assertIs<VoiceCommand.NotUnderstood>(VoiceGrammar.parse("what's the weather like", places, focus = null))
+        assertIs<VoiceCommand.NotUnderstood>(VoiceGrammar.parse("what is the time", places, focus = forum))
+    }
+
+    @Test
     fun `un deictico se apoya en el lugar en foco`() {
         val command = VoiceGrammar.parse("what is that", places, focus = cecilia)
         assertEquals(VoiceCommand.TellMeAbout(cecilia), command)

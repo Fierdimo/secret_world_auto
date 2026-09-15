@@ -24,4 +24,5 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     // sherpa-onnx: ver el repositorio flatDir en settings.gradle.kts
     implementation(group = "", name = "sherpa-onnx", ext = "aar")
+    implementation(libs.mediapipe.tasks.genai)
 }

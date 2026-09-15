@@ -97,12 +97,22 @@ En orden de cuánto acercan el producto a alguien que lo usaría:
    **la brecha más visible**: los textos del catálogo son de longitud artículo y
    se están recortando a las primeras frases como apaño. Sigue siendo la ruta
    crítica y no es trabajo de desarrollo.
-3. **Detección de voz eficiente.** Las órdenes ya funcionan, pero la escucha
-   permanente es *reabrir* el `SpeechRecognizer` de AOSP en cada frase: no es un
-   detector de palabra clave, gasta más de lo que debe y, si el reconocedor tira
-   de red, depende de ella. La pieza es el detector *offline* de **sherpa-onnx**,
-   que ya está en el proyecto para la síntesis, delante del reconocedor: el
-   micrófono solo se abre cuando suena "Siky".
+3. ~~Detección de voz eficiente~~ **hecho el 2026‑09‑15, medido en un Moto g75**:
+   detector de palabra clave, detector de voz y Whisper *base*, los tres con
+   sherpa-onnx en el dispositivo y sin red; detrás, Gemma 3 1B (MediaPipe, CPU)
+   para lo que la gramática no prevé. Cargan en 2–5 s, ~900 MB de RAM con todo
+   residente. Lo que queda abierto de aquí, con dato:
+   - **Interrumpir la narración por voz no funciona con altavoz y micrófono
+     juntos**: la app se oye a sí misma a 10× el nivel de la voz (0,08 frente a
+     0,008). Probados y descartados en este móvil el `AcousticEchoCanceler`
+     (no cancela), `VOICE_COMMUNICATION` (deforma la voz, el detector no la
+     reconoce) y el `NoiseSuppressor` (la silencia). Hace falta cancelación de
+     eco con la señal reproducida como referencia: la del vehículo o WebRTC APM
+     por software. Con auriculares funciona.
+   - **Whisper *base* oye mal las órdenes cortas** ("what's nearby" → "what's
+     new by", "glass new buy"). El LLM lo absorbe —«What's new? Bye?» →
+     `what_is_nearby`— pero cuesta ~1,5 s más. Whisper *small* está descargado
+     para medir si el tiempo compensa.
 4. **Mapa real en el vehículo.** El lienzo propio sitúa, pero no enseña calles, y
    sin calles el mapa no orienta a nadie. El nativo de Pleos sigue detrás de
    `NaviService` sin librería cliente, así que el plan es **adelantar Mapbox

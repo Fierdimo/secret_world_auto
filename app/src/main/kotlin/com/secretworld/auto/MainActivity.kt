@@ -2,6 +2,7 @@ package com.secretworld.auto
 
 import android.Manifest
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
@@ -52,12 +53,17 @@ import com.secretworld.auto.core.designsystem.CarTheme
 import com.secretworld.auto.core.designsystem.SecretWorldTheme
 import com.secretworld.auto.core.platform.DrivingModeController
 import com.secretworld.auto.core.platform.SimulatedVehicleSource
+import com.secretworld.auto.domain.ConversationMemory
 import com.secretworld.auto.domain.Coordinates
 import com.secretworld.auto.domain.DrivingMode
+import com.secretworld.auto.domain.GrammarIntentResolver
+import com.secretworld.auto.domain.IntentPrompt
+import com.secretworld.auto.domain.IntentResolver
+import com.secretworld.auto.domain.LayeredIntentResolver
+import com.secretworld.auto.domain.LlmIntentResolver
 import com.secretworld.auto.domain.Place
 import com.secretworld.auto.domain.TourQueue
 import com.secretworld.auto.domain.VoiceCommand
-import com.secretworld.auto.domain.VoiceGrammar
 import com.secretworld.auto.domain.WakeWord
 import com.secretworld.auto.domain.VoiceLanguage
 import com.secretworld.auto.feature.discover.MapState
@@ -68,10 +74,16 @@ import com.secretworld.auto.feature.discover.VoiceUi
 import com.secretworld.auto.feature.parked.ItineraryPanel
 import com.secretworld.auto.feature.parked.PlaceDetailPanel
 import com.secretworld.auto.feature.parked.SettingsPanel
-import com.secretworld.auto.feature.voice.NarrationController
+import com.secretworld.auto.feature.voice.GemmaLanguageModel
 import com.secretworld.auto.feature.voice.HandsFree
+import com.secretworld.auto.feature.voice.ModelStore
+import com.secretworld.auto.feature.voice.NarrationController
+import com.secretworld.auto.feature.voice.OnDeviceVoiceInput
+import com.secretworld.auto.feature.voice.SystemVoiceInput
 import com.secretworld.auto.feature.voice.VoiceInput
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 
 /**
  * La app entera vive sobre un solo lienzo: **el mapa siempre está**.
@@ -92,6 +104,18 @@ class MainActivity : ComponentActivity() {
     private lateinit var narration: NarrationController
     private lateinit var voiceInput: VoiceInput
     private lateinit var handsFree: HandsFree
+    private lateinit var resolver: IntentResolver
+
+    /** Lo que el asistente recuerda de la conversación: foco, lo enumerado, las últimas frases. */
+    private val memory = ConversationMemory()
+    private var onDevice: OnDeviceVoiceInput? = null
+    private var gemma: GemmaLanguageModel? = null
+
+    /**
+     * Si el micrófono está listo para escuchar. Los modelos en el dispositivo
+     * tardan segundos en cargar, y abrir la escucha antes solo produce un fallo.
+     */
+    private val voiceReady = MutableStateFlow(false)
 
     /**
      * El permiso de micrófono se pide **al primer intento de hablar**, no al
@@ -118,8 +142,7 @@ class MainActivity : ComponentActivity() {
         catalogue = CatalogueRepository(api)
         mapKeys = MapCredentials(api)
         narration = NarrationController(this, catalogue, lifecycleScope, VoiceLanguage.ENGLISH)
-        voiceInput = VoiceInput(this)
-        handsFree = HandsFree(voiceInput, lifecycleScope)
+        setUpVoice()
         val modeController = DrivingModeController(vehicle, lifecycleScope)
 
         setContent {
@@ -137,8 +160,6 @@ class MainActivity : ComponentActivity() {
                 var mapboxToken by remember { mutableStateOf<String?>(null) }
                 // Lo descartado de viva voz. La cola ya sabe respetarlo.
                 var skipped by remember { mutableStateOf(emptySet<String>()) }
-                // El lugar del que se está hablando: es a lo que apunta un "eso".
-                var focus by remember { mutableStateOf<Place?>(null) }
                 var answer by remember { mutableStateOf<String?>(null) }
                 var heard by remember { mutableStateOf<String?>(null) }
                 val listening by handsFree.enabled.collectAsState()
@@ -166,9 +187,20 @@ class MainActivity : ComponentActivity() {
                 }
 
                 LaunchedEffect(Unit) { narration.ensureVoice() }
+                // Las frases fijas del asistente se sintetizan antes de que hagan
+                // falta: la primera respuesta también tiene que ser inmediata.
+                LaunchedEffect(narration.voiceInstalled) { if (narration.voiceInstalled) narration.prewarm(FIXED_REPLIES) }
                 // El micrófono se abre con la pantalla y se cierra con ella: una app
                 // que escucha cuando no está delante no se lo merece.
-                LaunchedEffect(Unit) { if (handsFree.possible) handsFree.enable() }
+                val ready by voiceReady.collectAsState()
+                LaunchedEffect(ready) { if (ready && handsFree.possible) handsFree.enable() }
+
+                // Con palabra de activación, "escuchando" significa que acaba de
+                // sonar "Siky": la app se calla para no dictarse a sí misma. Con
+                // el reconocedor del sistema ese estado es permanente y no dice nada.
+                LaunchedEffect(voiceState) {
+                    if (voiceInput.continuous && voiceState is VoiceInput.State.Listening) narration.stop()
+                }
                 LaunchedEffect(upcoming.joinToString { it.id }) { narration.prefetch(upcoming) }
 
                 // Lo que se oye se atiende una sola vez: el estado se reconoce en
@@ -188,20 +220,25 @@ class MainActivity : ComponentActivity() {
                     }
 
                     if (order.isBlank()) {
-                        // La despertaron sin pedirle nada: contesta y abre el turno.
-                        answer = "Yes?"
-                        narration.say("Yes?")
+                        // La despertaron sin pedirle nada: contesta y, **cuando
+                        // termine de hablar**, abre el turno. Antes no: abriría el
+                        // micrófono sobre su propia voz y se transcribiría a sí misma.
+                        answer = YES
                         voiceInput.acknowledge()
-                        voiceInput.listen()
+                        narration.say(YES) { voiceInput.listen() }
                         return@LaunchedEffect
                     }
 
                     heard = order
-                    val command = VoiceGrammar.parse(order, upcoming, focus)
-                    answer = obey(command, upcoming) { place ->
-                        focus = place
+                    val resolvedAt = System.nanoTime()
+                    val command = resolver.resolve(order, upcoming, memory)
+                    Log.i("SWVoice", "«$order» → ${command::class.simpleName} en ${(System.nanoTime() - resolvedAt) / 1_000_000} ms" +
+                        " (LLM ${gemma?.let { if (it.ready) "listo" else "cargando" } ?: "ausente"})")
+                    val reply = obey(command, upcoming, vehicleState.position) { place ->
                         skipped = skipped + place.id
                     }
+                    memory.remember(order, reply)
+                    answer = reply
                     voiceInput.acknowledge()
                 }
 
@@ -355,13 +392,13 @@ class MainActivity : ComponentActivity() {
                 offline = result?.source == CatalogueRepository.Source.FALLBACK,
                 onSpeak = onSpeak,
                 onSelect = { onPanel(Panel.Detail(it)) },
-                onListen = { narration.listen(it) },
+                onListen = { play(it) },
                 onNavigate = { onPanel(Panel.Detail(it)) },
             )
 
             is Panel.Detail -> PlaceDetailPanel(
                 place = panel.place,
-                onListen = { narration.listen(panel.place) },
+                onListen = { play(panel.place) },
                 onNavigate = { /* NaviHelper pendiente: ver docs/PLEOS-SDK-SURFACE.md */ },
                 onClose = { onPanel(Panel.Home) },
             )
@@ -370,7 +407,7 @@ class MainActivity : ComponentActivity() {
                 title = "A morning in ${upcoming.firstOrNull()?.city ?: "town"}",
                 stops = upcoming.take(5),
                 onSelect = { onPanel(Panel.Detail(it)) },
-                onStart = { upcoming.firstOrNull()?.let { narration.listen(it) } },
+                onStart = { upcoming.firstOrNull()?.let { play(it) } },
                 onClose = { onPanel(Panel.Home) },
             )
 
@@ -466,40 +503,47 @@ class MainActivity : ComponentActivity() {
     private fun obey(
         command: VoiceCommand,
         around: List<Place>,
+        here: Coordinates,
         onSkip: (Place) -> Unit,
     ): String = when (command) {
         is VoiceCommand.TellMeAbout -> {
-            narration.listen(command.place)
+            play(command.place)
             command.place.name
         }
 
         VoiceCommand.WhatIsNearby -> {
+            // Enumerar, no narrar: "¿qué hay cerca?" pide una lista, y el lugar
+            // más cercano ya lo narra la cola sola. Con distancia, que es lo que
+            // en un coche convierte un nombre en una decisión, y con pregunta al
+            // final, que es lo que hace que "el segundo" signifique algo después.
             val nearby = around.take(3)
+            memory.listed(nearby)
             val reply = if (nearby.isEmpty()) {
-                "I don't have anything worth telling around here."
+                NOTHING_NEARBY
             } else {
-                "Around you: " + nearby.joinToString(", ") { it.name } + "."
+                "Around you: " + nearby.joinToString("; ") { "${it.name}, ${spokenDistance(here.distanceTo(it.position))}" } +
+                    ". Which one?"
             }
-            narration.say(reply)
+            narration.say(reply) { if (nearby.isNotEmpty()) voiceInput.listen() }
             reply
         }
 
         VoiceCommand.TellMeMore -> {
-            val reply = "I only have one level of content for each place so far."
+            val reply = memory.focus?.let { "I only have one level of content for ${it.name} so far." } ?: NO_MORE
             narration.say(reply)
             reply
         }
 
         VoiceCommand.TakeMeThere -> {
-            val reply = "I can't set a destination yet: the navigation library isn't public."
-            narration.say(reply)
-            reply
+            narration.say(NO_NAVIGATION)
+            NO_NAVIGATION
         }
 
         VoiceCommand.Skip -> {
-            val current = around.firstOrNull()
+            val current = memory.focus ?: around.firstOrNull()
             if (current == null) {
-                "Nothing to skip."
+                narration.say(NOTHING_TO_SKIP)
+                NOTHING_TO_SKIP
             } else {
                 narration.stop()
                 onSkip(current)
@@ -509,13 +553,72 @@ class MainActivity : ComponentActivity() {
 
         VoiceCommand.Stop -> {
             narration.stop()
-            "Stopped."
+            STOPPED
+        }
+
+        is VoiceCommand.Clarify -> {
+            // Entendió a medias: pregunta y, cuando termine, abre el turno.
+            narration.say(command.question) { voiceInput.listen() }
+            command.question
         }
 
         is VoiceCommand.NotUnderstood -> {
-            val reply = "I can play a place, tell you what's nearby, skip it, or stop."
-            narration.say(reply)
-            reply
+            narration.say(NOT_UNDERSTOOD)
+            NOT_UNDERSTOOD
+        }
+    }
+
+    /** Narra un lugar y lo deja en foco: a partir de aquí, "eso" es esto. */
+    private fun play(place: Place) {
+        memory.focusOn(place)
+        narration.listen(place)
+    }
+
+    /** Distancias como se dicen, no como se miden: nadie oye "1 437 metros". */
+    private fun spokenDistance(meters: Double): String = when {
+        meters < 100 -> "right here"
+        meters < 950 -> "${(meters / 50).toInt() * 50} metres"
+        else -> "%.1f kilometres".format(meters / 1000).replace(".0 ", " ")
+    }
+
+    /**
+     * Elige cómo se oye y cómo se entiende, según lo que haya instalado.
+     *
+     * Con los modelos de escucha en el dispositivo, el micrófono es
+     * [OnDeviceVoiceInput]: palabra de activación de verdad, sin red. Sin ellos,
+     * el reconocedor del sistema reabierto en cada frase, que es lo que había.
+     * Con el LLM instalado, lo que la gramática no entiende pasa por él; sin él,
+     * la gramática sola. Nada de esto se decide en la tienda: se decide con lo
+     * que [ModelStore] encuentra (SPEC RF-1.8.7–1.8.9).
+     */
+    private fun setUpVoice() {
+        val models = ModelStore(this)
+        val local = OnDeviceVoiceInput(this, models, VoiceLanguage.ENGLISH)
+        val llm = GemmaLanguageModel(this, models)
+
+        voiceInput = if (local.available) local.also { onDevice = it } else SystemVoiceInput(this)
+        handsFree = HandsFree(voiceInput, lifecycleScope)
+        resolver = LayeredIntentResolver(
+            grammar = GrammarIntentResolver(),
+            fallback = if (llm.available) {
+                LlmIntentResolver(llm.also { gemma = it }) { Log.e("SWVoice", "el LLM no contestó", it) }
+            } else {
+                null
+            },
+        )
+        Log.i(
+            "SWVoice",
+            "micrófono: ${if (onDevice != null) "en el dispositivo" else "sistema"} · " +
+                "LLM: ${if (gemma != null) "gemma 3 1b" else "no instalado"}",
+        )
+
+        lifecycleScope.launch {
+            onDevice?.load()?.onFailure { Log.e("SWVoice", "modelos de escucha", it) }
+            voiceReady.value = true
+            // El LLM se carga después del micrófono: es lo más pesado y lo menos
+            // urgente, y hasta que esté la gramática sigue atendiendo.
+            gemma?.load()?.onFailure { Log.e("SWVoice", "LLM", it) }
+            gemma?.warm(IntentPrompt.PREFIX)
         }
     }
 
@@ -563,6 +666,12 @@ class MainActivity : ComponentActivity() {
         handsFree.disable()
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        onDevice?.release()
+        gemma?.release()
+    }
+
     private sealed interface Panel {
         data object Home : Panel
         data class Detail(val place: Place) : Panel
@@ -573,6 +682,16 @@ class MainActivity : ComponentActivity() {
     private companion object {
         /** Cuánto se queda en pantalla una respuesta del asistente. */
         const val ANSWER_LINGER_MS = 8_000L
+
+        /** Las frases fijas del asistente. Se sintetizan por adelantado. */
+        const val YES = "Yes?"
+        const val STOPPED = "Stopped."
+        const val NOTHING_TO_SKIP = "Nothing to skip."
+        const val NOTHING_NEARBY = "I don't have anything worth telling around here."
+        const val NO_MORE = "Nothing is playing right now."
+        const val NO_NAVIGATION = "I can't set a destination yet: the navigation library isn't public."
+        const val NOT_UNDERSTOOD = "I can play a place, tell you what's nearby, skip it, or stop."
+        val FIXED_REPLIES = listOf(YES, STOPPED, NOTHING_TO_SKIP, NOTHING_NEARBY, NO_MORE, NO_NAVIGATION, NOT_UNDERSTOOD)
         /**
          * Se arranca en Roma porque es donde el catálogo tiene densidad real, y
          * junto al Circo Máximo en vez de encima del Coliseo: si el vehículo nace

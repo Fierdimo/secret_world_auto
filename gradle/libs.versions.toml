@@ -12,6 +12,7 @@ okhttp = "5.5.0"
 serialization = "1.11.0"
 coil = "3.6.2"
 mapbox = "11.17.0"
+mediapipeGenai = "0.10.35"
 
 # Android
 compileSdk = "37"
@@ -40,6 +41,8 @@ coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" 
 coil-network = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
 mapbox-maps = { module = "com.mapbox.maps:android", version.ref = "mapbox" }
 mapbox-compose = { module = "com.mapbox.extension:maps-compose", version.ref = "mapbox" }
+# LLM en el dispositivo (Gemma 3 1B). Ver feature/voice/.../GemmaLanguageModel.kt
+mediapipe-tasks-genai = { module = "com.google.mediapipe:tasks-genai", version.ref = "mediapipeGenai" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

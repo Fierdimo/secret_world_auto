@@ -30,6 +30,15 @@ sealed interface VoiceCommand {
     data object Stop : VoiceCommand
 
     /**
+     * Se entendió que pide algo, pero no a qué se refiere. La pregunta se le
+     * dice al conductor y se abre el turno para que conteste.
+     *
+     * Solo la produce el modelo de lenguaje ([LlmIntentResolver]): la gramática
+     * cerrada no tiene forma de saber que ha entendido a medias.
+     */
+    data class Clarify(val question: String) : VoiceCommand
+
+    /**
      * Se oyó algo y no es ninguna de las órdenes.
      *
      * Existe como caso propio, y no como `null`, porque la respuesta correcta no
@@ -60,23 +69,37 @@ object VoiceGrammar {
      * @param focus el lugar del que se está hablando ahora mismo. Es lo que
      *   permite que "¿qué es eso?" signifique algo: sin él, un deíctico no tiene
      *   a qué referirse.
+     * @param listed lo último que el asistente enumeró en voz alta, en orden. Es
+     *   lo que hace que "el segundo" signifique algo.
      */
-    fun parse(heard: String, candidates: List<Place>, focus: Place? = null): VoiceCommand {
-        val text = normalise(heard)
-        if (text.isBlank()) return VoiceCommand.NotUnderstood(heard)
+    fun parse(
+        heard: String,
+        candidates: List<Place>,
+        focus: Place? = null,
+        listed: List<Place> = emptyList(),
+    ): VoiceCommand {
+        val words = normalise(heard).split(' ').filter { it.isNotBlank() }
+        if (words.isEmpty()) return VoiceCommand.NotUnderstood(heard)
 
-        if (STOP.any { text.contains(it) }) return VoiceCommand.Stop
-        if (SKIP.any { text.contains(it) }) return VoiceCommand.Skip
-        if (NEARBY.any { text.contains(it) }) return VoiceCommand.WhatIsNearby
-        if (MORE.any { text.contains(it) }) return VoiceCommand.TellMeMore
-        if (NAVIGATE.any { text.contains(it) }) return VoiceCommand.TakeMeThere
+        if (words.hasAny(STOP)) return VoiceCommand.Stop
+        if (words.hasAny(SKIP)) return VoiceCommand.Skip
+        if (words.hasAny(NEARBY)) return VoiceCommand.WhatIsNearby
+        if (words.hasAny(MORE)) return VoiceCommand.TellMeMore
+        if (words.hasAny(NAVIGATE)) return VoiceCommand.TakeMeThere
 
         // Un lugar nombrado gana siempre al deíctico: si dice "cuéntame el Foro"
         // mientras suena otra cosa, quiere el Foro.
-        resolve(text, candidates)?.let { return VoiceCommand.TellMeAbout(it) }
+        resolve(heard, candidates)?.let { return VoiceCommand.TellMeAbout(it) }
 
-        // "¿Qué es eso?" solo significa algo si hay un "eso".
-        if (ABOUT.any { text.contains(it) } || DEICTIC.any { text.contains(it) }) {
+        // "El segundo" solo significa algo si se acaba de enumerar.
+        ordinalIn(words)?.let { index -> listed.getOrNull(index)?.let { return VoiceCommand.TellMeAbout(it) } }
+
+        // "¿Qué es eso?" solo significa algo si hay un "eso": se exige el
+        // deíctico, como palabra entera. Se buscaba como subcadena y "little"
+        // contenía "it": cualquier frase mal oída acababa narrando el primer
+        // lugar de la cola. Lo que no nombra nada ni señala nada se deja pasar,
+        // para que lo mire el modelo.
+        if (words.hasAny(DEICTIC)) {
             val target = focus ?: candidates.firstOrNull()
             if (target != null) return VoiceCommand.TellMeAbout(target)
         }
@@ -108,6 +131,16 @@ object VoiceGrammar {
             ?.first
     }
 
+    /** ¿Contiene la frase alguna de estas expresiones, como palabras enteras y seguidas? */
+    private fun List<String>.hasAny(phrases: List<String>): Boolean = phrases.any { phrase ->
+        val needle = phrase.split(' ')
+        indices.any { start -> start + needle.size <= size && subList(start, start + needle.size) == needle }
+    }
+
+    /** Índice (desde 0) del ordinal que aparezca, o `null`. */
+    private fun ordinalIn(words: List<String>): Int? =
+        words.firstNotNullOfOrNull { ORDINALS[it] }
+
     private fun normalise(text: String): String =
         text.lowercase()
             .map { if (it.isLetterOrDigit() || it.isWhitespace()) it else ' ' }
@@ -119,18 +152,28 @@ object VoiceGrammar {
     /** Órdenes de corte. Se comprueban las primeras, a propósito. */
     private val STOP = listOf("stop", "quiet", "silence", "be quiet", "shut up", "enough")
     private val SKIP = listOf("skip", "not now", "next one", "next place", "later")
+    /**
+     * Incluye cómo lo oye Whisper: "new by", "newbie" y "near by" son "nearby"
+     * dicho en un coche. Medido, no supuesto.
+     */
     private val NEARBY = listOf(
-        "what s nearby", "whats nearby", "what is nearby", "nearby", "around me",
-        "around here", "what s around", "whats around", "what is around",
+        "nearby", "near by", "new by", "newbie", "near me", "close by", "around me",
+        "around here", "what s around", "whats around", "what is around", "around",
     )
-    private val MORE = listOf("tell me more", "more about", "go on", "keep going")
-    private val NAVIGATE = listOf("take me there", "take me to", "navigate", "drive me", "go there")
-
-    /** Formas de pedir que se cuente algo. */
-    private val ABOUT = listOf("tell me about", "what is", "what s", "whats", "who was", "talk about")
+    private val MORE = listOf("tell me more", "more about", "go on", "keep going", "continue")
+    private val NAVIGATE = listOf("take me there", "take me to", "navigate", "drive me", "go there", "directions")
 
     /** Deícticos: solo tienen sentido con un lugar en foco. */
-    private val DEICTIC = listOf("that", "this", "it", "there")
+    private val DEICTIC = listOf("that", "this", "it", "there", "that one", "this one")
+
+    /** Sin "one", "two"…: "that one" y "next one" no son ordinales. */
+    private val ORDINALS = mapOf(
+        "first" to 0, "1st" to 0,
+        "second" to 1, "2nd" to 1,
+        "third" to 2, "3rd" to 2,
+        "fourth" to 3, "4th" to 3,
+        "fifth" to 4, "5th" to 4,
+    )
 
     /**
      * Palabras que no distinguen un lugar de otro. Sin esta lista, "the" empareja

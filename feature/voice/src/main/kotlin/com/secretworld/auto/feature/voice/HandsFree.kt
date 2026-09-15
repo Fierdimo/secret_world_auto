@@ -14,18 +14,16 @@ import kotlinx.coroutines.launch
  * Escucha permanente: mantiene el micrófono abierto para que **no haya que pulsar
  * nada**.
  *
- * Es lo que hace utilizable el asistente en marcha. La orden llega igual que
- * antes, por [VoiceInput], pero marcada como no directa: quien la interpreta
- * exige la palabra de activación y descarta el resto, así que una conversación
- * entre ocupantes no dispara nada.
+ * Es lo que hace utilizable el asistente en marcha. Cómo se consigue depende del
+ * micrófono:
  *
- * **Cómo está hecho, y qué no es.** El reconocedor de AOSP cierra el micrófono en
- * cada frase, así que "permanente" aquí significa *volver a abrirlo en cuanto se
- * cierra*. Funciona y no necesita nada que Pleos no haya publicado, pero no es un
- * detector de palabra clave de verdad: gasta más y, si el reconocedor tira de red,
- * depende de ella. El camino bueno es un detector *offline* —sherpa-onnx, que ya
- * está en el proyecto para la síntesis, trae uno—, y es la siguiente pieza. Ver
- * [docs/VOICE-OPTIONS.md].
+ * - Con [OnDeviceVoiceInput] es trivial: el detector de palabra de activación
+ *   ya escucha en continuo, así que basta con pedírselo una vez.
+ * - Con [SystemVoiceInput] el reconocedor de AOSP cierra el micrófono en cada
+ *   frase, y "permanente" significa *volver a abrirlo en cuanto se cierra*. La
+ *   orden llega marcada como no directa y quien la interpreta exige la palabra
+ *   de activación en el texto. Funciona, pero gasta más y, si el reconocedor
+ *   tira de red, depende de ella. Es el respaldo, no el producto.
  */
 class HandsFree(
     private val input: VoiceInput,
@@ -43,6 +41,11 @@ class HandsFree(
     fun enable() {
         if (_enabled.value || !possible) return
         _enabled.value = true
+        if (input.continuous) {
+            // El detector de palabra de activación ya vigila solo.
+            input.listen(direct = false)
+            return
+        }
         loop = scope.launch {
             var consecutiveErrors = 0
             while (_enabled.value) {
@@ -65,7 +68,7 @@ class HandsFree(
         _enabled.value = false
         loop?.cancel()
         loop = null
-        input.cancel()
+        input.stopListening()
     }
 
     private fun backoff(errors: Int): Long = when {
