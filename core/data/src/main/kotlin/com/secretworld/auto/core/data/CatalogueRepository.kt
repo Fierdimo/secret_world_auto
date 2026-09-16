@@ -23,6 +23,8 @@ class CatalogueRepository(
      * catálogo editorial: sin ellos una ciudad tiene tres fichas y poco que ver.
      */
     private val wikipedia: WikipediaPlaces? = null,
+    /** Lo consultado, por zona, para cuando no hay cobertura. */
+    private val cache: PlaceCache? = null,
 ) : NarrationTextSource {
 
     /**
@@ -52,7 +54,7 @@ class CatalogueRepository(
         val key = "%.2f,%.2f,%d,%s".format(position.latitude, position.longitude, radiusKm, language.code)
         lastResult?.takeIf { key == lastKey }?.let { return it }
 
-        val result = runCatching {
+        val fetched = cached(position, "catalogue", language) {
             withContext(Dispatchers.IO) {
                 api.placesNearby(
                     PlacesRequest(
@@ -62,19 +64,12 @@ class CatalogueRepository(
                         lang = language.code,
                     ),
                 )
-            }
-        }.map { response ->
-            val places = response.data
-                .mapNotNull { PlaceMapper.toDomain(it, language) }
-                .deduplicate()
-            if (places.isEmpty()) {
-                fallback("el catálogo no devolvió lugares utilizables aquí")
-            } else {
-                Result(places, Source.LIVE)
-            }
-        }.getOrElse { error ->
-            fallback(error.message ?: error::class.simpleName ?: "error de red")
-        }.let { catalogue -> withWikipedia(catalogue, position, language) }
+            }.data.mapNotNull { PlaceMapper.toDomain(it, language) }.deduplicate()
+        }
+        val result = fetched
+            .map { places -> if (places.isEmpty()) fallback("el catálogo no devolvió lugares utilizables aquí") else Result(places, Source.LIVE) }
+            .getOrElse { error -> fallback(error.message ?: error::class.simpleName ?: "error de red") }
+            .let { catalogue -> withWikipedia(catalogue, position, language) }
 
         result.places.forEach { place -> place.summary?.let { texts[place.id] = it } }
         lastKey = key
@@ -86,6 +81,19 @@ class CatalogueRepository(
         Result(CuratedCatalogue.places.deduplicate(), Source.FALLBACK, reason)
 
     /**
+     * Pasa por la caché de zona si la hay. Sin caché, la llamada tal cual, y
+     * su fallo es el fallo.
+     */
+    private suspend fun cached(position: Coordinates, key: String, language: VoiceLanguage, fetch: suspend () -> List<Place>): kotlin.Result<List<Place>> {
+        val store = cache ?: return runCatching { fetch() }
+        var failure: Throwable? = null
+        val places = store.around(position, key, language) {
+            runCatching { fetch() }.onFailure { failure = it }.getOrThrow()
+        }
+        return if (places.isEmpty() && failure != null) kotlin.Result.failure(failure!!) else kotlin.Result.success(places)
+    }
+
+    /**
      * Suma lo de Wikipedia a lo del catálogo, sin repetir lo que ya está.
      *
      * Lo del catálogo va primero: es contenido editorial y es lo que el producto
@@ -94,7 +102,11 @@ class CatalogueRepository(
      */
     private suspend fun withWikipedia(catalogue: Result, position: Coordinates, language: VoiceLanguage): Result {
         val wiki = wikipedia ?: return catalogue
-        val around = wiki.around(position, language)
+        val around = cache?.let { store ->
+            // Wikipedia también por zona: la ciudad no se mueve de sitio.
+            val places = store.around(position, "wikipedia", language) { wiki.around(position, language).places }
+            WikipediaPlaces.Around(places, places.firstNotNullOfOrNull { it.city })
+        } ?: wiki.around(position, language)
         if (around.places.isEmpty()) return catalogue
 
         val nearEnough = catalogue.places.filter { position.distanceTo(it.position) < NEAR_ENOUGH_METERS }

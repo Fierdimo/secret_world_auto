@@ -27,6 +27,17 @@ data class Route(
     )
 }
 
+/**
+ * Quien sabe buscar sitios por lo que son: "shawarma", "gasolinera", "bar".
+ *
+ * Es otra fuente distinta del catálogo y de Wikipedia: aquellos son lo que
+ * merece una parada; esto es lo que hace falta en el camino. Sin texto que
+ * narrar, con dirección y categoría, y siempre alrededor del coche.
+ */
+interface PlaceSearch {
+    suspend fun search(query: String, near: Coordinates, limit: Int = 5): List<Place>
+}
+
 /** Quien sabe calcular rutas. */
 interface Router {
     /** `null` si no hay ruta o no hay con qué calcularla (sin red, sin clave). */

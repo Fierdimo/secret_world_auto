@@ -138,6 +138,9 @@ object IntentPrompt {
     const val SKIP = "skip"
     const val STOP = "stop"
     const val CLARIFY = "clarify"
+    const val FIND_PLACES = "find_places"
+    const val YES = "yes"
+    const val NO = "no"
     const val NONE = "none"
 
     /**
@@ -157,6 +160,8 @@ object IntentPrompt {
         |$TELL_ME_ABOUT N — narrate place N from the list. "That", "this one", "there" = the place playing now. "The second one" = 2. Say a few words of introduction, the narration follows.
         |$TELL_ME_MORE — more about the place playing now.
         |$TAKE_ME_THERE N — drive to place N ("take me to", "directions to", "let's go to"). Without N: the place playing now. Say you're routing there.
+        |$FIND_PLACES QUERY — search places around the car to eat, drink, refuel, park, shop: "where can I eat", "a bar nearby", "shawarma", "gas station". QUERY is what to look for, one or two words, in the driver's language. Say you're looking.
+        |$YES / $NO — the driver answers an offer ("sí", "vale", "no").
         |$SKIP — skip the current place.
         |$STOP — stop talking ("enough", "quiet"). Say one word.
         |$CLARIFY — you understood a request but not which place: ask which one.
@@ -175,6 +180,10 @@ object IntentPrompt {
         |$TELL_ME_ABOUT 2 | Circus Maximus it is.
         |Driver: "let's drive to the forum"
         |$TAKE_ME_THERE 1 | Routing you to the Roman Forum, 300 metres from here.
+        |Driver: "tengo hambre, algo de shawarma"
+        |$FIND_PLACES shawarma | Busco shawarma por aquí.
+        |Driver: "is there somewhere to get coffee"
+        |$FIND_PLACES coffee | Looking for coffee nearby.
         |Driver: "cosa c'è qui vicino"
         |$WHAT_IS_NEARBY | Qui vicino ci sono il Foro Romano, a 300 metri, e il Circo Massimo. Ti racconto uno dei due?
         |Driver: "which one is the old market"
@@ -238,7 +247,8 @@ object IntentPrompt {
         val number = Regex("\\d+").find(rest)?.value?.toIntOrNull()
         // La pregunta de una aclaración es la frase misma; si no la hay, lo que
         // siga al nombre en la parte izquierda (forma antigua "clarify: …").
-        val question = spoken ?: rest.trimStart(':', '-', ' ').ifEmpty { null }
+        // Para una búsqueda, lo que sigue al nombre es lo que se busca.
+        val question = if (tool == FIND_PLACES) rest.trimStart(':', '-', ' ').ifEmpty { null } else spoken ?: rest.trimStart(':', '-', ' ').ifEmpty { null }
         val command = command(tool, number, question, heard, candidates, focus)
         // Una frase que dice algo solo se acepta con una orden entendida: si el
         // modelo no supo qué herramienta era, tampoco se fía uno de su frase.
@@ -259,6 +269,12 @@ object IntentPrompt {
         WHAT_IS_NEARBY -> VoiceCommand.WhatIsNearby
         TELL_ME_MORE -> VoiceCommand.TellMeMore
         TAKE_ME_THERE -> VoiceCommand.TakeMeThere(number?.let { candidates.getOrNull(it - 1) } ?: focus)
+        YES -> VoiceCommand.Yes
+        NO -> VoiceCommand.No
+        FIND_PLACES -> {
+            val q = question?.trim().orEmpty()
+            if (q.isNotEmpty()) VoiceCommand.FindPlaces(q) else VoiceCommand.NotUnderstood(heard)
+        }
         TELL_ME_ABOUT -> {
             val place = number?.let { candidates.getOrNull(it - 1) } ?: focus
             if (place != null) VoiceCommand.TellMeAbout(place) else VoiceCommand.NotUnderstood(heard)
@@ -290,7 +306,7 @@ object IntentPrompt {
     private const val MAX_REPLY_CHARS = 220
 
     private val TOOL_NAME = Regex(
-        listOf(TELL_ME_ABOUT, WHAT_IS_NEARBY, TELL_ME_MORE, TAKE_ME_THERE, SKIP, STOP, CLARIFY, NONE)
+        listOf(TELL_ME_ABOUT, WHAT_IS_NEARBY, TELL_ME_MORE, TAKE_ME_THERE, FIND_PLACES, SKIP, STOP, CLARIFY, YES, NO, NONE)
             .joinToString("|", prefix = "\\b(", postfix = ")\\b"),
         RegexOption.IGNORE_CASE,
     )

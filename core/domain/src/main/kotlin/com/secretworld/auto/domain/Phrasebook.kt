@@ -99,6 +99,65 @@ object Phrasebook {
         )
     }
 
+    // ---- búsqueda de sitios
+
+    fun searching(c: Context, query: String): String =
+        if (c.spanish) pick(c, "Busco $query por aquí.", "A ver qué hay de $query cerca.", "Un momento, miro $query cerca de ti.")
+        else pick(c, "Looking for $query nearby.", "Let me see what's around for $query.", "One moment, checking $query near you.")
+
+    fun nothingFound(c: Context, query: String): String =
+        if (c.spanish) "No encuentro $query por aquí cerca. ¿Busco otra cosa?" else "I can't find $query around here. Want me to look for something else?"
+
+    /**
+     * Los resultados, como los daría alguien que va en el coche: nombre, qué
+     * es, y cuánto se tarda **conduciendo**, que es lo que importa al volante.
+     * Termina ofreciendo llevar, y deja la lista en memoria para "el segundo".
+     */
+    fun found(c: Context, query: String, results: List<Place>): String {
+        val items = results.map { place ->
+            val minutes = drivingMinutes(c.here.distanceTo(place.position))
+            val what = place.kind?.takeIf { !place.name.contains(it, ignoreCase = true) }
+            if (c.spanish) {
+                "${shortName(place)}${what?.let { ", $it" }.orEmpty()}, a ${if (minutes <= 1) "un minuto" else "$minutes minutos"}"
+            } else {
+                "${shortName(place)}${what?.let { ", $it" }.orEmpty()}, ${if (minutes <= 1) "a minute" else "$minutes minutes"} away"
+            }
+        }
+        val and = if (c.spanish) "y" else "and"
+        val list = when (items.size) {
+            1 -> items[0]
+            2 -> "${items[0]} $and ${items[1]}"
+            else -> items.dropLast(1).joinToString("; ") + "; $and " + items.last()
+        }
+        return if (c.spanish) {
+            pick(c, "Cerca tienes ", "He encontrado ", "Por aquí hay ") + "$list. " + pick(c, "¿Te llevo a alguno?", "¿A cuál vamos?", "Di el nombre, o primero, segundo, tercero.")
+        } else {
+            pick(c, "Nearby there's ", "I found ", "Around here: ") + "$list. " + pick(c, "Want me to take you to one?", "Which one?", "Say the name, or first, second, third.")
+        }
+    }
+
+    /** Un sitio sin historia pero con dirección: se ofrece llevar. */
+    fun offerRoute(c: Context, place: Place): String {
+        val minutes = drivingMinutes(c.here.distanceTo(place.position))
+        val where = place.address?.let { if (c.spanish) ", en $it" else ", at $it" }.orEmpty()
+        return if (c.spanish) {
+            "${shortName(place)} está a unos $minutes minutos en coche$where. ¿Te llevo?"
+        } else {
+            "${shortName(place)} is about $minutes minutes away by car$where. Shall I take you?"
+        }
+    }
+
+    /**
+     * Minutos conduciendo por ciudad a partir de la distancia en línea recta:
+     * la ruta real es más larga y se va más despacio de lo que parece. Es una
+     * estimación para elegir; el tiempo de verdad lo da la ruta.
+     */
+    fun drivingMinutes(meters: Double): Int = (meters * CITY_DETOUR / CITY_METERS_PER_MINUTE).toInt().coerceAtLeast(1)
+
+    private const val CITY_DETOUR = 1.4
+    /** Unos 22 km/h de media en ciudad, semáforos incluidos. */
+    private const val CITY_METERS_PER_MINUTE = 370.0
+
     // ---- navegación
 
     fun routingTo(c: Context, place: Place): String = if (c.spanish) pick(

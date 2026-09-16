@@ -85,6 +85,29 @@ class VoiceGrammarTest {
     }
 
     @Test
+    fun `busca sitios por categoria o por lo que siga a buscar`() {
+        assertEquals(VoiceCommand.FindPlaces("restaurante"), VoiceGrammar.parse("dónde puedo comer", places))
+        assertEquals(VoiceCommand.FindPlaces("restaurante"), VoiceGrammar.parse("tengo hambre", places))
+        assertEquals(VoiceCommand.FindPlaces("bar"), VoiceGrammar.parse("un bar cerca", places))
+        assertEquals(VoiceCommand.FindPlaces("gasolinera"), VoiceGrammar.parse("necesito echar gasolina", places))
+        assertEquals(VoiceCommand.FindPlaces("shawarma"), VoiceGrammar.parse("busca shawarma", places))
+        assertEquals(VoiceCommand.FindPlaces("cajero automático"), VoiceGrammar.parse("dónde hay un cajero", places))
+        assertEquals(VoiceCommand.FindPlaces("ceviche"), VoiceGrammar.parse("búscame un ceviche por aquí", places))
+        assertEquals(VoiceCommand.FindPlaces("restaurante"), VoiceGrammar.parse("where can I eat", places))
+        assertEquals(VoiceCommand.FindPlaces("estación de carga eléctrica"), VoiceGrammar.parse("I need a charging station", places))
+        // "qué hay cerca" sigue siendo enumerar, no buscar.
+        assertEquals(VoiceCommand.WhatIsNearby, VoiceGrammar.parse("qué hay cerca", places))
+    }
+
+    @Test
+    fun `si y no solo cuentan a secas`() {
+        assertEquals(VoiceCommand.Yes, VoiceGrammar.parse("sí", places))
+        assertEquals(VoiceCommand.Yes, VoiceGrammar.parse("vale, claro", places))
+        assertEquals(VoiceCommand.No, VoiceGrammar.parse("no gracias", places))
+        assertEquals(VoiceCommand.TakeMeThere(forum), VoiceGrammar.parse("sí, llévame al forum", places))
+    }
+
+    @Test
     fun `los deicticos son palabras enteras, no subcadenas`() {
         // "little" contiene "it" y "with" también: ninguna es un "eso".
         assertIs<VoiceCommand.NotUnderstood>(VoiceGrammar.parse("last little biome", places, focus = cecilia))

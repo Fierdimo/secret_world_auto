@@ -12,7 +12,7 @@ import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
 
 /**
- * Lo que se le pide a Mapbox por HTTP: rutas.
+ * Lo que se le pide a Mapbox por HTTP: rutas y búsqueda de sitios.
  *
  * Es el **puente** del banco de pruebas (docs/MAP-OPTIONS.md): en el vehículo,
  * rutas y destino irán por el navegador de Pleos cuando publique su librería.
@@ -34,6 +34,22 @@ interface MapboxApi {
         @Query("steps") steps: Boolean = true,
         @Query("language") language: String = "en",
     ): DirectionsResponse
+
+    /**
+     * Sitios por texto libre alrededor de un punto: "shawarma", "gasolinera".
+     * Probado en Cartagena: para comida, bares y gasolineras devuelve sitios
+     * reales con dirección y categoría en español. Para monumentos no; de eso
+     * se encarga Wikipedia.
+     */
+    @GET("search/searchbox/v1/forward")
+    suspend fun forward(
+        @Query("q") query: String,
+        @Query("proximity") proximity: String,
+        @Query("access_token") token: String,
+        @Query("types") types: String = "poi",
+        @Query("limit") limit: Int = 6,
+        @Query("language") language: String = "es",
+    ): SearchResponse
 
     companion object {
         const val BASE_URL = "https://api.mapbox.com/"
@@ -83,3 +99,22 @@ data class DirectionsStep(
 
 @Serializable
 data class Maneuver(val instruction: String = "", val location: List<Double> = emptyList())
+
+@Serializable
+data class SearchResponse(val features: List<Feature> = emptyList())
+
+@Serializable
+data class Feature(val geometry: PointGeometry = PointGeometry(), val properties: FeatureProperties = FeatureProperties())
+
+@Serializable
+data class PointGeometry(val coordinates: List<Double> = emptyList())
+
+@Serializable
+data class FeatureProperties(
+    val name: String = "",
+    val mapbox_id: String = "",
+    val address: String? = null,
+    val full_address: String? = null,
+    val place_formatted: String? = null,
+    val poi_category: List<String> = emptyList(),
+)

@@ -140,6 +140,42 @@ En orden de cuánto acercan el producto a alguien que lo usaría:
 Con 1 y 2 la app ya sería algo que un turista podría encender en un viaje; con 3,
 4 y 5, algo que se puede usar conduciendo. Sin ellas, no.
 
+### Lo que falta para poder enviar el APK a un desconocido
+
+Actualizado el 2026‑09‑15. Es la pregunta que decide si esto es un MVP o una
+demostración: ¿qué pasa si el APK llega a alguien en Nueva York o en Milán?
+
+- **La localidad se adapta sola**: GPS real, catálogo por posición, Wikipedia
+  y búsqueda de Mapbox funcionan en cualquier ciudad, y las rutas también.
+- **El idioma, solo inglés y español.** Nueva York recibiría todo; Milán
+  recibiría el mapa y las rutas, pero en inglés y sin entender italiano.
+- **Los modelos no llegan.** En el móvil de pruebas se cargaron con `adb`; la
+  app sabe descargarlos, pero `ModelCatalog.baseUrl` apunta a la máquina de
+  desarrollo. Sin ellos no hay palabra de activación, ni reconocimiento en el
+  dispositivo, ni LLM: queda el botón con el reconocedor de Google.
+
+Tareas, en orden. Sin las dos primeras no hay MVP que enviar:
+
+- [ ] **Alojar los paquetes en un CDN real** —voces (~15–22 MB cada una),
+      modelos de escucha (~110 MB) y LLM (~390 MB)— y apuntar `ModelCatalog` y
+      `VoiceCatalog` ahí. Falta decidir dónde: el backend de Secret World, un
+      bucket, o una *release* de GitHub. Lo demás —descarga, `sha256`,
+      instalación atómica— ya existe.
+- [ ] **Pantalla de primera ejecución** (SPEC RF‑1.8.8): una sola ventana de
+      «Descargando actualizaciones» con progreso agregado, que no deje pasar sin
+      el paquete del idioma y deje el LLM terminar detrás. Hoy solo se instala
+      la voz, sola y en segundo plano.
+- [ ] **Italiano**, si Milán importa: cambiar al FastConformer de 10 idiomas
+      (`be-de-en-es-fr-hr-it-pl-ru-uk`, incluye italiano), incluir la voz
+      italiana y **resolver su licencia**, y hacer la tabla italiana de gramática
+      y frases. El español costó un día; esto, parecido.
+- [ ] **Sin cobertura, lo que no se puede con el puente**: teselas del mapa y
+      cálculo de rutas necesitan red. Los sitios ya se guardan por zona una
+      semana. Mapa y rutas sin red los da el navegador del vehículo, no Mapbox
+      por REST; en el banco de pruebas es un límite conocido.
+- [ ] Probar la guía **en marcha**: maniobras a tiempo, recálculo al salirse,
+      llegada. Todo está escrito y nada está probado con el coche moviéndose.
+
 ## Fase 1 — El MVP acordado · 4–6 semanas
 
 El **nivel 1** de [SPEC.md §2.1](SPEC.md): acompañante determinista, vocabulario

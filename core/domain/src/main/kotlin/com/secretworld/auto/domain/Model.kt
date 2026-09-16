@@ -61,6 +61,10 @@ data class Place(
      * el de la voz, hay que traducir antes de narrar.
      */
     val contentLanguage: VoiceLanguage? = null,
+    /** Qué es, cuando viene de una búsqueda: "comida rápida", "bar", "gasolinera". */
+    val kind: String? = null,
+    /** Dirección corta, para decirla al enumerar resultados de búsqueda. */
+    val address: String? = null,
 ) {
     fun hasNarrationIn(language: VoiceLanguage): Boolean = language in languages
 }

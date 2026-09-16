@@ -55,7 +55,10 @@ import com.secretworld.auto.core.designsystem.SecretWorldTheme
 import com.secretworld.auto.core.platform.DrivingModeController
 import com.secretworld.auto.core.data.MapboxApi
 import com.secretworld.auto.core.data.WikipediaPlaces
+import com.secretworld.auto.core.data.MapboxPlaceSearch
+import com.secretworld.auto.core.data.PlaceCache
 import com.secretworld.auto.core.data.MapboxRouter
+import com.secretworld.auto.domain.PlaceSearch
 import com.secretworld.auto.core.platform.DeviceVehicleSource
 import com.secretworld.auto.core.platform.SimulatedVehicleSource
 import com.secretworld.auto.core.platform.VehicleSource
@@ -133,6 +136,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private lateinit var router: Router
+    private lateinit var search: PlaceSearch
+
+    /** Lo último que se buscó, para enseñarlo en el mapa hasta que se pida otra cosa. */
+    private val searchResults = MutableStateFlow<List<Place>>(emptyList())
+
+    /** Un sitio que se ha ofrecido llevar; un "sí" lo confirma. */
+    private var offered: Place? = null
 
     /** La ruta en curso y su guía. `null` cuando no se navega. */
     private val activeRoute = MutableStateFlow<Route?>(null)
@@ -198,8 +208,12 @@ class MainActivity : ComponentActivity() {
         val api = SecretWorldApi.create(DeviceIdentity.of(this))
         mapKeys = MapCredentials(api)
         val mapbox = MapboxApi.create()
-        catalogue = CatalogueRepository(api, wikipedia = WikipediaPlaces())
+        // Todo lo que se consulta se guarda por zona: media Colombia no tiene
+        // cobertura, y los sitios no se mueven.
+        val cache = PlaceCache(filesDir)
+        catalogue = CatalogueRepository(api, wikipedia = WikipediaPlaces(), cache = cache)
         router = MapboxRouter(mapbox, mapKeys, language)
+        search = cache.caching(MapboxPlaceSearch(mapbox, mapKeys, language), language)
         if (DeviceVehicleSource(this, ROME).hasPermission) useDeviceLocation() else askForLocation.launch(Manifest.permission.ACCESS_FINE_LOCATION)
         // La voz se monta antes que la narración: si hay modelo de lenguaje, la
         // narración traduce con él lo que el catálogo no tenga en el idioma.
@@ -414,7 +428,9 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 emptyList()
                             },
-                            places = upcoming.take(12),
+                            // Lo buscado manda sobre lo cercano: si se pidió
+                            // shawarma, el mapa enseña los shawarmas.
+                            places = searchResults.collectAsState().value.ifEmpty { upcoming.take(12) },
                             highlighted = (panel as? Panel.Detail)?.place?.id
                                 ?: upcoming.firstOrNull()?.id,
                             mapboxToken = mapboxToken,
@@ -629,15 +645,53 @@ class MainActivity : ComponentActivity() {
         val said = resolution.reply
         return when (val command = resolution.command) {
             is VoiceCommand.TellMeAbout -> {
+                memory.focusOn(command.place)
+                if (catalogue.textFor(command.place, language).isNullOrBlank()) {
+                    // Un sitio de búsqueda: no hay historia, hay dirección. Se
+                    // ofrece llevar y se espera el "sí".
+                    offered = command.place
+                    val reply = Phrasebook.offerRoute(c, command.place)
+                    narration.say(reply) { voiceInput.listenForAnswer() }
+                    return reply
+                }
                 // Una breve introducción y, cuando termine, la narración. Sin
                 // introducción, narrar sin más es la respuesta, como antes.
                 val intro = said ?: if (narration.isPrepared(command.place)) Phrasebook.playing(c, command.place) else Phrasebook.preparing(c, command.place)
-                memory.focusOn(command.place)
                 narration.say(intro) { narration.listen(command.place) }
                 intro
             }
 
+            is VoiceCommand.FindPlaces -> {
+                val reply = said ?: Phrasebook.searching(c, command.query)
+                narration.say(reply)
+                findPlaces(command.query)
+                reply
+            }
+
+            VoiceCommand.Yes -> {
+                val place = offered
+                offered = null
+                if (place == null) {
+                    val reply = Phrasebook.notUnderstood(c)
+                    narration.say(reply)
+                    reply
+                } else {
+                    val reply = Phrasebook.routingTo(c, place)
+                    narration.say(reply)
+                    navigateTo(place, announce = false)
+                    reply
+                }
+            }
+
+            VoiceCommand.No -> {
+                offered = null
+                val reply = said ?: Phrasebook.stopped(c)
+                narration.say(reply)
+                reply
+            }
+
             VoiceCommand.WhatIsNearby -> {
+                searchResults.value = emptyList()
                 // Enumerar, no narrar: "¿qué hay cerca?" pide una lista. Con
                 // distancia, y con pregunta al final para que "el segundo"
                 // signifique algo después.
@@ -716,6 +770,28 @@ class MainActivity : ComponentActivity() {
             return
         }
         narration.listen(place)
+    }
+
+    /**
+     * Busca sitios alrededor, los enumera con minutos en coche y los deja en la
+     * memoria y en el mapa: "el segundo" o "llévame al primero" funcionan después.
+     */
+    private fun findPlaces(query: String) {
+        lifecycleScope.launch {
+            val here = vehicle.state.value.position
+            val c = Phrasebook.Context(here, memory.listed, memory, language)
+            val results = search.search(query, here, limit = 4)
+            Log.i("SWSearch", "«$query»: ${results.size} resultados · ${results.joinToString { it.name }}")
+            searchResults.value = results
+            if (results.isEmpty()) {
+                narration.say(Phrasebook.nothingFound(c, query)) { voiceInput.listenForAnswer() }
+                return@launch
+            }
+            memory.listed(results)
+            val reply = Phrasebook.found(c, query, results)
+            memory.remember(query, reply)
+            narration.say(reply) { voiceInput.listenForAnswer() }
+        }
     }
 
     // ------------------------------------------------------------------ navegación

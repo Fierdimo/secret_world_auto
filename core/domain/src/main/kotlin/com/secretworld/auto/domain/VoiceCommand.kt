@@ -27,6 +27,19 @@ sealed interface VoiceCommand {
      */
     data class TakeMeThere(val place: Place?) : VoiceCommand
 
+    /**
+     * "Dónde puedo comer", "un bar cerca", "busca shawarma" → busca sitios de
+     * ese tipo alrededor del coche. [query] es lo que se busca, en el idioma del
+     * conductor.
+     */
+    data class FindPlaces(val query: String) : VoiceCommand
+
+    /** "Sí", "vale", "claro" → confirma lo que el asistente acaba de ofrecer. */
+    data object Yes : VoiceCommand
+
+    /** "No", "déjalo" → rechaza lo ofrecido. */
+    data object No : VoiceCommand
+
     /** "Sáltalo", "ahora no" → descarta y pasa al siguiente. */
     data object Skip : VoiceCommand
 
@@ -87,6 +100,16 @@ object VoiceGrammar {
 
         if (words.hasAny(STOP)) return VoiceCommand.Stop
         if (words.hasAny(SKIP)) return VoiceCommand.Skip
+
+        // Un "sí" o un "no" a secas solo tienen sentido como respuesta; con más
+        // palabras detrás, lo que cuenta es el resto.
+        if (words.size <= 2 && words.hasAny(YES)) return VoiceCommand.Yes
+        if (words.size <= 2 && words.hasAny(NO)) return VoiceCommand.No
+
+        // Buscar sitios: por categoría conocida ("comer" → restaurante) o por lo
+        // que siga a "busca" / "dónde hay". Va antes que "cerca", porque "un bar
+        // cerca" es buscar bares, no enumerar monumentos.
+        findQuery(words)?.let { return VoiceCommand.FindPlaces(it) }
         if (words.hasAny(NEARBY)) return VoiceCommand.WhatIsNearby
         if (words.hasAny(MORE)) return VoiceCommand.TellMeMore
         // "Llévame al Foro" nombra el destino; "llévame ahí" es el lugar en foco.
@@ -144,6 +167,25 @@ object VoiceGrammar {
         indices.any { start -> start + needle.size <= size && subList(start, start + needle.size) == needle }
     }
 
+    /**
+     * Qué buscar, si la frase es una búsqueda de sitios.
+     *
+     * Dos caminos: una categoría conocida en cualquier parte de la frase
+     * ("tengo hambre" → restaurante), o un verbo de búsqueda seguido de lo que
+     * sea ("busca shawarma", "dónde hay un cajero" → "cajero").
+     */
+    private fun findQuery(words: List<String>): String? {
+        CATEGORIES.forEach { (keys, query) -> if (words.hasAny(keys)) return query }
+        SEARCH_VERBS.forEach { verb ->
+            val needle = normalise(verb).split(' ')
+            val at = words.indices.firstOrNull { i -> i + needle.size <= words.size && words.subList(i, i + needle.size) == needle }
+                ?: return@forEach
+            val rest = words.drop(at + needle.size).filter { it !in SEARCH_FILLER }
+            if (rest.isNotEmpty()) return rest.joinToString(" ")
+        }
+        return null
+    }
+
     /** Índice (desde 0) del ordinal que aparezca, o `null`. */
     private fun ordinalIn(words: List<String>): Int? =
         words.firstNotNullOfOrNull { ORDINALS[it] }
@@ -193,6 +235,53 @@ object VoiceGrammar {
         // "lleva mi" y "lleva me" son "llévame" partido por el reconocedor. Medido.
         "llévame", "llevame", "lleva mi", "lleva me", "llévanos", "llevanos", "lleva a", "vamos a", "vamos al", "vamos para", "vamos ahí", "vamos ahi", "vamos allí", "vamos alli", "vamos allá", "vamos alla", "cómo llego", "como llego", "ruta a", "ruta al", "ir a", "ir al", "navega",
     )
+
+    private val YES = listOf("yes", "yeah", "sure", "okay", "ok", "please", "sí", "si", "vale", "claro", "dale", "bueno", "de acuerdo", "por favor")
+    private val NO = listOf("no", "nope", "nah", "déjalo", "dejalo", "no gracias", "no thanks")
+
+    /**
+     * Categorías que se piden por su nombre corriente. La consulta es lo que
+     * se le manda al buscador, en el idioma en que mejor devuelve: para
+     * Colombia, español.
+     */
+    private val CATEGORIES: List<Pair<List<String>, String>> = listOf(
+        listOf("comer", "comida", "hambre", "restaurante", "restaurantes", "almorzar", "cenar", "desayunar", "eat", "food", "hungry", "restaurant", "lunch", "dinner", "breakfast") to "restaurante",
+        listOf("bar", "bares", "cerveza", "copa", "copas", "beer", "drink", "drinks", "pub") to "bar",
+        listOf("café", "cafe", "cafetería", "cafeteria", "coffee") to "café",
+        listOf("gasolina", "gasolinera", "combustible", "tanquear", "echar gasolina", "gas station", "fuel", "petrol") to "gasolinera",
+        listOf("parquear", "parqueadero", "aparcar", "aparcamiento", "estacionar", "parking", "park the car") to "parqueadero",
+        listOf("farmacia", "droguería", "drogueria", "pharmacy", "drugstore") to "farmacia",
+        listOf("cajero", "banco", "atm", "bank") to "cajero automático",
+        listOf("supermercado", "mercado", "supermarket", "grocery") to "supermercado",
+        listOf("hotel", "hoteles", "dormir", "hostal") to "hotel",
+        listOf("hospital", "urgencias", "clínica", "clinica", "emergency") to "hospital",
+        listOf("baño", "baños", "toilet", "restroom", "bathroom") to "baño público",
+        listOf("pizza", "pizzería", "pizzeria") to "pizza",
+        listOf("hamburguesa", "hamburguesas", "burger", "burgers") to "hamburguesa",
+        listOf("sushi") to "sushi",
+        listOf("shawarma", "shawarmas", "kebab", "döner", "doner") to "shawarma",
+        listOf("tacos", "taco") to "tacos",
+        listOf("helado", "heladería", "heladeria", "ice cream") to "helado",
+        listOf("panadería", "panaderia", "pan", "bakery") to "panadería",
+        // Lo que hace falta en carretera, más allá de comer y dormir.
+        listOf("taller", "mecánico", "mecanico", "llanta", "llantas", "pinchazo", "grúa", "grua", "mechanic", "garage", "tire", "tyre", "tow") to "taller mecánico",
+        listOf("cargador", "cargar el coche", "carga eléctrica", "electrolinera", "ev charger", "charging station", "charge the car") to "estación de carga eléctrica",
+        listOf("lavadero", "lavar el carro", "lavar el coche", "car wash") to "lavadero de carros",
+        listOf("aeropuerto", "airport") to "aeropuerto",
+        listOf("terminal", "estación de buses", "estacion de buses", "bus station") to "terminal de transporte",
+        listOf("cambio", "casa de cambio", "cambiar dinero", "exchange", "money exchange") to "casa de cambio",
+        listOf("policía", "policia", "police") to "policía",
+        listOf("playa", "beach") to "playa",
+        listOf("mirador", "viewpoint", "view point", "lookout") to "mirador",
+        listOf("tienda", "minimarket", "convenience store", "shop") to "tienda",
+        listOf("centro comercial", "mall", "shopping") to "centro comercial",
+    )
+
+    /** Verbos tras los que viene lo que se busca. */
+    private val SEARCH_VERBS = listOf("busca", "buscar", "búscame", "buscame", "encuentra", "encuéntrame", "dónde hay", "donde hay", "hay algún", "hay alguna", "quiero", "necesito", "find", "search for", "look for", "where is there", "is there a", "i need", "i want")
+
+    /** Lo que sobra entre el verbo y lo buscado. */
+    private val SEARCH_FILLER = setOf("un", "una", "unos", "unas", "el", "la", "los", "las", "algún", "alguna", "algo", "de", "por", "aquí", "aqui", "cerca", "cercano", "cercana", "a", "an", "the", "some", "nearby", "near", "here", "me", "close", "around")
 
     /** Deícticos: solo tienen sentido con un lugar en foco. */
     private val DEICTIC = listOf(
