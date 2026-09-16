@@ -60,6 +60,19 @@ object Phrasebook {
         return "$opening$list. $ask"
     }
 
+    /** Cuando la historia no está preparada: se avisa, que la espera con aviso no es espera. */
+    fun preparing(c: Context, place: Place): String = if (c.spanish) pick(
+        c,
+        "Un momento, busco lo que sé de ${shortName(place)}.",
+        "Dame un segundo y te cuento ${shortName(place)}.",
+        "Ahora te cuento ${shortName(place)}; lo estoy preparando.",
+    ) else pick(
+        c,
+        "One moment, let me find what I know about ${shortName(place)}.",
+        "Give me a second and I'll tell you about ${shortName(place)}.",
+        "Coming right up: ${shortName(place)}. Just preparing it.",
+    )
+
     fun playing(c: Context, place: Place): String = if (c.spanish) pick(
         c,
         "Aquí va: ${shortName(place)}.",
@@ -90,20 +103,50 @@ object Phrasebook {
 
     fun routingTo(c: Context, place: Place): String = if (c.spanish) pick(
         c,
-        "Te llevo a ${shortName(place)}.",
-        "Vale, vamos a ${shortName(place)}.",
-        "Rumbo a ${shortName(place)}.",
+        "Claro, te llevo a ${shortName(place)}. Un momento.",
+        "Con gusto. Buscando la ruta a ${shortName(place)}.",
+        "Vale, vamos a ${shortName(place)}. Dame un segundo.",
     ) else pick(
         c,
-        "Routing you to ${shortName(place)}.",
-        "Okay, heading to ${shortName(place)}.",
-        "Let's go to ${shortName(place)}.",
+        "Sure, taking you to ${shortName(place)}. One moment.",
+        "Happy to. Finding the route to ${shortName(place)}.",
+        "Okay, off to ${shortName(place)}. Give me a second.",
     )
 
-    fun routeFound(c: Context, route: Route): String = if (c.spanish) {
-        "Son ${spokenDistance(route.distanceMeters, c.language)}, unos ${spokenDuration(route.durationSeconds, c.language)}."
-    } else {
-        "It's ${spokenDistance(route.distanceMeters)}, about ${spokenDuration(route.durationSeconds)}."
+    /**
+     * La ruta, presentada como lo haría alguien que va contigo: a dónde, hacia
+     * dónde, cuánto, y qué hacer ahora. Todo en una sola frase larga, para que
+     * el conductor no tenga que esperar tres respuestas.
+     */
+    fun routeStarted(c: Context, route: Route): String {
+        val heading = cardinal(c.here.bearingTo(route.destination.position), c.language)
+        val first = route.steps.firstOrNull()?.instruction?.trimEnd('.')?.replaceFirstChar { it.lowercase() }
+        return if (c.spanish) {
+            buildString {
+                append(pick(c, "Iniciando ruta hacia ", "Vamos allá: ruta hacia ", "Perfecto, ruta hacia "))
+                append("${shortName(route.destination)}, dirección $heading. ")
+                append("Son ${spokenDistance(route.distanceMeters, c.language)}, unos ${spokenDuration(route.durationSeconds, c.language)}.")
+                if (first != null) append(" Ahora, $first.")
+            }
+        } else {
+            buildString {
+                append(pick(c, "Starting your route to ", "Here we go: route to ", "Great, heading to "))
+                append("${shortName(route.destination)}, $heading of here. ")
+                append("It's ${spokenDistance(route.distanceMeters)}, about ${spokenDuration(route.durationSeconds)}.")
+                if (first != null) append(" Now, $first.")
+            }
+        }
+    }
+
+    /** "norte", "noreste"… a partir de un rumbo en grados. */
+    fun cardinal(bearing: Double, language: VoiceLanguage): String {
+        val names = if (language == VoiceLanguage.SPANISH) {
+            listOf("norte", "noreste", "este", "sureste", "sur", "suroeste", "oeste", "noroeste")
+        } else {
+            listOf("north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west")
+        }
+        val index = (((bearing % 360 + 360) % 360 + 22.5) / 45).toInt() % 8
+        return names[index]
     }
 
     fun noRoute(c: Context, place: Place): String = if (c.spanish) pick(

@@ -631,7 +631,7 @@ class MainActivity : ComponentActivity() {
             is VoiceCommand.TellMeAbout -> {
                 // Una breve introducción y, cuando termine, la narración. Sin
                 // introducción, narrar sin más es la respuesta, como antes.
-                val intro = said ?: Phrasebook.playing(c, command.place)
+                val intro = said ?: if (narration.isPrepared(command.place)) Phrasebook.playing(c, command.place) else Phrasebook.preparing(c, command.place)
                 memory.focusOn(command.place)
                 narration.say(intro) { narration.listen(command.place) }
                 intro
@@ -737,7 +737,10 @@ class MainActivity : ComponentActivity() {
                 return@launch
             }
             startNavigation(found)
-            narration.say(Phrasebook.routeFound(c, found))
+            // La primera maniobra va dentro del anuncio: no hace falta que la
+            // guía la repita nada más empezar.
+            found.steps.firstOrNull()?.let { announced.add("${it.at.latitude},${it.at.longitude}") }
+            narration.say(Phrasebook.routeStarted(c, found))
         }
     }
 

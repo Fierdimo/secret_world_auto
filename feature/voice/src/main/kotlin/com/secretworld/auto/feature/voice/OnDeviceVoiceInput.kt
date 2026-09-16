@@ -142,7 +142,9 @@ class OnDeviceVoiceInput(
             // La palabra del idioma, escrita para el detector. El fichero del
             // paquete es solo un ejemplo: manda [WakeWord].
             val keywords = File(context.cacheDir, "keywords-${language.code}.txt").apply {
-                writeText((wake.keywordTokens ?: WakeWord.forLanguage(VoiceLanguage.ENGLISH).keywordTokens!!) + " @wake\n")
+                // Sin tokens en el idioma, el detector se crea igual —es barato—
+                // pero no se usa: se vigila por transcripción.
+                writeText((wake.keywordTokens ?: "▁HE Y ▁SE C RE T") + " @wake\n")
             }
             val built = Engines(
                 spotter = KeywordSpotter(config = spotterConfig(kws, keywords)),

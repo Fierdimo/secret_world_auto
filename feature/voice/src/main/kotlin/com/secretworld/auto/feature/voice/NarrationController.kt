@@ -124,43 +124,60 @@ class NarrationController(
         }
     }
 
+    /** Si la narración de [place] ya está sintetizada y suena al instante. */
+    fun isPrepared(place: Place): Boolean = store.has(place.id, language)
+
     /**
-     * Narra [place]. Si ya estaba sintetizado suena al instante; si no, lo
-     * sintetiza primero y lo dice mientras tanto.
+     * Narra [place]. Si ya estaba sintetizado suena al instante; si no, se
+     * sintetiza **por frases** y la primera suena en cuanto está: una
+     * narración de un minuto tardaba veinte segundos en empezar.
      */
     fun listen(place: Place) {
         Log.i(TAG, "listen: ${place.id} ${place.name}")
-        scope.launch(Dispatchers.IO) {
+        saying?.cancel()
+        saying = scope.launch(Dispatchers.IO) {
             if (!installer.isInstalled(language)) {
                 _state.value = State.Failed("todavia no hay voz instalada")
                 return@launch
             }
             val path = store.pathFor(place.id, language)
-            if (!store.has(place.id, language)) {
-                val text = textSource.textFor(place, language)
-                if (text.isNullOrBlank()) {
-                    _state.value = State.Failed("no hay texto para ${place.name}")
-                    return@launch
-                }
-                _state.value = State.Synthesizing(place.name)
-                val result = runCatching { synthesizer.synthesizeToFile(text, language, path) }
-                if (result.isFailure) {
-                    _state.value = State.Failed(result.exceptionOrNull()?.message ?: "fallo al sintetizar")
-                    return@launch
-                }
-                Log.i(TAG, "sintetizado al vuelo: ${place.id}, RTF %.2f".format(result.getOrThrow().realTimeFactor))
-            } else {
+            if (store.has(place.id, language)) {
                 store.touch(place.id, language)
+                withContext(Dispatchers.Main) {
+                    val duration = player.play(File(path)) { _state.value = State.Idle }
+                    _state.value = if (duration != null) {
+                        State.Playing(place.name, duration)
+                    } else {
+                        State.Failed("no se pudo reproducir")
+                    }
+                }
+                return@launch
             }
 
-            withContext(Dispatchers.Main) {
-                val duration = player.play(File(path)) { _state.value = State.Idle }
-                _state.value = if (duration != null) {
-                    State.Playing(place.name, duration)
-                } else {
-                    State.Failed("no se pudo reproducir")
+            _state.value = State.Synthesizing(place.name)
+            val text = textSource.textFor(place, language)
+            if (text.isNullOrBlank()) {
+                _state.value = State.Failed("no hay texto para ${place.name}")
+                return@launch
+            }
+            withContext(Dispatchers.Main) { player.stop() }
+            val parts = sentences(text)
+            var next = async { synthesizeReply(parts[0]) }
+            for (index in parts.indices) {
+                val file = next.await() ?: run {
+                    _state.value = State.Failed("fallo al sintetizar")
+                    return@launch
+                }
+                if (index + 1 < parts.size) next = async { synthesizeReply(parts[index + 1]) }
+                _state.value = State.Playing(place.name, durationMs = 0)
+                if (!playAndAwait(file)) {
+                    _state.value = State.Failed("no se pudo reproducir")
+                    return@launch
                 }
             }
+            _state.value = State.Idle
+            // Para la próxima vez, entera y en la caché de narraciones.
+            runCatching { synthesizer.synthesizeToFile(text, language, path) }
         }
     }
 

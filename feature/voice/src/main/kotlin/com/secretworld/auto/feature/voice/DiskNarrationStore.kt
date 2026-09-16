@@ -51,7 +51,9 @@ class DiskNarrationStore(root: File) : NarrationStore {
     private fun dirFor(language: VoiceLanguage) = File(root, language.code)
 
     private fun file(placeId: String, language: VoiceLanguage) =
-        File(dirFor(language), "$placeId$SUFFIX")
+        // El id puede llevar dos puntos ("wiki:es:1488483") y MediaPlayer
+        // tomaría el nombre por una URL con esquema. Solo letras, dígitos y guiones.
+        File(dirFor(language), placeId.map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }.joinToString("") + SUFFIX)
 
     private companion object {
         const val SUFFIX = ".wav"

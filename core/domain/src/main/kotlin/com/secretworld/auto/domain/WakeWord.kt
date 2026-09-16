@@ -3,35 +3,35 @@ package com.secretworld.auto.domain
 /**
  * La palabra de activación: **quien conduce no puede pulsar un botón**.
  *
- * Es **distinta en cada idioma**, y no por capricho. Se midió con voz sintética
- * sobre el detector de palabras clave, que está entrenado solo con inglés: un
- * nombre inventado ("Siky") dispara a medias, y una palabra española —"Hola
- * Secreto", "Oye Mundo", lo que sea— no dispara nunca. Así que cada idioma lleva
- * su palabra **y su forma de detectarla**:
+ * Es "Sícret" —la marca, dicha como suena— a secas: un "eh" o un "hey" delante
+ * se admite pero no se exige. Se probó "Siky", el nombre del asistente, y el
+ * reconocedor lo escribió de nueve formas en nueve intentos ("Sake", "See Kin",
+ * "Cyk", "seeking", "sí qui"): un nombre inventado no tiene ortografía. "Secret"
+ * es una palabra real de su vocabulario y la escribe siempre igual. Se detecta
+ * **por transcripción** en todos
+ * los idiomas: el detector de voz corta la frase, el reconocedor la escribe y
+ * se mira si empieza por la palabra. El detector de palabras clave se probó y
+ * se descartó: está entrenado solo con inglés, con un nombre inventado dispara
+ * a medias y con una palabra española no dispara nunca. Con el reconocedor
+ * actual (~110 ms por frase) transcribir todo lo que se oye sale a cuenta.
  *
- * - Inglés: "Hey Secret", por el detector de palabras clave. Dos palabras
- *   corrientes que el modelo conoce de sobra: 3 de 3 en la prueba, y dos
- *   palabras dan el doble de evidencia que una contra los falsos disparos.
- * - Español: "Ey Sícret" —la marca dicha como suena—, por transcripción: el
- *   detector de voz corta la frase, Whisper la escribe y se mira si empieza
- *   por la palabra. Más caro, pero funciona en cualquier idioma y acento.
- *
- * Lo que no cambia es la marca: siempre es *Secret*.
- *
- * Las transcripciones aceptadas son una **lista explícita**, no una distancia de
- * edición: una lista se audita y crece con lo que se ve en el registro; una
- * distancia acepta lo que nadie ha mirado.
+ * Las transcripciones aceptadas son una **lista explícita** más dos letras de
+ * tolerancia sobre la forma canónica: una lista se audita y crece con lo que
+ * se ve en el registro; la tolerancia cubre lo que el reconocedor inventa con
+ * un nombre que no está en su diccionario ("sicky", "seeky", "psyche").
  */
 object WakeWord {
+
+    /** La palabra, que no cambia con el idioma. El asistente se sigue llamando Siky. */
+    const val NAME = "Sícret"
 
     /** Cómo se activa el asistente en un idioma. */
     data class Spec(
         /** Lo que se pronuncia, para enseñarlo en pantalla. */
         val spoken: String,
         /**
-         * Tokens BPE del detector de palabras clave (modelo gigaspeech), o
-         * `null` si en este idioma el detector no sirve y se detecta por
-         * transcripción.
+         * Tokens BPE para el detector de palabras clave, si algún día vuelve a
+         * usarse. Hoy `null` en todos los idiomas: se detecta por transcripción.
          */
         val keywordTokens: String?,
         /** Transcripciones que el reconocedor devuelve al decir [spoken]. */
@@ -40,35 +40,39 @@ object WakeWord {
         val canonical: Set<String> = emptySet(),
     )
 
-    private val ENGLISH = Spec(
-        spoken = "Hey Secret",
-        keywordTokens = "▁HE Y ▁SE C RE T",
-        aliases = setOf("hey secret", "hey secrets", "hey secrete", "a secret", "hey secretly", "hey sea crit", "hey seagret"),
-        canonical = setOf("heysecret"),
+    /**
+     * Cómo escribe el reconocedor la palabra: medido, y ampliable con el
+     * registro. Primero las formas de "secret"; después, por si alguna cuela,
+     * las de "siky".
+     */
+    private val NAME_FORMS = listOf(
+        "secret", "sicret", "sícret", "secreto", "seacret", "sécret", "secrets", "sicre", "secre", "sicrit", "secrit", "siquet", "secreth",
+        "siky", "sicky", "seeky", "sikhi", "psyche", "silky", "sikey", "siki", "sicri", "sikee", "ciky",
     )
 
-    /**
-     * En español la marca se dice como suena: "Ey Sícret". Whisper lo escribe
-     * como le parece —a veces en inglés, a veces fonético—, así que la lista
-     * cubre las dos ortografías y crece con lo que se vea en el registro.
-     */
-    private val SPANISH = Spec(
-        spoken = "Ey Sícret",
+    /** El nombre solo, y con cualquiera de las llamadas delante. */
+    private fun forms(vararg calls: String): Set<String> =
+        (NAME_FORMS + calls.flatMap { call -> NAME_FORMS.map { "$call $it" } }).toSet()
+
+    private val ENGLISH = Spec(
+        spoken = NAME,
         keywordTokens = null,
-        aliases = setOf(
-            "ey sicret", "ey sícret", "ey secret", "ey sicreth", "ey siquet", "ey secreto",
-            "hey sicret", "hey sícret", "hey secret", "hey siquet", "hey secreto", "hey secrets",
-            "ei sicret", "ei secret", "ay sicret", "ay secret", "eh sicret", "eh secret",
-            "e sicret", "e secret", "a secret", "he secret", "hei secret", "hei sicret",
-        ),
-        canonical = setOf("eysicret", "heysecret", "eysecret", "esecret"),
+        aliases = forms("hey", "hay", "he", "a", "eh", "hi"),
+        canonical = setOf("secret", "heysecret", "asecret"),
+    )
+
+    private val SPANISH = Spec(
+        spoken = NAME,
+        keywordTokens = null,
+        aliases = forms("eh", "ey", "ei", "e", "hey", "a", "ay", "oye", "he", "el"),
+        canonical = setOf("secret", "sicret", "ehsecret", "eysicret", "elsecreto"),
     )
 
     private val ITALIAN = Spec(
-        spoken = "Ciao Secret",
+        spoken = NAME,
         keywordTokens = null,
-        aliases = setOf("ciao secret", "ciao secreto", "ciao segreto", "ciao secrets"),
-        canonical = setOf("ciaosecret"),
+        aliases = forms("ehi", "ei", "hey", "e", "a"),
+        canonical = setOf("secret", "ehisecret"),
     )
 
     fun forLanguage(language: VoiceLanguage): Spec = when (language) {
@@ -128,7 +132,11 @@ object WakeWord {
         val aliases = spec.aliases.map { alias -> alias.map { ACCENTS[it] ?: it }.joinToString("") }
         if (candidate in aliases) return true
         val squashed = candidate.replace(" ", "")
-        return spec.canonical.any { editDistance(squashed, it) <= FUZZ }
+        // La palabra sola son seis letras: ahí una de tolerancia; con la
+        // llamada delante, dos. Menos de cinco letras no es nada.
+        if (squashed.length < 5) return false
+        val fuzz = if (squashed.length <= 6) 1 else FUZZ
+        return spec.canonical.any { editDistance(squashed, it) <= fuzz }
     }
 
     private fun editDistance(a: String, b: String): Int {
