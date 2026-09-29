@@ -8,4 +8,7 @@
 
     <!-- Medidas pensadas para un salpicadero, no para la mano. -->
     <bool name="handheld">false</bool>
+
+    <!-- Interrumpir a la app hablándole. Exige cancelación de eco que funcione. -->
+    <bool name="barge_in">false</bool>
 </resources>

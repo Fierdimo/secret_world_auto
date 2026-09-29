@@ -22,4 +22,5 @@
     <string name="voice_waiting">Escuchando</string>
     <string name="voice_hearing">Te oigo…</string>
     <string name="voice_thinking">Procesando…</string>
+    <string name="stop_narration">Detener</string>
 </resources>

@@ -418,10 +418,11 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(voiceState) {
                     if (voiceInput.continuous && voiceState is VoiceInput.State.Listening) narration.stop()
                 }
-                // Y al revés: mientras habla, no escucha. Sin cancelación de eco
-                // lo único que oiría es a sí misma.
+                // Y al revés: mientras habla, no escucha —salvo que se pueda
+                // interrumpir, ver OnDeviceVoiceInput.bargeIn—. Sin cancelación
+                // de eco lo único que oiría es a sí misma.
                 LaunchedEffect(narrationState) {
-                    onDevice?.muted = narrationState !is NarrationController.State.Idle &&
+                    onDevice?.speaking = narrationState !is NarrationController.State.Idle &&
                         narrationState !is NarrationController.State.Failed
                 }
                 // Se deja de "pensar" en cuanto la app empieza a contestar; si por
@@ -459,6 +460,9 @@ class MainActivity : ComponentActivity() {
                         return@LaunchedEffect
                     }
                     thinking = true
+                    // Interrumpir: si la app estaba hablando, se calla ya. Lo
+                    // que se le pide ahora manda sobre lo que estaba diciendo.
+                    if (narrationState !is NarrationController.State.Idle) narration.stop()
 
                     if (order.isBlank()) {
                         // La despertaron sin pedirle nada: contesta y, **cuando
@@ -658,6 +662,7 @@ class MainActivity : ComponentActivity() {
                 navigation = navigation,
                 onStopNavigation = { endNavigation() },
                 notices = notices,
+                onStopNarration = { narration.stop() },
             )
 
             is Panel.Detail -> PlaceDetailPanel(
@@ -745,15 +750,15 @@ class MainActivity : ComponentActivity() {
             is NarrationController.State.Synthesizing ->
                 NowPlaying(state.placeName, 0, 0, preparing = true)
             is NarrationController.State.InstallingVoice ->
-                NowPlaying(getString(R.string.installing_voice, state.percent), 0, 0, preparing = true)
+                NowPlaying(getString(R.string.installing_voice, state.percent), 0, 0, preparing = true, stoppable = false)
             is NarrationController.State.Failed ->
-                NowPlaying(state.reason, 0, 0, preparing = true)
+                NowPlaying(state.reason, 0, 0, preparing = true, stoppable = false)
             NarrationController.State.Idle -> null
         }
 
     /** El primer arranque, mientras se instalan los modelos que trae el APK. */
     private fun installingOf(percent: Int?) =
-        percent?.let { NowPlaying(getString(R.string.installing_models, it), 0, 0, preparing = true) }
+        percent?.let { NowPlaying(getString(R.string.installing_models, it), 0, 0, preparing = true, stoppable = false) }
 
     /**
      * Ejecuta la orden y devuelve **lo que se le contesta al conductor**.
@@ -1042,6 +1047,13 @@ class MainActivity : ComponentActivity() {
 
         // Lo que trae el APK cuenta como instalado: se instala justo abajo, antes
         // de cargarlo. Es lo que hace que la demo funcione sin adb ni CDN.
+        // Interrumpir hablando: lo decide el sabor, y para medir se puede
+        // forzar al abrir la app —adb shell am start ... --ez bargein true
+        // --es mic communication— sin recompilar.
+        local.bargeIn = intent.getBooleanExtra("bargein", resources.getBoolean(R.bool.barge_in))
+        if (intent.getStringExtra("mic") == "communication") {
+            local.source = android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION
+        }
         voiceInput = if (local.available || local.bundled) local.also { onDevice = it } else SystemVoiceInput(this)
         handsFree = HandsFree(voiceInput, lifecycleScope)
         resolver = LayeredIntentResolver(

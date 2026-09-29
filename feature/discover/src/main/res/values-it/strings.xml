@@ -22,4 +22,5 @@
     <string name="voice_waiting">In ascolto</string>
     <string name="voice_hearing">Ti sento…</string>
     <string name="voice_thinking">Elaboro…</string>
+    <string name="stop_narration">Ferma</string>
 </resources>

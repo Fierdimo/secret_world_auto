@@ -80,6 +80,7 @@ fun RoutePanel(
     navigation: NavigationUi? = null,
     onStopNavigation: () -> Unit = {},
     notices: List<PermissionNotice> = emptyList(),
+    onStopNarration: () -> Unit = {},
 ) {
     val d = CarTheme.dimens
     val driving = mode == DrivingMode.DRIVING
@@ -118,7 +119,7 @@ fun RoutePanel(
             }
             if (nowPlaying != null) {
                 Spacer(Modifier.height(d.spaceS))
-                NowPlayingCard(nowPlaying)
+                NowPlayingCard(nowPlaying, onStopNarration)
             }
             Spacer(Modifier.height(d.spaceXs))
             return@Column
@@ -217,7 +218,7 @@ fun RoutePanel(
 
         if (nowPlaying != null) {
             Spacer(Modifier.height(d.spaceS))
-            NowPlayingCard(nowPlaying)
+            NowPlayingCard(nowPlaying, onStopNarration)
         }
     }
 }
@@ -302,41 +303,53 @@ data class NowPlaying(
     val positionMs: Int,
     val durationMs: Int,
     val preparing: Boolean = false,
+    /** Si se puede cortar. No lo es la instalación de modelos, que usa la misma tarjeta. */
+    val stoppable: Boolean = true,
 )
 
 @Composable
-private fun NowPlayingCard(state: NowPlaying) {
+private fun NowPlayingCard(state: NowPlaying, onStop: () -> Unit) {
     val d = CarTheme.dimens
-    Column(
+    Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(d.cardCorner))
             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
             .padding(d.spaceS),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = stringResource(if (state.preparing) R.string.preparing else R.string.now_playing),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            text = state.placeName,
-            style = MaterialTheme.typography.bodyLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (!state.preparing && state.durationMs > 0) {
-            Spacer(Modifier.height(d.spaceXs))
-            LinearProgressIndicator(
-                progress = { state.positionMs.toFloat() / state.durationMs },
-                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-            )
-            Spacer(Modifier.height(d.spaceXs))
+        Column(Modifier.weight(1f)) {
             Text(
-                text = "${formatTime(state.positionMs)} / ${formatTime(state.durationMs)}",
+                text = stringResource(if (state.preparing) R.string.preparing else R.string.now_playing),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.primary,
             )
+            Text(
+                text = state.placeName,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!state.preparing && state.durationMs > 0) {
+                Spacer(Modifier.height(d.spaceXs))
+                LinearProgressIndicator(
+                    progress = { state.positionMs.toFloat() / state.durationMs },
+                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                )
+                Spacer(Modifier.height(d.spaceXs))
+                Text(
+                    text = "${formatTime(state.positionMs)} / ${formatTime(state.durationMs)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        // Mientras la app habla no escucha —sin cancelación de eco se oiría a
+        // sí misma—, así que "Sícret, basta" no llega. Hasta que se pueda
+        // interrumpir hablando, se corta aquí.
+        if (state.stoppable) {
+            Spacer(Modifier.width(d.spaceS))
+            CarSecondaryButton(label = stringResource(R.string.stop_narration), onClick = onStop, dense = true)
         }
     }
 }

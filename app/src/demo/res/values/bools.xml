@@ -5,4 +5,12 @@
 
     <!-- Y a tamaño de móvil: se sostiene en la mano, no va en el salpicadero. -->
     <bool name="handheld">true</bool>
+
+    <!--
+      Interrumpir hablando, desactivado: medido en un moto g75 (29-09-2026), la
+      cancelación de eco del sistema no resta la narración con ninguna fuente de
+      micrófono; la app se transcribía a sí misma. Para volver a medir sin
+      recompilar: am start ... -\-ez bargein true [-\-es mic communication].
+    -->
+    <bool name="barge_in">false</bool>
 </resources>

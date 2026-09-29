@@ -132,14 +132,32 @@ class OnDeviceVoiceInput(
     @Volatile
     private var abortRequested = false
 
+    /** La app está hablando: narración o respuesta. */
+    @Volatile
+    var speaking: Boolean = false
+
     /**
-     * Mientras la app habla, no escucha. Sin cancelación de eco, lo que oye en
-     * ese momento es a sí misma: transcribirlo gasta CPU y, con la vigilancia
-     * por transcripción, podría hasta despertarse con su propia voz. Se pierde
-     * la interrupción por voz, que en este dispositivo ya no funcionaba.
+     * Si se puede interrumpir a la app hablándole. Sin cancelación de eco que
+     * funcione, lo que se oye mientras habla es a ella misma —diez veces más
+     * fuerte que el conductor—: transcribirlo gasta CPU y no se entendería
+     * nada. Por eso, sin esto, mientras habla no escucha. Con esto sigue
+     * escuchando y solo atiende una frase que empiece por la palabra de
+     * activación. Es experimental: depende de lo bien que cancele el eco cada
+     * dispositivo.
      */
     @Volatile
-    var muted: Boolean = false
+    var bargeIn: Boolean = false
+
+    private val muted: Boolean get() = speaking && !bargeIn
+
+    /**
+     * La fuente del micrófono. VOICE_RECOGNITION es la que va bien con el
+     * reconocedor; VOICE_COMMUNICATION trae la cancelación de eco de las
+     * llamadas, que en móviles modernos puede bastar para interrumpir. Se
+     * elige al abrir el micrófono.
+     */
+    @Volatile
+    var source: Int = MediaRecorder.AudioSource.VOICE_RECOGNITION
 
     @Volatile
     private var running = false
@@ -284,7 +302,7 @@ class OnDeviceVoiceInput(
         // cancelación de eco de verdad, con la señal reproducida como referencia:
         // o la del vehículo, o una por software (WebRTC APM). Ver ROADMAP.
         val record = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            source,
             SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
@@ -296,7 +314,7 @@ class OnDeviceVoiceInput(
             return
         }
         val echo = if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(record.audioSessionId)?.apply { enabled = true } else null
-        Log.i(TAG, "cancelación de eco: ${echo?.enabled ?: "no disponible"}")
+        Log.i(TAG, "cancelación de eco: ${echo?.enabled ?: "no disponible"} · fuente: ${if (source == MediaRecorder.AudioSource.VOICE_COMMUNICATION) "comunicación" else "reconocimiento"} · interrumpir: $bargeIn")
 
         // Un toque breve al oír "Siky". Es lo que separa "me ha oído" de "no sé
         // si me ha oído": sin él, el conductor repite la orden justo mientras
@@ -336,7 +354,7 @@ class OnDeviceVoiceInput(
                 }
                 levelAcc += Math.sqrt(energy / n)
                 if (++levelChunks >= LEVEL_EVERY_CHUNKS) {
-                    Log.d(TAG, "nivel medio del micrófono: %.4f (%s)".format(levelAcc / levelChunks, mode))
+                    Log.d(TAG, "nivel medio del micrófono: %.4f (%s)%s".format(levelAcc / levelChunks, mode, if (speaking) " mientras habla" else ""))
                     levelAcc = 0.0
                     levelChunks = 0
                 }
@@ -501,7 +519,9 @@ class OnDeviceVoiceInput(
                     if (vad.isSpeechDetected()) {
                         if (!speechSeen) firstSpeechAt = total
                         speechSeen = true
-                        _hearing.value = true
+                        // Mientras la app habla, lo que "se oye" es ella misma:
+                        // no se anuncia como si hablara el conductor.
+                        if (!speaking) _hearing.value = true
                         lastSpeechAt = total
                     }
                     // Los segmentos no se usan: solo se vacían para no acumular.
@@ -584,7 +604,7 @@ class OnDeviceVoiceInput(
         val raw = if (clean !== audio) transcribe(engines, audio) else text
         val decodeMs = (System.nanoTime() - started) / 1_000_000
         val audioMs = audio.size * 1000L / SAMPLE_RATE
-        Log.i(TAG, "oído en ${decodeMs} ms (${audioMs} ms de audio): «$text»")
+        Log.i(TAG, "oído en ${decodeMs} ms (${audioMs} ms de audio)${if (speaking) " mientras habla" else ""}: «$text»")
         if (raw != text) Log.i(TAG, "sin reductor: «$raw»")
 
         val afterWake = WakeWord.commandIn(text, language)
