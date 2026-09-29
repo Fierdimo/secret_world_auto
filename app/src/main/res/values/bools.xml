@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Un coche se conduce de noche y con sol de frente: el tema es oscuro por
+      decisión de producto, no por seguir al sistema. La demo lo sobrescribe.
+    -->
+    <bool name="dark_theme">true</bool>
+
+    <!-- Medidas pensadas para un salpicadero, no para la mano. -->
+    <bool name="handheld">false</bool>
+</resources>

@@ -10,8 +10,8 @@ package com.secretworld.auto.domain
  * habla, lo que viene después. Y no repetirse: varias formas de decir lo mismo,
  * elegidas por turno.
  *
- * Inglés y español; el italiano llega con la voz italiana (SPEC RF-1.7). Cada
- * idioma es otra tabla, no otra lógica: cada función elige por [Context.language].
+ * Inglés, español e italiano. Cada idioma es otra tabla, no otra lógica: cada
+ * función elige con [VoiceLanguage.say], que exige los tres.
  */
 object Phrasebook {
 
@@ -24,89 +24,133 @@ object Phrasebook {
         val language: VoiceLanguage = VoiceLanguage.ENGLISH,
     ) {
         val turn: Int get() = memory.turns.size
-        val spanish: Boolean get() = language == VoiceLanguage.SPANISH
+
+        fun <T> say(en: T, es: T, it: T): T = language.say(en, es, it)
     }
 
     /** Un lugar con su distancia dicha, para enumerar. */
     fun named(place: Place, from: Coordinates, language: VoiceLanguage = VoiceLanguage.ENGLISH): String =
         "${shortName(place)}, ${spokenDistance(from.distanceTo(place.position), language)}"
 
-    fun nothingNearby(c: Context): String = if (c.spanish) pick(
+    fun nothingNearby(c: Context): String = pick(
         c,
-        "Por aquí no tengo nada que merezca una parada, de momento.",
-        "No tengo nada en la lista por aquí. Te aviso cuando aparezca algo.",
-    ) else pick(
-        c,
-        "I don't have anything worth a stop around here yet.",
-        "Nothing on my list around here. I'll tell you when something comes up.",
+        c.say(
+            en = listOf(
+                "I don't have anything worth a stop around here yet.",
+                "Nothing on my list around here. I'll tell you when something comes up.",
+            ),
+            es = listOf(
+                "Por aquí no tengo nada que merezca una parada, de momento.",
+                "No tengo nada en la lista por aquí. Te aviso cuando aparezca algo.",
+            ),
+            it = listOf(
+                "Per ora qui intorno non ho niente che valga una sosta.",
+                "Qui vicino non ho niente in lista. Ti avviso quando compare qualcosa.",
+            ),
+        ),
     )
 
     /** Enumera y pregunta: lo que hace que "el segundo" signifique algo después. */
     fun nearby(c: Context, listed: List<Place>): String {
-        val names = listed.map { named(it, c.here, c.language) }
-        val and = if (c.spanish) "y" else "and"
-        val list = when (names.size) {
-            1 -> names[0]
-            2 -> "${names[0]} $and ${names[1]}"
-            else -> names.dropLast(1).joinToString("; ") + "; $and " + names.last()
-        }
-        if (c.spanish) {
-            val opening = pick(c, "A tu alrededor: ", "Cerca tienes ", "Por aquí hay ")
-            val ask = pick(c, "¿Cuál?", "¿Te cuento alguno?", "Di el nombre, o primero, segundo, tercero.")
-            return "$opening$list. $ask"
-        }
-        val opening = pick(c, "Around you: ", "Nearby there's ", "Close to you: ")
-        val ask = pick(c, "Which one?", "Want to hear about any of them?", "Say the name, or first, second, third.")
+        val list = joined(c, listed.map { named(it, c.here, c.language) })
+        val opening = pick(
+            c,
+            c.say(
+                en = listOf("Around you: ", "Nearby there's ", "Close to you: "),
+                es = listOf("A tu alrededor: ", "Cerca tienes ", "Por aquí hay "),
+                it = listOf("Intorno a te: ", "Qui vicino c'è ", "Vicino a te: "),
+            ),
+        )
+        val ask = pick(
+            c,
+            c.say(
+                en = listOf("Which one?", "Want to hear about any of them?", "Say the name, or first, second, third."),
+                es = listOf("¿Cuál?", "¿Te cuento alguno?", "Di el nombre, o primero, segundo, tercero."),
+                it = listOf("Quale?", "Vuoi che te ne racconti uno?", "Dimmi il nome, oppure primo, secondo, terzo."),
+            ),
+        )
         return "$opening$list. $ask"
     }
 
     /** Cuando la historia no está preparada: se avisa, que la espera con aviso no es espera. */
-    fun preparing(c: Context, place: Place): String = if (c.spanish) pick(
-        c,
-        "Un momento, busco lo que sé de ${shortName(place)}.",
-        "Dame un segundo y te cuento ${shortName(place)}.",
-        "Ahora te cuento ${shortName(place)}; lo estoy preparando.",
-    ) else pick(
-        c,
-        "One moment, let me find what I know about ${shortName(place)}.",
-        "Give me a second and I'll tell you about ${shortName(place)}.",
-        "Coming right up: ${shortName(place)}. Just preparing it.",
-    )
+    fun preparing(c: Context, place: Place): String {
+        val name = shortName(place)
+        return pick(
+            c,
+            c.say(
+                en = listOf(
+                    "One moment, let me find what I know about $name.",
+                    "Give me a second and I'll tell you about $name.",
+                    "Coming right up: $name. Just preparing it.",
+                ),
+                es = listOf(
+                    "Un momento, busco lo que sé de $name.",
+                    "Dame un segundo y te cuento $name.",
+                    "Ahora te cuento $name; lo estoy preparando.",
+                ),
+                it = listOf(
+                    "Un momento, cerco quello che so su $name.",
+                    "Dammi un secondo e ti racconto $name.",
+                    "Arriva subito: $name. Lo sto preparando.",
+                ),
+            ),
+        )
+    }
 
-    fun playing(c: Context, place: Place): String = if (c.spanish) pick(
-        c,
-        "Aquí va: ${shortName(place)}.",
-        "${shortName(place)}, ahí voy.",
-        "Claro. ${shortName(place)}.",
-    ) else pick(
-        c,
-        "Here's ${shortName(place)}.",
-        "${shortName(place)}, coming up.",
-        "Sure — ${shortName(place)}.",
-    )
+    fun playing(c: Context, place: Place): String {
+        val name = shortName(place)
+        return pick(
+            c,
+            c.say(
+                en = listOf("Here's $name.", "$name, coming up.", "Sure — $name."),
+                es = listOf("Aquí va: $name.", "$name, ahí voy.", "Claro. $name."),
+                it = listOf("Ecco $name.", "$name, arriva.", "Certo. $name."),
+            ),
+        )
+    }
 
     fun noMore(c: Context): String {
-        val focus = c.memory.focus
-            ?: return if (c.spanish) "Ahora no suena nada. Pregúntame qué hay cerca." else "Nothing is playing right now. Ask me what's nearby."
-        return if (c.spanish) pick(
+        val focus = c.memory.focus ?: return c.say(
+            en = "Nothing is playing right now. Ask me what's nearby.",
+            es = "Ahora no suena nada. Pregúntame qué hay cerca.",
+            it = "Adesso non c'è niente in riproduzione. Chiedimi cosa c'è qui vicino.",
+        )
+        val name = shortName(focus)
+        return pick(
             c,
-            "Eso es todo lo que tengo de ${shortName(focus)} por ahora.",
-            "Ya te conté lo que sé de ${shortName(focus)}. ¿Quieres saber qué más hay cerca?",
-        ) else pick(
-            c,
-            "That's all I have on ${shortName(focus)} for now.",
-            "I've told you what I know about ${shortName(focus)}. Want to hear what else is around?",
+            c.say(
+                en = listOf(
+                    "That's all I have on $name for now.",
+                    "I've told you what I know about $name. Want to hear what else is around?",
+                ),
+                es = listOf(
+                    "Eso es todo lo que tengo de $name por ahora.",
+                    "Ya te conté lo que sé de $name. ¿Quieres saber qué más hay cerca?",
+                ),
+                it = listOf(
+                    "Per ora è tutto quello che ho su $name.",
+                    "Ti ho detto quello che so su $name. Vuoi sapere cos'altro c'è qui intorno?",
+                ),
+            ),
         )
     }
 
     // ---- búsqueda de sitios
 
-    fun searching(c: Context, query: String): String =
-        if (c.spanish) pick(c, "Busco $query por aquí.", "A ver qué hay de $query cerca.", "Un momento, miro $query cerca de ti.")
-        else pick(c, "Looking for $query nearby.", "Let me see what's around for $query.", "One moment, checking $query near you.")
+    fun searching(c: Context, query: String): String = pick(
+        c,
+        c.say(
+            en = listOf("Looking for $query nearby.", "Let me see what's around for $query.", "One moment, checking $query near you."),
+            es = listOf("Busco $query por aquí.", "A ver qué hay de $query cerca.", "Un momento, miro $query cerca de ti."),
+            it = listOf("Cerco $query qui vicino.", "Vediamo cosa c'è di $query qui intorno.", "Un momento, controllo $query vicino a te."),
+        ),
+    )
 
-    fun nothingFound(c: Context, query: String): String =
-        if (c.spanish) "No encuentro $query por aquí cerca. ¿Busco otra cosa?" else "I can't find $query around here. Want me to look for something else?"
+    fun nothingFound(c: Context, query: String): String = c.say(
+        en = "I can't find $query around here. Want me to look for something else?",
+        es = "No encuentro $query por aquí cerca. ¿Busco otra cosa?",
+        it = "Non trovo $query qui vicino. Cerco qualcos'altro?",
+    )
 
     /**
      * Los resultados, como los daría alguien que va en el coche: nombre, qué
@@ -116,35 +160,79 @@ object Phrasebook {
     fun found(c: Context, query: String, results: List<Place>): String {
         val items = results.map { place ->
             val minutes = drivingMinutes(c.here.distanceTo(place.position))
-            val what = place.kind?.takeIf { !place.name.contains(it, ignoreCase = true) }
-            if (c.spanish) {
-                "${shortName(place)}${what?.let { ", $it" }.orEmpty()}, a ${if (minutes <= 1) "un minuto" else "$minutes minutos"}"
-            } else {
-                "${shortName(place)}${what?.let { ", $it" }.orEmpty()}, ${if (minutes <= 1) "a minute" else "$minutes minutes"} away"
-            }
+            val what = place.kind?.takeIf { !place.name.contains(it, ignoreCase = true) }?.let { ", $it" }.orEmpty()
+            val away = c.say(
+                en = if (minutes <= 1) "a minute away" else "$minutes minutes away",
+                es = if (minutes <= 1) "a un minuto" else "a $minutes minutos",
+                it = if (minutes <= 1) "a un minuto" else "a $minutes minuti",
+            )
+            "${shortName(place)}$what, $away"
         }
-        val and = if (c.spanish) "y" else "and"
-        val list = when (items.size) {
-            1 -> items[0]
-            2 -> "${items[0]} $and ${items[1]}"
-            else -> items.dropLast(1).joinToString("; ") + "; $and " + items.last()
-        }
-        return if (c.spanish) {
-            pick(c, "Cerca tienes ", "He encontrado ", "Por aquí hay ") + "$list. " + pick(c, "¿Te llevo a alguno?", "¿A cuál vamos?", "Di el nombre, o primero, segundo, tercero.")
-        } else {
-            pick(c, "Nearby there's ", "I found ", "Around here: ") + "$list. " + pick(c, "Want me to take you to one?", "Which one?", "Say the name, or first, second, third.")
-        }
+        val opening = pick(
+            c,
+            c.say(
+                en = listOf("Nearby there's ", "I found ", "Around here: "),
+                es = listOf("Cerca tienes ", "He encontrado ", "Por aquí hay "),
+                it = listOf("Qui vicino c'è ", "Ho trovato ", "Qui intorno: "),
+            ),
+        )
+        val ask = pick(
+            c,
+            c.say(
+                en = listOf("Want me to take you to one?", "Which one?", "Say the name, or first, second, third."),
+                es = listOf("¿Te llevo a alguno?", "¿A cuál vamos?", "Di el nombre, o primero, segundo, tercero."),
+                it = listOf("Ti porto in uno di questi?", "Dove andiamo?", "Dimmi il nome, oppure primo, secondo, terzo."),
+            ),
+        )
+        return "$opening${joined(c, items)}. $ask"
+    }
+
+    /**
+     * Se nombró un lugar sin decir qué hacer: llevar o contar, que elija.
+     * Corta a propósito: cada palabra es tiempo de síntesis, y en un móvil
+     * lento la versión con distancia tardaba segundos en empezar a sonar.
+     */
+    fun chooseAction(c: Context, place: Place): String {
+        val name = shortName(place)
+        return pick(
+            c,
+            c.say(
+                en = listOf("$name: shall I take you, or tell you about it?", "$name. Go there, or hear its story?"),
+                es = listOf("$name: ¿te llevo o te la cuento?", "$name. ¿Vamos, o te cuento su historia?"),
+                it = listOf("$name: ti ci porto o te la racconto?", "$name. Ci andiamo, o te la racconto?"),
+            ),
+        )
+    }
+
+    /**
+     * El nombre encaja con varios: cuál. Se numeran, porque con nombres largos
+     * nadie recuerda cuál era cuál, y así "la segunda" contesta.
+     */
+    fun whichOne(c: Context, places: List<Place>): String {
+        val ordinals = c.say(
+            en = listOf("the first", "the second", "the third"),
+            es = listOf("el primero", "el segundo", "el tercero"),
+            it = listOf("il primo", "il secondo", "il terzo"),
+        )
+        val options = places.take(ordinals.size).mapIndexed { i, place -> "${ordinals[i]}, ${shortName(place)}" }.joinToString("; ")
+        val count = places.size.coerceAtMost(ordinals.size)
+        return c.say(
+            en = "I have $count: $options. Which one?",
+            es = "Tengo $count: $options. ¿Cuál?",
+            it = "Ne ho ${if (count == 2) "due" else "tre"}: $options. Quale?",
+        )
     }
 
     /** Un sitio sin historia pero con dirección: se ofrece llevar. */
     fun offerRoute(c: Context, place: Place): String {
         val minutes = drivingMinutes(c.here.distanceTo(place.position))
-        val where = place.address?.let { if (c.spanish) ", en $it" else ", at $it" }.orEmpty()
-        return if (c.spanish) {
-            "${shortName(place)} está a unos $minutes minutos en coche$where. ¿Te llevo?"
-        } else {
-            "${shortName(place)} is about $minutes minutes away by car$where. Shall I take you?"
-        }
+        val name = shortName(place)
+        val where = place.address?.let { c.say(en = ", at $it", es = ", en $it", it = ", in $it") }.orEmpty()
+        return c.say(
+            en = "$name is about $minutes minutes away by car$where. Shall I take you?",
+            es = "$name está a unos $minutes minutos en coche$where. ¿Te llevo?",
+            it = "$name è a circa $minutes minuti in macchina$where. Ti ci porto?",
+        )
     }
 
     /**
@@ -160,17 +248,29 @@ object Phrasebook {
 
     // ---- navegación
 
-    fun routingTo(c: Context, place: Place): String = if (c.spanish) pick(
-        c,
-        "Claro, te llevo a ${shortName(place)}. Un momento.",
-        "Con gusto. Buscando la ruta a ${shortName(place)}.",
-        "Vale, vamos a ${shortName(place)}. Dame un segundo.",
-    ) else pick(
-        c,
-        "Sure, taking you to ${shortName(place)}. One moment.",
-        "Happy to. Finding the route to ${shortName(place)}.",
-        "Okay, off to ${shortName(place)}. Give me a second.",
-    )
+    fun routingTo(c: Context, place: Place): String {
+        val name = shortName(place)
+        return pick(
+            c,
+            c.say(
+                en = listOf(
+                    "Sure, taking you to $name. One moment.",
+                    "Happy to. Finding the route to $name.",
+                    "Okay, off to $name. Give me a second.",
+                ),
+                es = listOf(
+                    "Claro, te llevo a $name. Un momento.",
+                    "Con gusto. Buscando la ruta a $name.",
+                    "Vale, vamos a $name. Dame un segundo.",
+                ),
+                it = listOf(
+                    "Certo, ti porto a $name. Un momento.",
+                    "Volentieri. Cerco il percorso per $name.",
+                    "Va bene, andiamo a $name. Dammi un secondo.",
+                ),
+            ),
+        )
+    }
 
     /**
      * La ruta, presentada como lo haría alguien que va contigo: a dónde, hacia
@@ -180,59 +280,91 @@ object Phrasebook {
     fun routeStarted(c: Context, route: Route): String {
         val heading = cardinal(c.here.bearingTo(route.destination.position), c.language)
         val first = route.steps.firstOrNull()?.instruction?.trimEnd('.')?.replaceFirstChar { it.lowercase() }
-        return if (c.spanish) {
-            buildString {
-                append(pick(c, "Iniciando ruta hacia ", "Vamos allá: ruta hacia ", "Perfecto, ruta hacia "))
-                append("${shortName(route.destination)}, dirección $heading. ")
-                append("Son ${spokenDistance(route.distanceMeters, c.language)}, unos ${spokenDuration(route.durationSeconds, c.language)}.")
-                if (first != null) append(" Ahora, $first.")
-            }
-        } else {
-            buildString {
-                append(pick(c, "Starting your route to ", "Here we go: route to ", "Great, heading to "))
-                append("${shortName(route.destination)}, $heading of here. ")
-                append("It's ${spokenDistance(route.distanceMeters)}, about ${spokenDuration(route.durationSeconds)}.")
-                if (first != null) append(" Now, $first.")
-            }
+        val name = shortName(route.destination)
+        val distance = spokenDistance(route.distanceMeters, c.language)
+        val duration = spokenDuration(route.durationSeconds, c.language)
+        return buildString {
+            append(
+                pick(
+                    c,
+                    c.say(
+                        en = listOf("Starting your route to ", "Here we go: route to ", "Great, heading to "),
+                        es = listOf("Iniciando ruta hacia ", "Vamos allá: ruta hacia ", "Perfecto, ruta hacia "),
+                        it = listOf("Avvio il percorso verso ", "Si parte: percorso verso ", "Perfetto, percorso verso "),
+                    ),
+                ),
+            )
+            append(
+                c.say(
+                    en = "$name, $heading of here. It's $distance, about $duration.",
+                    es = "$name, dirección $heading. Son $distance, unos $duration.",
+                    it = "$name, direzione $heading. Sono $distance, circa $duration.",
+                ),
+            )
+            if (first != null) append(c.say(en = " Now, $first.", es = " Ahora, $first.", it = " Ora, $first."))
         }
     }
 
     /** "norte", "noreste"… a partir de un rumbo en grados. */
     fun cardinal(bearing: Double, language: VoiceLanguage): String {
-        val names = if (language == VoiceLanguage.SPANISH) {
-            listOf("norte", "noreste", "este", "sureste", "sur", "suroeste", "oeste", "noroeste")
-        } else {
-            listOf("north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west")
-        }
+        val names = language.say(
+            en = listOf("north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"),
+            es = listOf("norte", "noreste", "este", "sureste", "sur", "suroeste", "oeste", "noroeste"),
+            it = listOf("nord", "nord-est", "est", "sud-est", "sud", "sud-ovest", "ovest", "nord-ovest"),
+        )
         val index = (((bearing % 360 + 360) % 360 + 22.5) / 45).toInt() % 8
         return names[index]
     }
 
-    fun noRoute(c: Context, place: Place): String = if (c.spanish) pick(
-        c,
-        "No encuentro una ruta por carretera hasta ${shortName(place)} desde aquí.",
-        "Ahora mismo no tengo ruta hasta ${shortName(place)}.",
-    ) else pick(
-        c,
-        "I couldn't find a road route to ${shortName(place)} from here.",
-        "No route to ${shortName(place)} right now — I may be missing a connection.",
+    fun noRoute(c: Context, place: Place): String {
+        val name = shortName(place)
+        return pick(
+            c,
+            c.say(
+                en = listOf(
+                    "I couldn't find a road route to $name from here.",
+                    "No route to $name right now — I may be missing a connection.",
+                ),
+                es = listOf(
+                    "No encuentro una ruta por carretera hasta $name desde aquí.",
+                    "Ahora mismo no tengo ruta hasta $name.",
+                ),
+                it = listOf(
+                    "Non trovo un percorso stradale per $name da qui.",
+                    "In questo momento non ho un percorso per $name.",
+                ),
+            ),
+        )
+    }
+
+    fun noDestination(c: Context): String = c.say(
+        en = "Where to? Say a place, or ask what's nearby.",
+        es = "¿A dónde? Dime un lugar, o pregúntame qué hay cerca.",
+        it = "Dove andiamo? Dimmi un luogo, oppure chiedimi cosa c'è qui vicino.",
     )
 
-    fun noDestination(c: Context): String =
-        if (c.spanish) "¿A dónde? Dime un lugar, o pregúntame qué hay cerca." else "Where to? Say a place, or ask what's nearby."
+    fun arrived(c: Context, place: Place): String {
+        val name = shortName(place)
+        return pick(
+            c,
+            c.say(
+                en = listOf("You've arrived at $name.", "This is it — $name."),
+                es = listOf("Has llegado a $name.", "Aquí es: $name."),
+                it = listOf("Sei arrivato a $name.", "Eccoci: $name."),
+            ),
+        )
+    }
 
-    fun arrived(c: Context, place: Place): String = if (c.spanish) pick(
+    fun routeEnded(c: Context): String = c.say(en = "Route ended.", es = "Ruta terminada.", it = "Percorso terminato.")
+
+    fun rerouting(c: Context): String = pick(
         c,
-        "Has llegado a ${shortName(place)}.",
-        "Aquí es: ${shortName(place)}.",
-    ) else pick(
-        c,
-        "You've arrived at ${shortName(place)}.",
-        "This is it — ${shortName(place)}.",
+        c.say(
+            en = listOf("Recalculating.", "New route."),
+            es = listOf("Recalculando.", "Nueva ruta."),
+            it = listOf("Ricalcolo.", "Nuovo percorso."),
+        ),
     )
-
-    fun rerouting(c: Context): String =
-        if (c.spanish) pick(c, "Recalculando.", "Nueva ruta.") else pick(c, "Recalculating.", "New route.")
 
     /**
      * "In 200 metres, turn left onto Via Sacra." A menos de cien metros no hay
@@ -240,95 +372,142 @@ object Phrasebook {
      */
     fun maneuver(c: Context, meters: Double, instruction: String): String {
         val lowered = instruction.trimEnd('.').replaceFirstChar { it.lowercase() }
-        return when {
-            meters < 100 -> if (c.spanish) "Ahora, $lowered." else "Now, $lowered."
-            c.spanish -> "En ${spokenDistance(meters, c.language)}, $lowered."
-            else -> "In ${spokenDistance(meters)}, $lowered."
-        }
+        if (meters < 100) return c.say(en = "Now, $lowered.", es = "Ahora, $lowered.", it = "Ora, $lowered.")
+        val distance = spokenDistance(meters, c.language)
+        return c.say(en = "In $distance, $lowered.", es = "En $distance, $lowered.", it = "Tra $distance, $lowered.")
     }
 
-    fun noStory(c: Context, place: Place): String = if (c.spanish) pick(
-        c,
-        "${shortName(place)} está en el mapa, pero todavía no tengo su historia. Puedo llevarte.",
-        "Sé dónde está ${shortName(place)}, no su historia. ¿Quieres que te lleve?",
-    ) else pick(
-        c,
-        "${shortName(place)} is on the map, but I don't have a story for it yet. I can take you there.",
-        "I know where ${shortName(place)} is, not its story. Want directions?",
-    )
+    fun noStory(c: Context, place: Place): String {
+        val name = shortName(place)
+        return pick(
+            c,
+            c.say(
+                en = listOf(
+                    "$name is on the map, but I don't have a story for it yet. I can take you there.",
+                    "I know where $name is, not its story. Want directions?",
+                ),
+                es = listOf(
+                    "$name está en el mapa, pero todavía no tengo su historia. Puedo llevarte.",
+                    "Sé dónde está $name, no su historia. ¿Quieres que te lleve?",
+                ),
+                it = listOf(
+                    "$name è sulla mappa, ma non ho ancora la sua storia. Posso portartici.",
+                    "So dov'è $name, non la sua storia. Vuoi che ti ci porti?",
+                ),
+            ),
+        )
+    }
 
     /** "6 minutes", "about an hour", "1 hour 20". */
     fun spokenDuration(seconds: Double, language: VoiceLanguage = VoiceLanguage.ENGLISH): String {
         val minutes = (seconds / 60).toInt().coerceAtLeast(1)
         val hours = minutes / 60
-        return if (language == VoiceLanguage.SPANISH) when {
-            minutes < 60 -> "$minutes ${if (minutes == 1) "minuto" else "minutos"}"
-            minutes % 60 < 5 -> "$hours ${if (hours == 1) "hora" else "horas"}"
-            else -> "$hours ${if (hours == 1) "hora" else "horas"} y ${minutes % 60}"
-        } else when {
-            minutes < 60 -> "$minutes ${if (minutes == 1) "minute" else "minutes"}"
-            minutes % 60 < 5 -> "$hours ${if (hours == 1) "hour" else "hours"}"
-            else -> "$hours hours ${minutes % 60}"
+        val rest = minutes % 60
+        return when (language) {
+            VoiceLanguage.SPANISH -> when {
+                minutes < 60 -> "$minutes ${if (minutes == 1) "minuto" else "minutos"}"
+                rest < 5 -> "$hours ${if (hours == 1) "hora" else "horas"}"
+                else -> "$hours ${if (hours == 1) "hora" else "horas"} y $rest"
+            }
+            VoiceLanguage.ITALIAN -> when {
+                minutes < 60 -> "$minutes ${if (minutes == 1) "minuto" else "minuti"}"
+                rest < 5 -> if (hours == 1) "un'ora" else "$hours ore"
+                else -> "${if (hours == 1) "un'ora" else "$hours ore"} e $rest"
+            }
+            VoiceLanguage.ENGLISH -> when {
+                minutes < 60 -> "$minutes ${if (minutes == 1) "minute" else "minutes"}"
+                rest < 5 -> "$hours ${if (hours == 1) "hour" else "hours"}"
+                else -> "$hours hours $rest"
+            }
         }
     }
 
     fun noNavigation(c: Context): String {
-        val focus = c.memory.focus
-        if (c.spanish) {
-            val target = focus?.let { " a ${shortName(it)}" }.orEmpty()
-            return "Todavía no puedo fijar destino$target: esa parte no está conectada al navegador del coche."
+        val focus = c.memory.focus?.let(::shortName)
+        return when (c.language) {
+            VoiceLanguage.SPANISH ->
+                "Todavía no puedo fijar destino${focus?.let { " a $it" }.orEmpty()}: esa parte no está conectada al navegador del coche."
+            VoiceLanguage.ITALIAN ->
+                "Non posso ancora impostare la destinazione${focus?.let { " per $it" }.orEmpty()}: questa parte non è collegata al navigatore dell'auto."
+            VoiceLanguage.ENGLISH -> {
+                val target = focus?.let { " to $it" }.orEmpty()
+                pick(
+                    c,
+                    listOf(
+                        "I can't set a destination$target yet — that part isn't wired to the car's navigation.",
+                        "Navigation$target isn't available yet. I can keep telling you about it, though.",
+                    ),
+                )
+            }
         }
-        val target = focus?.let { " to ${shortName(it)}" }.orEmpty()
-        return pick(
-            c,
-            "I can't set a destination$target yet — that part isn't wired to the car's navigation.",
-            "Navigation$target isn't available yet. I can keep telling you about it, though.",
-        )
     }
 
     fun skipped(c: Context, skipped: Place, next: Place?): String {
-        if (c.spanish) {
-            val onward = next?.let { " El siguiente es ${shortName(it)}." }.orEmpty()
-            return pick(c, "Salto ${shortName(skipped)}.$onward", "Vale, dejamos ${shortName(skipped)}.$onward")
-        }
-        val onward = next?.let { " Next up is ${shortName(it)}." }.orEmpty()
-        return pick(c, "Skipping ${shortName(skipped)}.$onward", "Okay, leaving ${shortName(skipped)}.$onward")
-    }
-
-    fun nothingToSkip(c: Context): String =
-        if (c.spanish) pick(c, "No hay nada sonando que saltar.", "Nada que saltar ahora mismo.")
-        else pick(c, "There's nothing playing to skip.", "Nothing to skip right now.")
-
-    fun stopped(c: Context): String =
-        if (c.spanish) pick(c, "Vale.", "Listo.", "Me callo.") else pick(c, "Okay.", "Sure.", "Alright, I'll be quiet.")
-
-    fun notUnderstood(c: Context): String {
-        if (c.spanish) {
-            val hint = c.around.firstOrNull()?.let { " O pregúntame por ${shortName(it)}." }.orEmpty()
-            return pick(
-                c,
-                "Perdona, no te entendí. Puedes preguntar qué hay cerca, o decir un lugar.$hint",
-                "No lo pillé. Prueba con \"qué hay cerca\", o di un lugar.$hint",
-                "¿Me lo repites? Puedo contarte qué hay alrededor, o hablarte de un lugar.$hint",
-            )
-        }
-        val hint = c.around.firstOrNull()?.let { " Or ask about ${shortName(it)}." }.orEmpty()
+        val name = shortName(skipped)
+        val onward = next?.let {
+            c.say(en = " Next up is ${shortName(it)}.", es = " El siguiente es ${shortName(it)}.", it = " Il prossimo è ${shortName(it)}.")
+        }.orEmpty()
         return pick(
             c,
-            "Sorry, I didn't catch that. You can ask what's nearby, or name a place.$hint",
-            "I didn't get that. Try \"what's nearby\", or say a place.$hint",
-            "Say that again? I can tell you what's around, or about a place.$hint",
+            c.say(
+                en = listOf("Skipping $name.$onward", "Okay, leaving $name.$onward"),
+                es = listOf("Salto $name.$onward", "Vale, dejamos $name.$onward"),
+                it = listOf("Salto $name.$onward", "Va bene, lasciamo $name.$onward"),
+            ),
+        )
+    }
+
+    fun nothingToSkip(c: Context): String = pick(
+        c,
+        c.say(
+            en = listOf("There's nothing playing to skip.", "Nothing to skip right now."),
+            es = listOf("No hay nada sonando que saltar.", "Nada que saltar ahora mismo."),
+            it = listOf("Non c'è niente in riproduzione da saltare.", "Niente da saltare adesso."),
+        ),
+    )
+
+    fun stopped(c: Context): String = pick(
+        c,
+        c.say(
+            en = listOf("Okay.", "Sure.", "Alright, I'll be quiet."),
+            es = listOf("Vale.", "Listo.", "Me callo."),
+            it = listOf("Va bene.", "Fatto.", "D'accordo, faccio silenzio."),
+        ),
+    )
+
+    fun notUnderstood(c: Context): String {
+        val first = c.around.firstOrNull()?.let(::shortName)
+        val hint = first?.let {
+            c.say(en = " Or ask about $it.", es = " O pregúntame por $it.", it = " Oppure chiedimi di $it.")
+        }.orEmpty()
+        return pick(
+            c,
+            c.say(
+                en = listOf(
+                    "Sorry, I didn't catch that. You can ask what's nearby, or name a place.$hint",
+                    "I didn't get that. Try \"what's nearby\", or say a place.$hint",
+                    "Say that again? I can tell you what's around, or about a place.$hint",
+                ),
+                es = listOf(
+                    "Perdona, no te entendí. Puedes preguntar qué hay cerca, o decir un lugar.$hint",
+                    "No lo pillé. Prueba con \"qué hay cerca\", o di un lugar.$hint",
+                    "¿Me lo repites? Puedo contarte qué hay alrededor, o hablarte de un lugar.$hint",
+                ),
+                it = listOf(
+                    "Scusa, non ho capito. Puoi chiedermi cosa c'è qui vicino, o dirmi un luogo.$hint",
+                    "Non ho capito bene. Prova con \"cosa c'è qui vicino\", o dimmi un luogo.$hint",
+                    "Puoi ripetere? Posso dirti cosa c'è intorno, o parlarti di un luogo.$hint",
+                ),
+            ),
         )
     }
 
     /** Distancias como se dicen, no como se miden: nadie oye "1 437 metros". */
-    fun spokenDistance(meters: Double, language: VoiceLanguage = VoiceLanguage.ENGLISH): String {
-        val spanish = language == VoiceLanguage.SPANISH
-        return when {
-            meters < 100 -> if (spanish) "aquí mismo" else "right here"
-            meters < 950 -> "${(meters / 50).toInt() * 50} ${if (spanish) "metros" else "metres"}"
-            else -> "%.1f ${if (spanish) "kilómetros" else "kilometres"}".format(meters / 1000).replace(".0 ", " ").replace(",0 ", " ")
-        }
+    fun spokenDistance(meters: Double, language: VoiceLanguage = VoiceLanguage.ENGLISH): String = when {
+        meters < 100 -> language.say(en = "right here", es = "aquí mismo", it = "proprio qui")
+        meters < 950 -> "${(meters / 50).toInt() * 50} ${language.say(en = "metres", es = "metros", it = "metri")}"
+        else -> "%.1f ${language.say(en = "kilometres", es = "kilómetros", it = "chilometri")}"
+            .format(meters / 1000).replace(".0 ", " ").replace(",0 ", " ")
     }
 
     /**
@@ -340,6 +519,16 @@ object Phrasebook {
         return if (words.size <= 6) place.name else words.take(6).joinToString(" ")
     }
 
+    /** "a, b; y c", con la conjunción del idioma. */
+    private fun joined(c: Context, items: List<String>): String {
+        val and = c.say(en = "and", es = "y", it = "e")
+        return when (items.size) {
+            1 -> items[0]
+            2 -> "${items[0]} $and ${items[1]}"
+            else -> items.dropLast(1).joinToString("; ") + "; $and " + items.last()
+        }
+    }
+
     /** Elige una variante por turno, para no decir siempre lo mismo. */
-    private fun pick(c: Context, vararg variants: String): String = variants[c.turn % variants.size]
+    private fun pick(c: Context, variants: List<String>): String = variants[c.turn % variants.size]
 }

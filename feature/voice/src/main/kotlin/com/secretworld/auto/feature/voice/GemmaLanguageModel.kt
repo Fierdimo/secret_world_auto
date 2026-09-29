@@ -55,7 +55,18 @@ class GemmaLanguageModel(
 
     override val ready: Boolean get() = engine != null
 
+    /**
+     * La carga falló y no se reintenta. Pasa, por ejemplo, en Android 8: la
+     * librería nativa de MediaPipe necesita `aligned_alloc`, que llega en 9.
+     */
+    @Volatile
+    override var failed: Boolean = false
+        private set
+
     val available: Boolean get() = models.isAvailable(ModelCatalog.LLM)
+
+    /** Si el APK lo trae dentro: se instalará al arrancar. */
+    val bundled: Boolean get() = models.isBundled(ModelCatalog.LLM)
 
     /**
      * Carga el modelo. Cuesta segundos y cerca de 1 GB de RAM; se llama una vez,
@@ -79,7 +90,7 @@ class GemmaLanguageModel(
             lock.withLock {
                 if (engine == null) engine = built else built.close()
             }
-        }
+        }.onFailure { failed = true }
     }
 
     /**

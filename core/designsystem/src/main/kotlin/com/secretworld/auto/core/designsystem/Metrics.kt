@@ -50,6 +50,12 @@ class CarMetrics(
      * que no debe escalarse dos veces.
      */
     private val fontScale: Float = 1f,
+    /**
+     * La pantalla se sostiene en la mano, a un palmo de la cara, y no en un
+     * salpicadero a un brazo de distancia. La misma ventana necesita entonces
+     * letras y botones más pequeños: se mide contra otra referencia.
+     */
+    private val handheld: Boolean = false,
 ) {
     /** El lado corto manda: es el que limita cuánto cabe sin apretar. */
     private val shortSideDp: Float = min(widthDp.value, heightDp.value)
@@ -76,8 +82,11 @@ class CarMetrics(
             1f + (DENSITY_BOOST - 1f) * ramp
         }
 
-    val scale: Float = (sqrt(shortSideDp / REFERENCE_SHORT_SIDE) * densityCompensation)
-        .coerceIn(MIN_SCALE, MAX_SCALE)
+    private val referenceShortSide: Float =
+        if (handheld) HANDHELD_REFERENCE_SHORT_SIDE else REFERENCE_SHORT_SIDE
+
+    val scale: Float = (sqrt(shortSideDp / referenceShortSide) * densityCompensation)
+        .coerceIn(if (handheld) HANDHELD_MIN_SCALE else MIN_SCALE, MAX_SCALE)
 
     /** Escala cualquier medida no prevista. Es la puerta de salida para casos nuevos. */
     fun scaled(reference: Dp): Dp = reference * scale
@@ -118,10 +127,23 @@ class CarMetrics(
      */
     fun panelWidth(expanded: Boolean): Dp {
         val minimum = dimens.actionMinWidth * 2 + dimens.spaceXs * 3 + dimens.spaceM * 2
-        val maximum = if (expanded) scaled(700.dp) else scaled(520.dp)
-        val preferred = widthDp * (if (expanded) EXPANDED_SHARE else PANEL_SHARE)
+        // En la mano la pantalla es más estrecha en dp y el mapa se mira
+        // menos: la banda se lleva más, para que quepan las tres acciones.
+        val maximum = if (expanded) scaled(700.dp) else scaled(if (handheld) 600.dp else 520.dp)
+        val share = when {
+            expanded -> EXPANDED_SHARE
+            handheld -> HANDHELD_PANEL_SHARE
+            else -> PANEL_SHARE
+        }
+        val preferred = widthDp * share
         return preferred.coerceIn(minimum, maxOf(minimum, maximum))
     }
+
+    /**
+     * Ancho de la banda mientras se navega: solo lleva la maniobra, así que no
+     * necesita el de la lista, y cada dp que no ocupa es mapa.
+     */
+    fun navigationPanelWidth(): Dp = panelWidth(expanded = false).coerceAtMost(scaled(NAVIGATION_PANEL))
 
     /**
      * ¿Caben tres acciones en fila dentro de la banda?
@@ -192,6 +214,13 @@ class CarMetrics(
          * además por la corrección de densidad.
          */
         const val REFERENCE_SHORT_SIDE = 700f
+        /**
+         * Referencia en la mano. Un móvil apaisado de 411 dp de alto sale con
+         * 15 sp de cuerpo y 52 dp de objetivo táctil: lo de una app de móvil.
+         */
+        const val HANDHELD_REFERENCE_SHORT_SIDE = 1050f
+        /** Ni en el móvil más bajo baja el objetivo táctil de los 48 dp de Material. */
+        const val HANDHELD_MIN_SCALE = 48f / 84f
         const val MIN_SCALE = 0.55f
         const val MAX_SCALE = 2.2f
         /** Por debajo de esto, la pantalla declara menos densidad de la que tiene. */
@@ -202,6 +231,8 @@ class CarMetrics(
         const val DENSITY_BOOST = 1.35f
         const val COMPACT_SHORT_SIDE = 600f
         const val PANEL_SHARE = 0.34f
+        const val HANDHELD_PANEL_SHARE = 0.42f
+        val NAVIGATION_PANEL = 480.dp
         const val EXPANDED_SHARE = 0.46f
         const val DRIVING_ITEMS = 3
         const val MAX_ITEMS = 8
@@ -213,6 +244,9 @@ class CarMetrics(
 }
 
 val LocalCarMetrics = staticCompositionLocalOf { CarMetrics(1024.dp, 700.dp) }
+
+/** Si el tema activo es oscuro. Lo fija [SecretWorldTheme]. */
+val LocalDarkTheme = staticCompositionLocalOf { true }
 
 /** Acceso corto a las medidas activas. */
 object CarTheme {
@@ -227,4 +261,11 @@ object CarTheme {
 
     val compact: Boolean
         @Composable @ReadOnlyComposable get() = LocalCarMetrics.current.isCompact
+
+    /**
+     * Lo que no pinta Compose —el estilo del mapa, sus marcadores— necesita
+     * saberlo para no quedarse oscuro sobre una interfaz clara.
+     */
+    val dark: Boolean
+        @Composable @ReadOnlyComposable get() = LocalDarkTheme.current
 }

@@ -30,9 +30,9 @@ interface IntentResolver {
 data class Resolution(val command: VoiceCommand, val reply: String? = null)
 
 /** La gramática cerrada del nivel 1, envuelta. No hace nada que no hiciera ya. */
-class GrammarIntentResolver : IntentResolver {
+class GrammarIntentResolver(private val language: VoiceLanguage = VoiceLanguage.SPANISH) : IntentResolver {
     override suspend fun resolve(heard: String, candidates: List<Place>, memory: ConversationMemory): Resolution =
-        Resolution(VoiceGrammar.parse(heard, candidates, memory.focus, memory.listed))
+        Resolution(VoiceGrammar.parse(heard, candidates, memory.focus, memory.listed, language, memory.choosing))
 }
 
 /**
@@ -67,6 +67,12 @@ class LayeredIntentResolver(
 interface LanguageModel {
     /** Si se puede llamar ahora. Un modelo que aún se está cargando no lo está. */
     val ready: Boolean
+
+    /**
+     * Si no va a estar listo nunca: falló al cargar. Quien espera a [ready] lo
+     * mira para no esperar en balde.
+     */
+    val failed: Boolean get() = false
 
     /**
      * @param singleLine si la respuesta es una línea y se corta en el primer

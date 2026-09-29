@@ -62,7 +62,7 @@ class TranslatingNarrationTexts(
 
     private fun awaitModel(): Boolean = runBlocking {
         var waited = 0L
-        while (!model.ready && waited < MODEL_WAIT_MS) {
+        while (!model.ready && !model.failed && waited < MODEL_WAIT_MS) {
             kotlinx.coroutines.delay(MODEL_POLL_MS)
             waited += MODEL_POLL_MS
         }

@@ -2,6 +2,7 @@ package com.secretworld.auto.feature.voice
 
 import android.content.Context
 import android.util.Log
+import com.secretworld.auto.domain.VoiceLanguage
 import java.io.File
 
 /**
@@ -78,8 +79,40 @@ object ModelCatalog {
         licence = "Gemma Terms of Use",
     )
 
+    /**
+     * El mismo FastConformer en diez idiomas (be, de, en, es, fr, hr, it, pl,
+     * ru, uk). Es el unico de la familia que entiende italiano: misma
+     * arquitectura y configuracion que [ASR]. Lo empaqueta la demo
+     * (tools/fetch-demo-assets.sh); todavia no esta en el CDN.
+     */
+    val ASR_EU = ModelPack(
+        id = "asr-nemo-eu",
+        url = "asr-nemo-eu.zip",
+        bytes = 102883173L,
+        sha256 = "d2d1cd3889f666ff535b27b45f6f30dabb2070ffcb638aa36cf06c5db486c9e3",
+        marker = "tokens.txt",
+        licence = "CC-BY-4.0 (NVIDIA NeMo)",
+    )
+
+    /**
+     * Reductor de ruido GTCRN: limpia cada frase antes del reconocedor. Es
+     * **opcional**: si está se usa, si no todo sigue igual. Lo empaqueta la demo.
+     */
+    val DENOISER = ModelPack(
+        id = "denoiser-gtcrn",
+        url = "denoiser-gtcrn.zip",
+        bytes = 127723L,
+        sha256 = "689c2c1424a0026d4dd1551c8b87a66a1cce1969812195fd3e16da255d974dcd",
+        marker = "gtcrn_simple.onnx",
+        licence = "MIT (GTCRN)",
+    )
+
+    /** El reconocedor que entiende el idioma. */
+    fun asrFor(language: VoiceLanguage): ModelPack =
+        if (language == VoiceLanguage.ITALIAN) ASR_EU else ASR
+
     /** Lo que hace falta para escuchar sin tocar nada. El LLM es aparte. */
-    val listening: List<ModelPack> = listOf(KWS_EN, VAD, ASR)
+    fun listening(language: VoiceLanguage): List<ModelPack> = listOf(KWS_EN, VAD, asrFor(language))
 
     fun urlFor(pack: ModelPack): String = "$baseUrl/${pack.url}"
 }
@@ -129,7 +162,7 @@ class ModelStore(private val context: Context) {
             onProgress(VoiceInstaller.Progress.Failed(reason))
             return Result.failure(IllegalStateException(reason))
         }
-        val bundled = "models/${pack.id}.zip".takeIf { packs.hasAsset(it) }
+        val bundled = bundledName(pack).takeIf { packs.hasAsset(it) }
         return packs.install(
             url = ModelCatalog.urlFor(pack),
             bundledAsset = bundled,
@@ -140,6 +173,30 @@ class ModelStore(private val context: Context) {
             onProgress = onProgress,
         )
     }
+
+    /** Si el APK trae este paquete dentro. */
+    fun isBundled(pack: ModelPack): Boolean = packs.hasAsset(bundledName(pack))
+
+    /**
+     * Instala desde el APK lo que venga empaquetado y falte. Es lo que hace que
+     * la demo funcione sola, sin adb ni CDN. Bloquea: llamar desde un hilo de
+     * fondo. Informa del avance total, por bytes, de 0 a 100.
+     */
+    fun installBundled(packs: List<ModelPack>, onPercent: (Int) -> Unit = {}): List<ModelPack> {
+        val pending = packs.filter { !isAvailable(it) && isBundled(it) }
+        val total = pending.sumOf { it.bytes }.coerceAtLeast(1)
+        var done = 0L
+        val failed = pending.filter { pack ->
+            onPercent((done * 100 / total).toInt())
+            val ok = install(pack).isSuccess
+            done += pack.bytes
+            !ok
+        }
+        onPercent(100)
+        return failed
+    }
+
+    private fun bundledName(pack: ModelPack) = "models/${pack.id}.zip"
 
     private companion object {
         const val TAG = "SWVoice"

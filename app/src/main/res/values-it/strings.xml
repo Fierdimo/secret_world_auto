@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="installing_voice">Installo la voce… %1$d%%</string>
+    <string name="installing_models">Preparo l\'assistente… %1$d%%</string>
+    <string name="mode_parked">parcheggiato</string>
+    <string name="mode_driving">in marcia</string>
+    <string name="bar_itinerary">Itinerario</string>
+    <string name="bar_settings">Impostazioni</string>
+    <string name="bar_park">Parcheggia</string>
+    <string name="bar_drive">Guida</string>
+    <string name="bar_quiet">Silenzio</string>
+    <string name="permission_mic_off">Microfono disattivato: non posso ascoltarti.</string>
+    <string name="permission_location_off">Posizione non disponibile: mostro %1$s.</string>
+    <string name="permission_enable">Attiva</string>
+</resources>

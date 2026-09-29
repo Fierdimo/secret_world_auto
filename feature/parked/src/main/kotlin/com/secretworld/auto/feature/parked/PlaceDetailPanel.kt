@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -27,6 +26,7 @@ import coil3.compose.AsyncImage
 import com.secretworld.auto.core.designsystem.CarButton
 import com.secretworld.auto.core.designsystem.CarSecondaryButton
 import com.secretworld.auto.core.designsystem.CarTheme
+import com.secretworld.auto.core.designsystem.panelInsetsPadding
 import com.secretworld.auto.domain.Place
 
 /**
@@ -49,7 +49,7 @@ fun PlaceDetailPanel(
         modifier = modifier
             .fillMaxHeight()
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.93f))
-            .safeDrawingPadding()
+            .panelInsetsPadding()
             .padding(d.spaceM)
             .verticalScroll(rememberScrollState()),
     ) {

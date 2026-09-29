@@ -1,10 +1,10 @@
 package com.secretworld.auto.map
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -45,6 +45,12 @@ fun PlatformMap(state: MapState, modifier: Modifier = Modifier) {
     // Los marcadores también escalan: en una pantalla de coche, un círculo de 8
     // unidades es una cabeza de alfiler.
     val scale = CarTheme.metrics.scale
+    // Los mismos colores que el sistema de diseño, para que el mapa no desentone.
+    // El borde es el color de superficie: casi negro en oscuro, blanco en claro.
+    val dark = CarTheme.dark
+    val highlight = MaterialTheme.colorScheme.primary
+    val marker = MaterialTheme.colorScheme.secondary
+    val ink = MaterialTheme.colorScheme.surface
     val centre = state.vehicle.position
     // El panel flota sobre el borde izquierdo del mapa. Este relleno mueve el
     // centro de cámara hacia la derecha, para que el vehículo y los lugares no
@@ -76,9 +82,9 @@ fun PlatformMap(state: MapState, modifier: Modifier = Modifier) {
     MapboxMap(
         modifier = modifier,
         mapViewportState = viewport,
-        // Oscuro: se conduce de noche y con sol de frente, y el mapa no debe
-        // competir con el panel por la atención.
-        style = { MapStyle(style = DARK_STYLE) },
+        // El mapa sigue al tema: oscuro en el coche, donde no debe competir con
+        // el panel por la atención; claro en la demo.
+        style = { MapStyle(style = if (dark) DARK_STYLE else LIGHT_STYLE) },
         // La escala y la brújula, fuera de la esquina donde empieza el panel:
         // reservarles la franja superior izquierda le roba alto a lo único que
         // el conductor necesita leer. Se colocan por los huecos que ofrece el
@@ -125,16 +131,16 @@ fun PlatformMap(state: MapState, modifier: Modifier = Modifier) {
         }
 
         // La ruta, debajo de los marcadores: una línea gruesa en el color de
-        // acento, con borde oscuro para que se lea sobre cualquier calle.
+        // acento, con borde del color de fondo para que se lea sobre cualquier calle.
         if (navigating) {
             val line = state.route.map { Point.fromLngLat(it.longitude, it.latitude) }
             PolylineAnnotation(points = line) {
-                lineColor = Ink
+                lineColor = ink
                 lineWidth = 9.0 * scale
                 lineOpacity = 0.9
             }
             PolylineAnnotation(points = line) {
-                lineColor = Highlight
+                lineColor = highlight
                 lineWidth = 5.0 * scale
             }
         }
@@ -147,9 +153,9 @@ fun PlatformMap(state: MapState, modifier: Modifier = Modifier) {
                 point = Point.fromLngLat(place.position.longitude, place.position.latitude),
             ) {
                 circleRadius = (if (isHighlighted) 11.0 else 8.0) * scale
-                circleColor = if (isHighlighted) Highlight else Marker
+                circleColor = if (isHighlighted) highlight else marker
                 circleStrokeWidth = 3.0 * scale
-                circleStrokeColor = Ink
+                circleStrokeColor = ink
             }
         }
 
@@ -158,20 +164,16 @@ fun PlatformMap(state: MapState, modifier: Modifier = Modifier) {
             point = Point.fromLngLat(centre.longitude, centre.latitude),
         ) {
             circleRadius = 10.0 * scale
-            circleColor = Highlight
+            circleColor = highlight
             circleStrokeWidth = 4.0 * scale
-            circleStrokeColor = Ink
+            circleStrokeColor = ink
         }
     }
 }
 
-/** Los mismos colores que el sistema de diseño, para que el mapa no desentone. */
-private val Highlight = Color(0xFFE8B04B)
-private val Marker = Color(0xFF7FB0A5)
-private val Ink = Color(0xFF101112)
-
 /** El mismo estilo que usa la app móvil, para que la marca se reconozca. */
 private const val DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
+private const val LIGHT_STYLE = "mapbox://styles/mapbox/light-v11"
 private const val CITY_ZOOM = 14.5
 /** Con ruta: las dos próximas manzanas. */
 private const val ROUTE_ZOOM = 16.0

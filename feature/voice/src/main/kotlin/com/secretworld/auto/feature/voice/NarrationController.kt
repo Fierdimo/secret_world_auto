@@ -95,6 +95,10 @@ class NarrationController(
                     VoiceInstaller.Progress.Extracting ->
                         _state.value = State.InstallingVoice(100)
                     is VoiceInstaller.Progress.Done -> {
+                        // Voz nueva: lo sintetizado con la anterior sonaría
+                        // con otra voz. Se tira y se vuelve a preparar.
+                        store.clear()
+                        replies.listFiles()?.forEach { it.delete() }
                         _state.value = State.Idle
                         // Ya hay voz: preparar lo que estuviera esperando.
                         prefetch(lastQueue)
@@ -276,6 +280,9 @@ class NarrationController(
     fun prewarm(texts: List<String>) {
         if (!installer.isInstalled(language)) return
         scope.launch(Dispatchers.IO) {
+            // La voz, cargada ya: la primera frase que no esté preparada no
+            // debe pagar además la carga del modelo.
+            runCatching { synthesizer.warm(language) }
             texts.flatMap { sentences(it) }.distinct().forEach { sentence ->
                 val file = replyFile(sentence)
                 if (file.isFile) return@forEach

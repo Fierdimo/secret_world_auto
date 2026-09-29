@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- La demo se enseña en un móvil, a la luz del día: tema claro fijo. -->
+    <bool name="dark_theme">false</bool>
+
+    <!-- Y a tamaño de móvil: se sostiene en la mano, no va en el salpicadero. -->
+    <bool name="handheld">true</bool>
+</resources>

@@ -183,4 +183,134 @@ class VoiceGrammarTest {
         narrationSeconds = 70,
         languages = setOf(VoiceLanguage.ENGLISH),
     )
+
+    @Test
+    fun `entiende las ordenes en italiano`() {
+        val it = VoiceLanguage.ITALIAN
+        assertEquals(VoiceCommand.Stop, VoiceGrammar.parse("stai zitta", places, language = it))
+        assertEquals(VoiceCommand.Skip, VoiceGrammar.parse("il prossimo", places, language = it))
+        assertEquals(VoiceCommand.WhatIsNearby, VoiceGrammar.parse("cosa c'è qui vicino", places, language = it))
+        assertEquals(VoiceCommand.TellMeMore, VoiceGrammar.parse("dimmi di più", places, focus = forum, language = it))
+        assertEquals(VoiceCommand.TakeMeThere(circus), VoiceGrammar.parse("portami al circus maximus", places, language = it))
+        assertEquals(VoiceCommand.TakeMeThere(cecilia), VoiceGrammar.parse("andiamo lì", places, focus = cecilia, language = it))
+        assertEquals(VoiceCommand.TellMeAbout(cecilia), VoiceGrammar.parse("cos'è quello", places, focus = cecilia, language = it))
+        assertEquals(VoiceCommand.TellMeAbout(forum), VoiceGrammar.parse("il secondo", places, listed = listOf(circus, forum), language = it))
+        assertEquals(VoiceCommand.Yes, VoiceGrammar.parse("va bene", places, language = it))
+        assertEquals(VoiceCommand.No, VoiceGrammar.parse("no grazie", places, language = it))
+    }
+
+    @Test
+    fun `en italiano busca en italiano`() {
+        val it = VoiceLanguage.ITALIAN
+        assertEquals(VoiceCommand.FindPlaces("ristorante"), VoiceGrammar.parse("ho fame", places, language = it))
+        assertEquals(VoiceCommand.FindPlaces("distributore di benzina"), VoiceGrammar.parse("devo fare benzina", places, language = it))
+        assertEquals(VoiceCommand.FindPlaces("gelateria"), VoiceGrammar.parse("dove posso prendere un gelato", places, language = it))
+        assertEquals(VoiceCommand.FindPlaces("carbonara"), VoiceGrammar.parse("cercami una carbonara qui vicino", places, language = it))
+        // La misma categoría dicha en español, con el conductor en italiano.
+        assertEquals(VoiceCommand.FindPlaces("ristorante"), VoiceGrammar.parse("tengo hambre", places, language = it))
+    }
+
+    @Test
+    fun `los verbos italianos no rompen el espanol`() {
+        // "cerca" es "busca" en italiano; en español sigue siendo cerca.
+        assertEquals(VoiceCommand.WhatIsNearby, VoiceGrammar.parse("qué hay cerca del parque", places))
+        // "la" sin acento no señala nada.
+        assertIs<VoiceCommand.NotUnderstood>(VoiceGrammar.parse("la vita è bella", places, focus = cecilia, language = VoiceLanguage.ITALIAN))
+    }
+
+    @Test
+    fun `pedir ir a un sitio en italiano lleva, no narra`() {
+        val it = VoiceLanguage.ITALIAN
+        val catalina = place("9", "Discover India Catalina")
+        val here = places + catalina
+        listOf(
+            "portami a india catalina",
+            "Portami all'India Catalina.",
+            "porta mi a india catalina",
+            "mi porti a india catalina",
+            "voglio andare a india catalina",
+            "come si arriva a india catalina",
+            // Transcripciones reales: en cirílico, y "portami" a la inglesa.
+            "Портами а India Catalina",
+            "portammy Discover India Catalina.",
+        ).forEach { said ->
+            assertEquals(VoiceCommand.TakeMeThere(catalina), VoiceGrammar.parse(said, here, language = it), "con «$said»")
+        }
+    }
+
+    @Test
+    fun `un lugar sin intencion clara se pregunta, no se supone`() {
+        val it = VoiceLanguage.ITALIAN
+        val catalina = place("9", "Discover India Catalina")
+        val here = places + catalina
+        assertEquals(VoiceCommand.ChooseAction(catalina), VoiceGrammar.parse("India Catalina", here, language = it))
+        assertEquals(VoiceCommand.ChooseAction(catalina), VoiceGrammar.parse("voglio la India Catalina", here, language = it))
+        // Con intención clara no pregunta.
+        assertEquals(VoiceCommand.TellMeAbout(catalina), VoiceGrammar.parse("raccontami di India Catalina", here, language = it))
+        assertEquals(VoiceCommand.TakeMeThere(catalina), VoiceGrammar.parse("portami a India Catalina", here, language = it))
+        // Las respuestas a "¿te llevo o te cuento?".
+        assertEquals(VoiceCommand.TellMeAbout(catalina), VoiceGrammar.parse("la storia", here, focus = catalina, language = it))
+        assertEquals(VoiceCommand.TakeMeThere(catalina), VoiceGrammar.parse("portami", here, focus = catalina, language = it))
+        assertEquals(VoiceCommand.Yes, VoiceGrammar.parse("sì", here, focus = catalina, language = it))
+    }
+
+    @Test
+    fun `si el nombre encaja con varios, pregunta cual`() {
+        val old = place("10", "Castillo de San Felipe")
+        val new = place("11", "Iglesia de San Felipe")
+        val command = VoiceGrammar.parse("San Felipe", listOf(old, new))
+        assertEquals(VoiceCommand.WhichOne(listOf(old, new)), command)
+        // Y "el segundo" contesta, porque quedan enumerados.
+        assertEquals(VoiceCommand.TellMeAbout(new), VoiceGrammar.parse("el segundo", listOf(old, new), listed = listOf(old, new)))
+    }
+
+    @Test
+    fun `terminar la ruta de viva voz`() {
+        val it = VoiceLanguage.ITALIAN
+        // Transcripciones reales del Huawei, y las formas corrientes.
+        listOf("Termina el percoso.", "termina percoso.", "annulla la navigazione", "cancella il percorso", "fine percorso", "stop navigation", "cancela la ruta")
+            .forEach { said -> assertEquals(VoiceCommand.EndRoute, VoiceGrammar.parse(said, places, language = it), "con «$said»") }
+        // "Terminal" es un destino, no una orden de parar.
+        assertEquals(VoiceCommand.FindPlaces("terminal de transporte"), VoiceGrammar.parse("llévame a la terminal", places))
+        // "portami" con n, como lo escribió el reconocedor.
+        assertEquals(VoiceCommand.TakeMeThere(forum), VoiceGrammar.parse("Portani", places, focus = forum, language = it))
+    }
+
+    @Test
+    fun `el nombre del lugar se reconoce aunque llegue mal escrito`() {
+        val it = VoiceLanguage.ITALIAN
+        val catalina = place("9", "Discover India Catalina")
+        val here = places + catalina
+        // Transcripciones reales con ruido de fondo.
+        assertEquals(VoiceCommand.ChooseAction(catalina), VoiceGrammar.parse("India Cataline", here, language = it))
+        assertEquals(VoiceCommand.ChooseAction(catalina), VoiceGrammar.parse("the Catala.", here, language = it))
+        // Palabras cortas parecidas no cuentan.
+        assertIs<VoiceCommand.NotUnderstood>(VoiceGrammar.parse("the rum", here, language = it))
+    }
+
+    @Test
+    fun `el nombre completo gana al que solo lo contiene`() {
+        val it = VoiceLanguage.ITALIAN
+        val jewel = place("20", "Cartagena de Indias, the Jewel of the Indies")
+        val city = place("21", "Cartagena")
+        val here = listOf(jewel, city)
+        assertEquals(VoiceCommand.ChooseAction(city), VoiceGrammar.parse("Cartagena", here, language = it))
+        assertEquals(VoiceCommand.ChooseAction(jewel), VoiceGrammar.parse("Cartagena de Indias", here, language = it))
+        assertEquals(VoiceCommand.TakeMeThere(city), VoiceGrammar.parse("portami a Cartagena", here, language = it))
+    }
+
+    @Test
+    fun `al preguntar cual, el ordinal elige y sigue preguntando que hacer`() {
+        val it = VoiceLanguage.ITALIAN
+        val old = place("10", "Castillo de San Felipe")
+        val new = place("11", "Iglesia de San Felipe")
+        val options = listOf(old, new)
+        assertEquals(VoiceCommand.ChooseAction(new), VoiceGrammar.parse("la seconda", options, listed = options, language = it, choosing = true))
+        assertEquals(VoiceCommand.ChooseAction(old), VoiceGrammar.parse("il primo", options, listed = options, language = it, choosing = true))
+        assertEquals(VoiceCommand.ChooseAction(new), VoiceGrammar.parse("la segunda", options, listed = options, choosing = true))
+        // Contestando con el nombre, también.
+        assertEquals(VoiceCommand.ChooseAction(old), VoiceGrammar.parse("castillo", options, listed = options, language = it, choosing = true))
+        // Tras "¿qué hay cerca?" el ordinal sigue contando, como antes.
+        assertEquals(VoiceCommand.TellMeAbout(new), VoiceGrammar.parse("la seconda", options, listed = options, language = it))
+    }
 }

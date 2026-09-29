@@ -19,6 +19,12 @@ data class VoicePack(
     val sha256: String,
     /** Licencia del dataset de origen. Ver spikes/voice/RESULTS.md. */
     val licence: String,
+    /**
+     * El modelo que tiene que haber instalado. Sin él, una voz distinta del
+     * mismo idioma —otra que se instaló antes— contaría como esta, y cambiar
+     * de voz no tendría efecto.
+     */
+    val model: String? = null,
 )
 
 object VoiceCatalog {
@@ -50,9 +56,13 @@ object VoiceCatalog {
         VoicePack(
             language = VoiceLanguage.ITALIAN,
             url = "it.zip",
-            bytes = 22493504L,
-            sha256 = "282607b19dce54c861b4776705ecfefa2b663bb073353e5294b90f39b9f4b28a",
-            licence = "SIN RESOLVER - no publicable todavia",
+            // riccardo (x_low) y no paola (medium): en un móvil lento paola
+            // tardaba en sintetizar más de lo que dura la frase. Además paola
+            // hereda el problema de licencia de lessac; riccardo no.
+            bytes = 14929848L,
+            sha256 = "0b915ff6d056e4cf497837e8185dc60f9dc645c6b213e6efc7ec5f6c8e8370c4",
+            licence = "M-AILABS (riccardo, x_low), por confirmar",
+            model = "it_IT-riccardo-x_low.onnx",
         ),
     )
 

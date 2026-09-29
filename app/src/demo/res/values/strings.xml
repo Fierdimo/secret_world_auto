@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- La demo es para un cliente italiano: la app va en italiano sea cual sea el teléfono. -->
+    <string name="forced_language" translatable="false">it</string>
+</resources>

@@ -38,6 +38,16 @@ enum class VoiceLanguage(val code: String) {
         fun fromTag(tag: String?): VoiceLanguage? =
             entries.firstOrNull { tag != null && tag.lowercase().startsWith(it.code) }
     }
+
+    /**
+     * Lo mismo dicho en cada idioma. Obliga a dar los tres: un idioma nuevo que
+     * se olvide en una frase no compila, en vez de salir en inglés.
+     */
+    fun <T> say(en: T, es: T, it: T): T = when (this) {
+        ENGLISH -> en
+        SPANISH -> es
+        ITALIAN -> it
+    }
 }
 
 /**

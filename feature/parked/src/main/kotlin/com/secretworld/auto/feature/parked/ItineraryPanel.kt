@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -28,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.secretworld.auto.core.designsystem.CarButton
 import com.secretworld.auto.core.designsystem.CarSecondaryButton
 import com.secretworld.auto.core.designsystem.CarTheme
+import com.secretworld.auto.core.designsystem.panelInsetsPadding
 import com.secretworld.auto.domain.Place
 
 /**
@@ -53,7 +53,7 @@ fun ItineraryPanel(
         modifier = modifier
             .fillMaxHeight()
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.93f))
-            .safeDrawingPadding()
+            .panelInsetsPadding()
             .padding(d.spaceM),
     ) {
         Row(

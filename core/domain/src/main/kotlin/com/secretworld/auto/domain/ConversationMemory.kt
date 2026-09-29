@@ -40,14 +40,24 @@ class ConversationMemory(private val maxTurns: Int = 6) {
         _heardAbout += place.id
     }
 
-    fun listed(places: List<Place>) {
+    /**
+     * Si lo último enumerado fue para **elegir** —"¿cuál de estos?"— y no para
+     * contar. Cambia qué significa "el segundo": elegir ese sitio y preguntar
+     * qué hacer, en vez de narrarlo.
+     */
+    var choosing: Boolean = false
+        private set
+
+    fun listed(places: List<Place>, choosing: Boolean = false) {
         listed = places
+        this.choosing = choosing
     }
 
     fun forget() {
         _turns.clear()
         focus = null
         listed = emptyList()
+        choosing = false
         _heardAbout.clear()
     }
 

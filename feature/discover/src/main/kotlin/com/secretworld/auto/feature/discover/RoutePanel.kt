@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -21,6 +20,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
@@ -29,10 +31,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.secretworld.auto.core.designsystem.CarButton
 import com.secretworld.auto.core.designsystem.CarSecondaryButton
 import com.secretworld.auto.core.designsystem.CarTheme
+import com.secretworld.auto.core.designsystem.panelInsetsPadding
 import com.secretworld.auto.domain.Coordinates
 import com.secretworld.auto.domain.DrivingMode
 import com.secretworld.auto.domain.Place
@@ -56,34 +62,55 @@ fun RoutePanel(
     nowPlaying: NowPlaying?,
     voice: VoiceUi,
     offline: Boolean,
-    onSpeak: () -> Unit,
     onSelect: (Place) -> Unit,
     onListen: (Place) -> Unit,
     onNavigate: (Place) -> Unit,
     modifier: Modifier = Modifier,
     navigation: NavigationUi? = null,
     onStopNavigation: () -> Unit = {},
+    notices: List<PermissionNotice> = emptyList(),
 ) {
     val d = CarTheme.dimens
     val driving = mode == DrivingMode.DRIVING
+    // Con ruta, el panel es **solo** la ruta: una tarjeta arriba que deja el
+    // resto de la pantalla al mapa. La lista de sitios vuelve al terminar.
+    val navigating = navigation != null
 
     Column(
         modifier = modifier
-            .fillMaxHeight()
+            .then(if (navigating) Modifier else Modifier.fillMaxHeight())
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.93f))
-            .safeDrawingPadding()
+            .panelInsetsPadding()
             // Arriba, lo justo para despegar el título de la barra de estado: cada
             // dp de margen decorativo aquí es un dp que pierde la lista, que es lo
             // único que el conductor va a leer.
             .padding(horizontal = d.spaceM, vertical = d.spaceXs),
     ) {
-        PanelHeader(city = city, offline = offline, voice = voice, onSpeak = onSpeak)
+        PanelHeader(city = city, offline = offline)
+
+        // Lo que falta para funcionar entero va arriba, antes que nada: sin
+        // micrófono la app no oye, y sin botón de hablar sería imposible
+        // saberlo.
+        notices.forEach {
+            Spacer(Modifier.height(d.spaceS))
+            PermissionCard(it)
+        }
 
         // La ruta activa va lo primero: mientras se navega es lo único que se
         // mira de reojo, y la lista de lugares pasa a segundo plano.
         if (navigation != null) {
             Spacer(Modifier.height(d.spaceS))
             NavigationCard(navigation, onStopNavigation)
+            if (voice.visible) {
+                Spacer(Modifier.height(d.spaceS))
+                VoiceCard(voice)
+            }
+            if (nowPlaying != null) {
+                Spacer(Modifier.height(d.spaceS))
+                NowPlayingCard(nowPlaying)
+            }
+            Spacer(Modifier.height(d.spaceXs))
+            return@Column
         }
 
         if (CarTheme.metrics.heightDp >= COMPACT_HEIGHT) {
@@ -157,11 +184,10 @@ fun RoutePanel(
                 if (places.size > limit) {
                     Spacer(Modifier.height(d.spaceXs))
                     Text(
-                        text = if (driving) {
-                            "${places.size - limit} more when you stop"
-                        } else {
-                            "${places.size - limit} more nearby"
-                        },
+                        text = stringResource(
+                            if (driving) R.string.more_when_stopped else R.string.more_nearby,
+                            places.size - limit,
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -223,19 +249,41 @@ private fun NavigationCard(state: NavigationUi, onStop: () -> Unit) {
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = listOfNotNull(state.instructionDistance, "${state.remaining} · ${state.eta}").joinToString("  ·  "),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        // Terminar la ruta va en su propia línea, centrado y en el color de
+        // alerta: al lado de los datos se confundía con ellos y quitaba sitio
+        // a la distancia, que es lo que se lee de reojo.
+        Spacer(Modifier.height(d.spaceS))
+        Button(
+            onClick = onStop,
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .defaultMinSize(minWidth = d.actionMinWidth * END_BUTTON_WIDTH, minHeight = d.minTouchTarget * END_BUTTON_HEIGHT),
+            shape = RoundedCornerShape(d.cardCorner),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError,
+            ),
+        ) {
             Text(
-                text = listOfNotNull(state.instructionDistance, "${state.remaining} · ${state.eta}").joinToString("  ·  "),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
+                text = stringResource(R.string.nav_end),
+                style = MaterialTheme.typography.labelLarge,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                softWrap = false,
             )
-            CarSecondaryButton(label = stringResource(R.string.nav_end), onClick = onStop, compact = true)
         }
     }
 }
+
+/** El botón de terminar: más ancho que una acción, algo menos alto que un objetivo de marcha. */
+private const val END_BUTTON_WIDTH = 1.6f
+private const val END_BUTTON_HEIGHT = 0.8f
 
 /** Lo que suena ahora, con progreso real. Sin esto la app parece muda aunque hable. */
 data class NowPlaying(
@@ -292,8 +340,6 @@ private fun NowPlayingCard(state: NowPlaying) {
 private fun PanelHeader(
     city: String?,
     offline: Boolean,
-    voice: VoiceUi,
-    onSpeak: () -> Unit,
 ) {
     val place = city ?: stringResource(R.string.finding_where)
     if (CarTheme.metrics.heightDp < COMPACT_HEIGHT) {
@@ -315,14 +361,13 @@ private fun PanelHeader(
                     color = MaterialTheme.colorScheme.secondary,
                 )
             }
-            Spacer(Modifier.width(CarTheme.dimens.spaceS))
-            SpeakButton(voice, onSpeak)
         }
         return
     }
 
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      Column(Modifier.weight(1f)) {
+    // Sin botón de hablar: se habla con la palabra de activación, y el
+    // micrófono está abierto siempre que hay permiso.
+    Column {
         Text(stringResource(R.string.brand), style = MaterialTheme.typography.displayMedium)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -338,8 +383,6 @@ private fun PanelHeader(
                 )
             }
         }
-      }
-      SpeakButton(voice, onSpeak)
     }
 }
 
@@ -360,24 +403,6 @@ data class VoiceUi(
     val answer: String? = null,
 ) {
     val visible: Boolean get() = listening || heard != null || answer != null
-}
-
-@Composable
-private fun SpeakButton(voice: VoiceUi, onSpeak: () -> Unit) {
-    // Escuchando, el botón deja de invitar y pasa a informar: es la unica senal
-    // de que el microfono esta abierto, y eso no se puede dejar sin decir.
-    // Con escucha permanente el botón deja de ser la forma de hablar y pasa a ser
-    // dos cosas: **la señal de que el micrófono está vivo** —que no se puede
-    // ocultar— y la salida para quien prefiera pulsar antes que decir el nombre.
-    CarSecondaryButton(
-        label = when {
-            voice.listening -> stringResource(R.string.listening)
-            voice.handsFree -> "“${voice.wakeWord}”"
-            else -> stringResource(R.string.speak)
-        },
-        onClick = onSpeak,
-        dense = true,
-    )
 }
 
 /** La tira del asistente, al pie: lo que se oyó y lo que se contesta. */
@@ -425,6 +450,41 @@ private fun VoiceCard(voice: VoiceUi) {
 
 private val COMPACT_HEIGHT = 500.dp
 
+/**
+ * Una fila de acciones que pone **solo las que caben enteras** y reparte entre
+ * ellas todo el ancho, a partes iguales. La estimación de
+ * [CarMetrics.fitsActions] no sabe lo que mide cada etiqueta —"Dettagli" no es
+ * "Details"—, y un botón recortado es peor que no ponerlo; repartir el ancho
+ * evita además la fila pegada a la izquierda con un hueco a la derecha. Se
+ * decide con el ancho intrínseco de cada botón, sin medirlo dos veces. El
+ * primero se coloca siempre.
+ */
+@Composable
+private fun ActionsThatFit(spacing: Dp, content: @Composable () -> Unit) {
+    Layout(content) { measurables, constraints ->
+        val gap = spacing.roundToPx()
+        var count = 0
+        var used = 0
+        for (measurable in measurables) {
+            val width = measurable.maxIntrinsicWidth(constraints.maxHeight)
+            val next = if (count == 0) width else used + gap + width
+            if (count > 0 && next > constraints.maxWidth) break
+            count++
+            used = next
+        }
+        val each = ((constraints.maxWidth - gap * (count - 1)) / count.coerceAtLeast(1)).coerceAtLeast(0)
+        val placed = measurables.take(count).map { it.measure(Constraints.fixedWidth(each)) }
+        val height = placed.maxOfOrNull { it.height } ?: 0
+        layout(constraints.maxWidth, height) {
+            var x = 0
+            placed.forEach {
+                it.placeRelative(x, (height - it.height) / 2)
+                x += each + gap
+            }
+        }
+    }
+}
+
 @Composable
 private fun PlaceEntry(
     place: Place,
@@ -442,8 +502,9 @@ private fun PlaceEntry(
             .fillMaxWidth()
             .clip(RoundedCornerShape(d.cardCorner))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            // Donde no caben todas las acciones, el objetivo es la tarjeta entera.
-            .clickable(enabled = !showDetails, onClick = onSelect)
+            // La tarjeta entera abre el detalle, siempre: la fila de acciones
+            // puede dejar fuera el botón si en esta pantalla no cabe.
+            .clickable(onClick = onSelect)
             .padding(d.spaceS),
     ) {
         // Nombre y distancia comparten fila: en dos filas separadas costaban una
@@ -465,7 +526,7 @@ private fun PlaceEntry(
             )
         }
         Spacer(Modifier.height(d.spaceXs))
-        Row(horizontalArrangement = Arrangement.spacedBy(d.spaceXs)) {
+        ActionsThatFit(spacing = d.spaceXs) {
             CarButton(label = stringResource(R.string.listen), onClick = onListen, dense = dense)
             // Si no cabe, no se recorta: se deja para la ficha, que se abre
             // tocando la tarjeta y donde el botón sí tiene sitio.
@@ -490,3 +551,32 @@ private fun formatTime(ms: Int): String {
     return "%d:%02d".format(total / 60, total % 60)
 }
 
+
+/** Un permiso que falta: qué se pierde sin él y cómo activarlo. */
+data class PermissionNotice(
+    val message: String,
+    val action: String,
+    val onClick: () -> Unit,
+)
+
+@Composable
+private fun PermissionCard(notice: PermissionNotice) {
+    val d = CarTheme.dimens
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(d.cardCorner))
+            .background(MaterialTheme.colorScheme.error.copy(alpha = 0.10f))
+            .padding(horizontal = d.spaceS, vertical = d.spaceXs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = notice.message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(d.spaceS))
+        CarSecondaryButton(label = notice.action, onClick = notice.onClick, dense = true)
+    }
+}

@@ -1,4 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Secret World</string>
+    <string name="app_name" translatable="false">Secret World</string>
+    <!-- Idioma impuesto por el sabor; vacío = el del dispositivo. -->
+    <string name="forced_language" translatable="false"></string>
+    <string name="installing_voice">Installing voice… %1$d%%</string>
+    <string name="installing_models">Preparing the assistant… %1$d%%</string>
+    <string name="mode_parked">parked</string>
+    <string name="mode_driving">driving</string>
+    <string name="bar_itinerary">Itinerary</string>
+    <string name="bar_settings">Settings</string>
+    <string name="bar_park">Park</string>
+    <string name="bar_drive">Drive</string>
+    <string name="bar_quiet">Quiet</string>
+    <string name="permission_mic_off">Microphone off: I can\'t hear you.</string>
+    <string name="permission_location_off">Location unavailable: showing %1$s.</string>
+    <string name="permission_enable">Enable</string>
 </resources>

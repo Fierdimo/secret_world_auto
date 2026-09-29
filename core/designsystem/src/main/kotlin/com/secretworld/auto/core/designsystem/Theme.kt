@@ -55,6 +55,8 @@ private fun typographyFor(sizes: CarTextSizes) = Typography(
 @Composable
 fun SecretWorldTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    /** Medidas de móvil en vez de pantalla de coche. Ver [CarMetrics]. */
+    handheld: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     // Todo se deriva del tamaño de ventana. Una pantalla nueva no necesita código
@@ -67,17 +69,19 @@ fun SecretWorldTheme(
         configuration.screenHeightDp,
         density,
         fontScale,
+        handheld,
     ) {
         CarMetrics(
             widthDp = configuration.screenWidthDp.dp,
             heightDp = configuration.screenHeightDp.dp,
             density = density,
             fontScale = fontScale,
+            handheld = handheld,
         )
     }
 
     val colors = if (darkTheme) DarkColors else LightColors
-    CompositionLocalProvider(LocalCarMetrics provides metrics) {
+    CompositionLocalProvider(LocalCarMetrics provides metrics, LocalDarkTheme provides darkTheme) {
         MaterialTheme(
             colorScheme = colors,
             typography = typographyFor(metrics.text),

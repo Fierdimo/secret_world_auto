@@ -3,7 +3,13 @@ package com.secretworld.auto.core.designsystem
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 
 /**
  * Contenedor de pantalla. Limita el ancho de la columna de contenido: una linea
@@ -114,6 +121,7 @@ fun CarButton(
             minHeight = if (dense) d.minTouchTarget * DENSE_TARGET else d.minTouchTarget,
         ),
         shape = RoundedCornerShape(CarTheme.dimens.cardCorner),
+        contentPadding = buttonPadding(),
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -153,6 +161,7 @@ fun CarSecondaryButton(
             },
         ),
         shape = RoundedCornerShape(d.cardCorner),
+        contentPadding = buttonPadding(),
     ) {
         Text(
             text = label,
@@ -166,6 +175,20 @@ fun CarSecondaryButton(
         )
     }
 }
+
+/**
+ * El relleno lateral de los botones. Material lo fija en 24 dp: en el coche
+ * sobra sitio, pero en un móvil son casi la mitad del botón y la segunda acción
+ * de cada tarjeta se salía por el borde. Escala hacia abajo, nunca hacia
+ * arriba: en pantallas grandes queda como estaba.
+ */
+@Composable
+private fun buttonPadding(): PaddingValues {
+    val side = CarTheme.metrics.scaled(MATERIAL_BUTTON_PADDING).coerceAtMost(MATERIAL_BUTTON_PADDING)
+    return PaddingValues(horizontal = side, vertical = ButtonDefaults.ContentPadding.calculateTopPadding())
+}
+
+private val MATERIAL_BUTTON_PADDING = 24.dp
 
 @Composable
 fun ScreenTitle(text: String, subtitle: String? = null) {
@@ -183,3 +206,14 @@ fun ScreenTitle(text: String, subtitle: String? = null) {
 
 /** Cuánto se reduce un objetivo táctil de lista con el vehículo detenido. */
 private const val DENSE_TARGET = 0.68f
+
+/**
+ * Los márgenes de seguridad de una banda **pegada al borde izquierdo**: el
+ * izquierdo, el de arriba y el de abajo, nunca el derecho. En un móvil apaisado
+ * la barra de navegación del sistema está a la derecha, y con todos los lados
+ * su ancho se le sumaba a la banda como relleno: un hueco vacío que tapaba mapa.
+ */
+@Composable
+fun Modifier.panelInsetsPadding(): Modifier = windowInsetsPadding(
+    WindowInsets.safeDrawing.only(WindowInsetsSides.Start + WindowInsetsSides.Vertical),
+)

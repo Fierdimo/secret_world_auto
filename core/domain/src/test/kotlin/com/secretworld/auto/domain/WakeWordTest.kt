@@ -69,4 +69,43 @@ class WakeWordTest {
         VoiceLanguage.entries.forEach { assertNull(WakeWord.forLanguage(it).keywordTokens, "en $it") }
         assertEquals("Sícret", WakeWord.spoken(es))
     }
+
+    @Test
+    fun `en italiano despierta con la llamada y sin ella`() {
+        val it = VoiceLanguage.ITALIAN
+        assertEquals("cosa c'è qui vicino", WakeWord.commandIn("Ehi Secret, cosa c'è qui vicino", it))
+        assertEquals("portami al Colosseo", WakeWord.commandIn("secret portami al Colosseo", it))
+        assertEquals("", WakeWord.commandIn("Sicret.", it))
+        assertNull(WakeWord.commandIn("ho un segreto da dirti", it))
+        assertNull(WakeWord.commandIn("cosa c'è qui vicino", it))
+    }
+
+    @Test
+    fun `acepta la palabra escrita en cirilico`() {
+        // Transcripciones reales del reconocedor de diez idiomas en un Huawei.
+        val it = VoiceLanguage.ITALIAN
+        assertEquals("", WakeWord.commandIn("Секрет.", it))
+        assertEquals("cosa c'è qui vicino", WakeWord.commandIn("Секрет cosa c'è qui vicino", it))
+        assertEquals("", WakeWord.commandIn("Si cre.", it))
+        assertNull(WakeWord.commandIn("Привет, как дела", it))
+    }
+
+    @Test
+    fun `con ruido de fondo, sigred despierta y lo parecido no`() {
+        // Transcripciones reales en una cafetería, con música y voces.
+        val it = VoiceLanguage.ITALIAN
+        assertEquals("indiatalina.", WakeWord.commandIn("Sigred indiatalina.", it))
+        assertEquals("india Catalina.", WakeWord.commandIn("Sigred india Catalina.", it))
+        // "Sigred e" también encaja como llamada; lo que queda nombra igual el sitio.
+        assertEquals("le Catalina.", WakeWord.commandIn("Sigred e le Catalina.", it))
+        // "Tigre" sí: es como más veces se oyó "Sícret" con ruido.
+        assertEquals("Cartagene", WakeWord.commandIn("Tigre Cartagene", it))
+        assertEquals("Kartaję.", WakeWord.commandIn("Tygre Kartaję.", it))
+        assertEquals("", WakeWord.commandIn("Tigre.", it))
+        // Pero no en medio de una frase, ni lo que solo se le parece.
+        assertNull(WakeWord.commandIn("ho visto una tigre", it))
+        assertNull(WakeWord.commandIn("tigrato", it))
+        assertNull(WakeWord.commandIn("sagrada familia", it))
+        assertNull(WakeWord.commandIn("segreteria telefonica", it))
+    }
 }

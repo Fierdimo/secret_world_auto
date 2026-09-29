@@ -25,7 +25,12 @@ interface VoiceInput {
          * de oírla. Lo que no es directo exige la palabra dentro del texto; sin
          * distinguirlo, cualquier conversación dentro del coche sería una orden.
          */
-        data class Heard(val text: String, val direct: Boolean) : State
+        /**
+         * @param alternatives otras lecturas de la misma frase —la del audio sin
+         *   limpiar, si hubo reductor de ruido—. Si [text] no se entiende, se
+         *   prueban antes de rendirse.
+         */
+        data class Heard(val text: String, val direct: Boolean, val alternatives: List<String> = emptyList()) : State
         data class Failed(val reason: String) : State
     }
 

@@ -40,9 +40,30 @@ android {
             applicationIdSuffix = ".bench"
             versionNameSuffix = "-bench"
         }
-        // Mapbox se enlaza SOLO en el banco de pruebas. El APK del vehículo no lo
+        // La demo para el cliente: el banco de pruebas en un movil, con tema
+        // claro, en italiano y con todo dentro del APK (ver sourceSets).
+        create("demo") {
+            dimension = "target"
+            applicationIdSuffix = ".demo"
+            versionNameSuffix = "-demo"
+            // Se envia como APK suelto, no por tienda: el release va firmado con
+            // la clave de depuracion para que se pueda instalar sin mas. Release
+            // y no debug porque Compose en debug va a tirones.
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        // Mapbox se enlaza SOLO en el banco de pruebas y la demo. El APK del vehículo no lo
         // lleva: allí se usará el servicio de mapas del propio dispositivo, que es
         // además lo que evita el contrato de automoción.
+    }
+
+    sourceSets {
+        // La demo comparte con bench el codigo y el manifiesto. Los assets no:
+        // lleva los suyos (modelos, LLM y voz italiana, ver
+        // tools/fetch-demo-assets.sh) y no las voces inglesa y espanola.
+        getByName("demo") {
+            kotlin.directories += "src/bench/kotlin"
+            manifest.srcFile("src/bench/AndroidManifest.xml")
+        }
     }
 
     buildTypes {
@@ -71,6 +92,8 @@ dependencies {
     implementation(project(":feature:parked"))
     "benchImplementation"(libs.mapbox.maps)
     "benchImplementation"(libs.mapbox.compose)
+    "demoImplementation"(libs.mapbox.maps)
+    "demoImplementation"(libs.mapbox.compose)
 
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)

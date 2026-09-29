@@ -16,7 +16,7 @@ mediapipeGenai = "0.10.35"
 
 # Android
 compileSdk = "37"
-minSdk = "28"
+minSdk = "27"
 targetSdk = "34"
 
 [libraries]

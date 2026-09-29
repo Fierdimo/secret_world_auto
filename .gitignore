@@ -26,3 +26,7 @@ spikes/voice/*.wav
 
 # Fuente de diseno de 60 MB, vive en Figma
 *.fig
+
+# Todo lo que la demo lleva dentro del APK: ~520 MB, lo reune
+# tools/fetch-demo-assets.sh
+app/src/demo/assets/

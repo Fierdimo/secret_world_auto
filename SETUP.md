@@ -52,6 +52,22 @@ Con eso: `./gradlew check` y `./gradlew :app:assembleBenchDebug`.
    quien lo puso es quien prueba. Para ver qué encontró:
    `adb logcat -s SWVoice SWVoiceInput SWVoiceLlm`.
 
+4. **La demo para el cliente** (sabor `demo`): móvil Android en horizontal, tema
+   claro, en italiano y con todo dentro del APK —modelos de escucha, reconocedor
+   con italiano, LLM y voz italiana—. Se instala y funciona sin adb ni CDN; en el
+   primer arranque instala lo que trae (~30 s) y lo enseña en pantalla.
+
+   ```sh
+   tools/fetch-voice-models.sh      # si no está ya dist/models
+   tools/fetch-tts-assets.sh        # si no está ya dist/voices/it.zip
+   tools/fetch-demo-assets.sh       # reconocedor italiano + copia a app/src/demo/assets
+   ./gradlew :app:assembleDemoRelease
+   ```
+
+   Sale `app/build/outputs/apk/demo/release/app-demo-release.apk` (~640 MB),
+   firmado con la clave de depuración. Solo arm64. El mapa, el catálogo y la
+   búsqueda de sitios siguen necesitando internet.
+
 La imagen del emulador de Pleos se entrega aparte y va en `emulator/`, que está
 ignorado.
 
@@ -222,7 +238,7 @@ Construido el 2026‑09‑03: `./gradlew check` en verde, APK instalada y arranc
 en el emulador.
 
 **Versiones**: AGP 9.4.0, Kotlin 2.4.0, Gradle 9.7.1, JDK 21, `compileSdk` 36,
-`minSdk` 28, `targetSdk` 34.
+`minSdk` 27 (Android 8.1, para que la demo entre en móviles antiguos), `targetSdk` 34.
 
 Tres cosas que costaron y conviene no volver a descubrir:
 

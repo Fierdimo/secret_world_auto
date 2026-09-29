@@ -46,7 +46,13 @@ object WakeWord {
      * las de "siky".
      */
     private val NAME_FORMS = listOf(
-        "secret", "sicret", "sícret", "secreto", "seacret", "sécret", "secrets", "sicre", "secre", "sicrit", "secrit", "siquet", "secreth",
+        "secret", "sicret", "sícret", "secreto", "sekret",
+        // Con ruido de fondo (música, voces), medido en una cafetería.
+        "sigred", "sigret", "sicred", "secred", "segret", "segred",
+        // También en la cafetería, y la forma más repetida: 8 veces en dos
+        // minutos. "Tigre" es una palabra real, pero al principio de una frase
+        // dicha en un coche es mucho más probable que sea la llamada.
+        "tigre", "tygre", "tigri", "tigret", "tigred", "ticret", "igre", "igri", "igry", "seacret", "sécret", "secrets", "sicre", "secre", "sicrit", "secrit", "siquet", "secreth",
         "siky", "sicky", "seeky", "sikhi", "psyche", "silky", "sikey", "siki", "sicri", "sikee", "ciky",
     )
 
@@ -71,8 +77,11 @@ object WakeWord {
     private val ITALIAN = Spec(
         spoken = NAME,
         keywordTokens = null,
-        aliases = forms("ehi", "ei", "hey", "e", "a"),
-        canonical = setOf("secret", "ehisecret"),
+        // "segreto" es lo que un reconocedor italiano puede escribir al oír
+        // "secret", igual que el español escribe "secreto". Sin medir todavía
+        // con voz real: ampliar con el registro de la demo.
+        aliases = forms("ehi", "ei", "hey", "e", "a", "oh", "ciao") + setOf("segreto", "ehi segreto", "sicreto"),
+        canonical = setOf("secret", "sicret", "sekret", "sigret", "ehisecret", "eisecret", "segreto"),
     )
 
     fun forLanguage(language: VoiceLanguage): Spec = when (language) {
@@ -123,7 +132,7 @@ object WakeWord {
      * cabeza de la frase, así que una palabra parecida en medio no despierta.
      */
     fun matches(phrase: String, spec: Spec): Boolean {
-        val candidate = phrase.lowercase()
+        val candidate = Script.latin(phrase.lowercase())
             .map { ACCENTS[it] ?: it }
             .filter { it.isLetterOrDigit() || it == ' ' }
             .joinToString("")
@@ -136,24 +145,15 @@ object WakeWord {
         // llamada delante, dos. Menos de cinco letras no es nada.
         if (squashed.length < 5) return false
         val fuzz = if (squashed.length <= 6) 1 else FUZZ
-        return spec.canonical.any { editDistance(squashed, it) <= fuzz }
+        return spec.canonical.any { Script.editDistance(squashed, it) <= fuzz }
     }
 
-    private fun editDistance(a: String, b: String): Int {
-        val prev = IntArray(b.length + 1) { it }
-        val cur = IntArray(b.length + 1)
-        for (i in 1..a.length) {
-            cur[0] = i
-            for (j in 1..b.length) {
-                val cost = if (a[i - 1] == b[j - 1]) 0 else 1
-                cur[j] = minOf(cur[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost)
-            }
-            prev.indices.forEach { prev[it] = cur[it] }
-        }
-        return prev[b.length]
-    }
 
     private const val FUZZ = 2
 
-    private val ACCENTS = mapOf('á' to 'a', 'é' to 'e', 'í' to 'i', 'ó' to 'o', 'ú' to 'u', 'ü' to 'u', 'ñ' to 'n')
+
+    private val ACCENTS = mapOf(
+        'á' to 'a', 'é' to 'e', 'í' to 'i', 'ó' to 'o', 'ú' to 'u', 'ü' to 'u', 'ñ' to 'n',
+        'à' to 'a', 'è' to 'e', 'ì' to 'i', 'ò' to 'o', 'ù' to 'u',
+    )
 }

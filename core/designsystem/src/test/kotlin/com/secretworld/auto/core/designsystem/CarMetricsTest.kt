@@ -141,4 +141,22 @@ class CarMetricsTest {
             absoluteTolerance = 0.01f,
         )
     }
+
+    @Test
+    fun `en la mano, medidas de movil`() {
+        // Un móvil corriente apaisado: 915 x 411 dp a densidad 2,6.
+        val inHand = CarMetrics(915.dp, 411.dp, density = 2.6f, handheld = true)
+        val onDash = CarMetrics(915.dp, 411.dp, density = 2.6f)
+
+        assertTrue(inHand.text.body < onDash.text.body, "en la mano la letra es menor")
+        assertEquals(15f, inHand.text.body.value, absoluteTolerance = 0.5f)
+        assertTrue(inHand.dimens.minTouchTarget >= 48.dp, "nunca por debajo de Material")
+    }
+
+    @Test
+    fun `en la mano, ni el movil mas bajo baja de 48 dp`() {
+        val tiny = CarMetrics(597.dp, 270.dp, density = 2.5f, handheld = true)
+
+        assertTrue(tiny.dimens.minTouchTarget.value >= 47.99f, "era ${tiny.dimens.minTouchTarget}")
+    }
 }

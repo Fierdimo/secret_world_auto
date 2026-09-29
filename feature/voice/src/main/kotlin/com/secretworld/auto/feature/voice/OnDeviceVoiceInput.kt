@@ -17,6 +17,10 @@ import com.k2fsa.sherpa.onnx.KeywordSpotterConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
+import com.k2fsa.sherpa.onnx.OfflineSpeechDenoiser
+import com.k2fsa.sherpa.onnx.OfflineSpeechDenoiserConfig
+import com.k2fsa.sherpa.onnx.OfflineSpeechDenoiserGtcrnModelConfig
+import com.k2fsa.sherpa.onnx.OfflineSpeechDenoiserModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
 import com.k2fsa.sherpa.onnx.OnlineModelConfig
 import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
@@ -70,7 +74,11 @@ class OnDeviceVoiceInput(
     override val state: StateFlow<VoiceInput.State> = _state.asStateFlow()
 
     override val available: Boolean
-        get() = models.missing(ModelCatalog.listening).isEmpty()
+        get() = models.missing(ModelCatalog.listening(language)).isEmpty()
+
+    /** Si el APK trae dentro lo que falta para escuchar: se instalará al arrancar. */
+    val bundled: Boolean
+        get() = models.missing(ModelCatalog.listening(language)).all(models::isBundled)
 
     override val hasPermission: Boolean
         get() = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
@@ -85,11 +93,18 @@ class OnDeviceVoiceInput(
     private val wakeByTranscript: Boolean = wake.keywordTokens == null
 
     /** Los tres motores. Se crean juntos en [load] y solo los usa el hilo de audio. */
-    private class Engines(val spotter: KeywordSpotter, val vad: Vad, val recognizer: OfflineRecognizer) {
+    private class Engines(
+        val spotter: KeywordSpotter,
+        val vad: Vad,
+        val recognizer: OfflineRecognizer,
+        /** Opcional: sin el paquete del reductor, las frases van tal cual. */
+        val denoiser: OfflineSpeechDenoiser?,
+    ) {
         fun release() {
             spotter.release()
             vad.release()
             recognizer.release()
+            denoiser?.release()
         }
     }
 
@@ -136,7 +151,8 @@ class OnDeviceVoiceInput(
         runCatching {
             val kws = requireNotNull(models.dirFor(ModelCatalog.KWS_EN)) { "falta ${ModelCatalog.KWS_EN.id}" }
             val vad = requireNotNull(models.dirFor(ModelCatalog.VAD)) { "falta ${ModelCatalog.VAD.id}" }
-            val asr = requireNotNull(models.dirFor(ModelCatalog.ASR)) { "falta ${ModelCatalog.ASR.id}" }
+            val asrPack = ModelCatalog.asrFor(language)
+            val asr = requireNotNull(models.dirFor(asrPack)) { "falta ${asrPack.id}" }
 
             val started = System.nanoTime()
             // La palabra del idioma, escrita para el detector. El fichero del
@@ -150,7 +166,13 @@ class OnDeviceVoiceInput(
                 spotter = KeywordSpotter(config = spotterConfig(kws, keywords)),
                 vad = Vad(config = vadConfig(vad)),
                 recognizer = OfflineRecognizer(config = recognizerConfig(asr)),
+                denoiser = models.dirFor(ModelCatalog.DENOISER)?.let { dir ->
+                    runCatching { OfflineSpeechDenoiser(config = denoiserConfig(dir)) }
+                        .onFailure { Log.w(TAG, "reductor de ruido no disponible", it) }
+                        .getOrNull()
+                },
             )
+            Log.i(TAG, "reductor de ruido: ${if (built.denoiser != null) "activo" else "no instalado"}")
             Log.i(TAG, "modelos de escucha cargados en ${(System.nanoTime() - started) / 1_000_000} ms")
             synchronized(this) {
                 if (engines == null) engines = built else built.release()
@@ -533,40 +555,51 @@ class OnDeviceVoiceInput(
         }
 
         val started = System.nanoTime()
-        val text = engines.recognizer.createStream().let { stream ->
-            try {
-                stream.acceptWaveform(audio, SAMPLE_RATE)
-                engines.recognizer.decode(stream)
-                engines.recognizer.getResult(stream).text
-            } finally {
-                stream.release()
-            }
-        }.trim()
+        // Con música o voces de fondo, lo primero es limpiar la frase: la
+        // palabra de activación es corta y rara, y es lo que antes se ensucia
+        // («Sigred» por "Sícret", medido en una cafetería).
+        val clean = engines.denoiser?.let { denoiser ->
+            runCatching { denoiser.run(audio, SAMPLE_RATE).samples }
+                .onFailure { Log.w(TAG, "fallo del reductor de ruido; se usa el audio original", it) }
+                .getOrNull()
+        } ?: audio
+        val text = transcribe(engines, clean)
+        // Con reductor se transcribe también el audio original, y no para
+        // comparar: medido en una cafetería, el reductor limpia la orden pero
+        // se come la "S" de "Sícret" —«Igri», «Icre»—, porque una sibilante se
+        // parece al ruido. Cada versión acierta en lo suyo; se usan las dos.
+        val raw = if (clean !== audio) transcribe(engines, audio) else text
         val decodeMs = (System.nanoTime() - started) / 1_000_000
         val audioMs = audio.size * 1000L / SAMPLE_RATE
         Log.i(TAG, "oído en ${decodeMs} ms (${audioMs} ms de audio): «$text»")
+        if (raw != text) Log.i(TAG, "sin reductor: «$raw»")
 
         val afterWake = WakeWord.commandIn(text, language)
+        val rawAfterWake = WakeWord.commandIn(raw, language)
         if (capture.transcriptWake) {
             // Vigilando por transcripción: sin la palabra delante, no iba con
             // nosotros y se descarta en silencio. Con ella, el toque de "te oí"
-            // llega ahora, que es cuando se sabe.
-            if (afterWake == null) {
+            // llega ahora, que es cuando se sabe. Basta con que la tenga una
+            // de las dos lecturas.
+            val order = afterWake ?: rawAfterWake
+            if (order == null) {
                 // Se anota lo que se descarta: es como crece la lista de formas
                 // en que el reconocedor escribe la palabra.
                 Log.d(TAG, "sin palabra de activación, descartado: «$text»")
                 return
             }
             chime?.startTone(ToneGenerator.TONE_PROP_ACK, CHIME_MS)
-            _state.value = VoiceInput.State.Heard(afterWake, direct = true)
+            val other = listOfNotNull(afterWake, rawAfterWake).filter { it != order && it.isNotBlank() }
+            _state.value = VoiceInput.State.Heard(order, direct = true, alternatives = other)
             return
         }
 
         // Tras el detector, Whisper puede haber escrito también la palabra; si
         // cuela al principio de la orden, se le quita para que la gramática no la vea.
         val order = afterWake ?: text
+        val other = listOf(rawAfterWake ?: raw).filter { it != order && it.isNotBlank() }
         _state.value = when {
-            order.isNotBlank() -> VoiceInput.State.Heard(order, direct = true)
+            order.isNotBlank() -> VoiceInput.State.Heard(order, direct = true, alternatives = other)
             capture.direct -> VoiceInput.State.Failed("I didn't catch that")
             // La palabra a secas: la pantalla decide qué contestar.
             else -> VoiceInput.State.Heard("", direct = true)
@@ -616,10 +649,29 @@ class OnDeviceVoiceInput(
         provider = "cpu",
     )
 
+    private fun transcribe(engines: Engines, audio: FloatArray): String =
+        engines.recognizer.createStream().let { stream ->
+            try {
+                stream.acceptWaveform(audio, SAMPLE_RATE)
+                engines.recognizer.decode(stream)
+                engines.recognizer.getResult(stream).text
+            } finally {
+                stream.release()
+            }
+        }.trim()
+
+    private fun denoiserConfig(dir: File) = OfflineSpeechDenoiserConfig(
+        model = OfflineSpeechDenoiserModelConfig(
+            gtcrn = OfflineSpeechDenoiserGtcrnModelConfig(model = File(dir, "gtcrn_simple.onnx").absolutePath),
+            numThreads = 1,
+            provider = "cpu",
+        ),
+    )
+
     private fun recognizerConfig(dir: File) = OfflineRecognizerConfig(
         featConfig = FeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
-        // FastConformer de NVIDIA, multilingüe (en, es, fr, de): decide el idioma
-        // solo. Medido frente a Whisper base: seis veces más rápido y entiende
+        // FastConformer de NVIDIA, multilingüe (en, es, fr, de; o la versión de
+        // diez idiomas, con italiano): decide el idioma solo. Medido frente a Whisper base: seis veces más rápido y entiende
         // el español, que Whisper destrozaba.
         modelConfig = OfflineModelConfig(
             transducer = OfflineTransducerModelConfig(
@@ -647,7 +699,12 @@ class OnDeviceVoiceInput(
         /** Cada cuántas lecturas de vigilancia se renueva el flujo del detector: 20 s. */
         const val SPOT_RENEW_CHUNKS = 200
         const val NO_SPEECH_MS = 2_000L
-        const val NO_ANSWER_MS = 4_000L
+        /**
+         * Tras una pregunta se espera más: hay que oírla entera, pensar y
+         * contestar. Con 4 s, un "sì" dado con calma llegaba tarde y se
+         * descartaba por no llevar la palabra de activación.
+         */
+        const val NO_ANSWER_MS = 8_000L
         /** Silencio tras la última palabra que da la frase por terminada. */
         const val END_SILENCE_MS = 500L
         /** Cuánto se conserva después de la última palabra. */

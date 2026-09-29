@@ -46,9 +46,31 @@ class DeviceVehicleSource(
     private var listening = false
 
     val hasPermission: Boolean
+        get() = precise || context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    /**
+     * Desde Android 12 se puede conceder solo la ubicación **aproximada**. Con
+     * ella basta para saber en qué ciudad se está y qué hay cerca, pero el GPS
+     * exige la precisa: pedirle posiciones sin ella lanza una excepción.
+     */
+    private val precise: Boolean
         get() = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
-    private val listener = LocationListener { location -> publish(location) }
+    /**
+     * Objeto completo y no lambda: hasta Android 11 los otros tres métodos no
+     * tienen implementación por defecto, y el sistema los llama. Con la lambda,
+     * en Android 8 la app se caía al primer cambio de estado del GPS.
+     */
+    private val listener = object : LocationListener {
+        override fun onLocationChanged(location: Location) = publish(location)
+
+        @Deprecated("Solo existe para Android < 11; ya no se llama.")
+        override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) = Unit
+
+        override fun onProviderEnabled(provider: String) = Unit
+
+        override fun onProviderDisabled(provider: String) = Unit
+    }
 
     /** Empieza a seguir la posición. Sin permiso no hace nada, y lo dice. */
     @SuppressLint("MissingPermission")
@@ -60,7 +82,7 @@ class DeviceVehicleSource(
         }
         val provider = when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && manager.isProviderEnabled(LocationManager.FUSED_PROVIDER) -> LocationManager.FUSED_PROVIDER
-            manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+            precise && manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
             manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
             else -> {
                 Log.w(TAG, "ningún proveedor de ubicación activo")
@@ -71,7 +93,7 @@ class DeviceVehicleSource(
         manager.getLastKnownLocation(provider)?.let(::publish)
         manager.requestLocationUpdates(provider, MIN_INTERVAL_MS, MIN_DISTANCE_M, listener, Looper.getMainLooper())
         listening = true
-        Log.i(TAG, "siguiendo la posición por $provider")
+        Log.i(TAG, "siguiendo la posición por $provider${if (precise) "" else " (aproximada)"}")
     }
 
     fun stop() {

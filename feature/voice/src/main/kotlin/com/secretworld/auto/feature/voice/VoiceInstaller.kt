@@ -31,6 +31,8 @@ class VoiceInstaller(private val context: Context) {
 
     fun isInstalled(language: VoiceLanguage): Boolean {
         val dir = installDirFor(language)
+        val model = VoiceCatalog.packFor(language)?.model
+        if (model != null) return File(dir, model).isFile
         return dir.isDirectory && dir.listFiles()?.any { it.name.endsWith(".onnx") } == true
     }
 

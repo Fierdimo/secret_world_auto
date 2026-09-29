@@ -16,5 +16,7 @@
     <string name="details">Detalles</string>
     <string name="nav_to">Hacia %1$s</string>
     <string name="nav_arrived">Has llegado</string>
-    <string name="nav_end">Fin</string>
+    <string name="nav_end">Terminar ruta</string>
+    <string name="more_when_stopped">%1$d más al parar</string>
+    <string name="more_nearby">%1$d más cerca</string>
 </resources>

@@ -44,6 +44,15 @@ class PiperSpeechSynthesizer(private val installer: VoiceInstaller) : SpeechSynt
         return Synthesis(outputPath, seconds, elapsed, audio.sampleRate)
     }
 
+    /**
+     * Deja la voz cargada sin sintetizar nada. Cargarla cuesta segundos —en un
+     * móvil lento, la mitad de los 15 s que tardó la primera pregunta—, y
+     * mejor pagarlos al arrancar que delante del conductor.
+     */
+    fun warm(language: VoiceLanguage) {
+        engineFor(language)
+    }
+
     /** Libera los motores. El disco es barato, la RAM del infotainment no. */
     fun release() {
         engines.clear()
