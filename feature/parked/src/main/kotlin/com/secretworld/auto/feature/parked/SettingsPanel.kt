@@ -18,6 +18,7 @@ import com.secretworld.auto.feature.parked.R
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import com.secretworld.auto.core.designsystem.CarButton
 import com.secretworld.auto.core.designsystem.CarSecondaryButton
 import com.secretworld.auto.core.designsystem.CarTheme
 import com.secretworld.auto.core.designsystem.panelInsetsPadding
@@ -29,9 +30,13 @@ import com.secretworld.auto.core.designsystem.panelInsetsPadding
  * existe. Una pantalla de ajustes llena de conmutadores falsos es la forma más
  * rápida de que una demostración pierda credibilidad.
  */
+/** Un idioma que se puede elegir, con su nombre en ese idioma. */
+data class LanguageOption(val code: String, val label: String, val selected: Boolean)
+
 @Composable
 fun SettingsPanel(
-    voiceLanguage: String,
+    languages: List<LanguageOption>,
+    onLanguage: (String) -> Unit,
     voiceInstalled: Boolean,
     voiceSizeMb: Long,
     catalogueSource: String,
@@ -58,7 +63,20 @@ fun SettingsPanel(
 
         Spacer(Modifier.height(d.spaceM))
 
-        SettingRow(stringResource(R.string.narration_language), voiceLanguage)
+        // El idioma de toda la app —pantallas, voz, órdenes—, no solo el de la
+        // narración. Al elegirlo la app se vuelve a abrir en él.
+        Text(stringResource(R.string.narration_language), style = MaterialTheme.typography.bodyLarge)
+        Spacer(Modifier.height(d.spaceXs))
+        Row(horizontalArrangement = Arrangement.spacedBy(d.spaceXs)) {
+            languages.forEach { option ->
+                if (option.selected) {
+                    CarButton(label = option.label, onClick = {}, dense = true)
+                } else {
+                    CarSecondaryButton(label = option.label, onClick = { onLanguage(option.code) }, dense = true)
+                }
+            }
+        }
+        Spacer(Modifier.height(d.spaceS))
         SettingRow(
             label = stringResource(R.string.installed_voice),
             value = if (voiceInstalled) stringResource(R.string.voice_on_device, voiceSizeMb) else stringResource(R.string.voice_missing),

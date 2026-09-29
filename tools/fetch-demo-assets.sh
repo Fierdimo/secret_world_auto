@@ -72,6 +72,11 @@ for id in kws-en vad asr-nemo-eu denoiser-gtcrn llm-gemma3-1b; do
   cp "$MODELS/$id.zip" "$OUT/models/$id.zip"
 done
 cp "$VOICES/it-riccardo.zip" "$OUT/voices/it.zip"
+# Español e inglés también: el idioma se cambia en los ajustes de la app.
+need "$VOICES/es.zip" "ejecutar tools/fetch-tts-assets.sh y empaquetar la voz"
+need "$VOICES/en.zip" "ejecutar tools/fetch-tts-assets.sh y empaquetar la voz"
+cp "$VOICES/es.zip" "$OUT/voices/es.zip"
+cp "$VOICES/en.zip" "$OUT/voices/en.zip"
 
 echo
 for f in "$OUT"/models/*.zip "$OUT"/voices/*.zip; do

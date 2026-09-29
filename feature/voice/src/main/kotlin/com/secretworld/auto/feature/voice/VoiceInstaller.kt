@@ -36,6 +36,13 @@ class VoiceInstaller(private val context: Context) {
         return dir.isDirectory && dir.listFiles()?.any { it.name.endsWith(".onnx") } == true
     }
 
+    /** Si el APK trae dentro la voz de ese idioma. */
+    fun isBundled(language: VoiceLanguage): Boolean = packs.hasAsset("voices/${language.code}.zip")
+
+    /** Los idiomas en que se puede hablar ya: voz instalada o dentro del APK. */
+    fun availableLanguages(): List<VoiceLanguage> =
+        VoiceLanguage.entries.filter { isInstalled(it) || isBundled(it) }
+
     fun installedLanguages(): Set<VoiceLanguage> =
         VoiceLanguage.entries.filter { isInstalled(it) }.toSet()
 

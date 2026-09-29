@@ -355,6 +355,10 @@ object Phrasebook {
         )
     }
 
+    /** Se dice ya en el idioma nuevo, al volver a abrirse la app en él. */
+    fun nowSpeaking(language: VoiceLanguage): String =
+        language.say(en = "I'm speaking English now.", es = "Ahora hablo español.", it = "Ora parlo italiano.")
+
     fun routeEnded(c: Context): String = c.say(en = "Route ended.", es = "Ruta terminada.", it = "Percorso terminato.")
 
     fun rerouting(c: Context): String = pick(

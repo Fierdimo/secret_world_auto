@@ -88,6 +88,7 @@ import com.secretworld.auto.domain.Place
 import com.secretworld.auto.domain.TourQueue
 import com.secretworld.auto.domain.VoiceCommand
 import com.secretworld.auto.domain.WakeWord
+import com.secretworld.auto.domain.VoiceGrammar
 import com.secretworld.auto.domain.VoiceLanguage
 import com.secretworld.auto.feature.discover.MapState
 import com.secretworld.auto.map.PlatformMap
@@ -97,12 +98,15 @@ import com.secretworld.auto.feature.discover.RoutePanel
 import com.secretworld.auto.feature.discover.VoiceStatus
 import com.secretworld.auto.feature.discover.VoiceUi
 import com.secretworld.auto.feature.parked.ItineraryPanel
+import com.secretworld.auto.feature.parked.LanguageOption
 import com.secretworld.auto.feature.parked.PlaceDetailPanel
 import com.secretworld.auto.feature.parked.SettingsPanel
 import com.secretworld.auto.feature.voice.GemmaLanguageModel
 import com.secretworld.auto.feature.voice.HandsFree
 import com.secretworld.auto.feature.voice.ModelCatalog
 import com.secretworld.auto.feature.voice.ModelStore
+import com.secretworld.auto.feature.voice.SharedLanguageModel
+import com.secretworld.auto.feature.voice.VoiceInstaller
 import com.secretworld.auto.feature.voice.NarrationController
 import com.secretworld.auto.feature.voice.OnDeviceVoiceInput
 import com.secretworld.auto.feature.voice.SystemVoiceInput
@@ -222,6 +226,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var voiceInput: VoiceInput
     private lateinit var handsFree: HandsFree
     private lateinit var resolver: IntentResolver
+    private val voiceInstaller by lazy { VoiceInstaller(this) }
     private val grammar by lazy { GrammarIntentResolver(language) }
 
     /** Lo que el asistente recuerda de la conversación: foco, lo enumerado, las últimas frases. */
@@ -238,11 +243,33 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * El idioma elegido en los ajustes, si se eligió. Manda sobre el del sabor
+     * y sobre el del teléfono: quien conduce habla como quiere, no como vino
+     * configurado el aparato.
+     */
+    private fun chosenLanguage(context: Context): String? =
+        context.getSharedPreferences(SETTINGS, Context.MODE_PRIVATE).getString(LANGUAGE_KEY, null)
+
+    /** Cambia el idioma de toda la app y la vuelve a abrir en él. */
+    private fun switchLanguage(to: VoiceLanguage, announce: Boolean = false) {
+        if (to == language) {
+            if (announce) narration.say(Phrasebook.nowSpeaking(to))
+            return
+        }
+        getSharedPreferences(SETTINGS, MODE_PRIVATE).edit()
+            .putString(LANGUAGE_KEY, to.code)
+            .putBoolean(ANNOUNCE_KEY, announce)
+            .apply()
+        narration.stop()
+        recreate()
+    }
+
+    /**
      * Un sabor con idioma fijo lo impone aquí, antes de que exista nada: así
      * los textos de pantalla, los formatos y [language] salen del mismo sitio.
      */
     override fun attachBaseContext(newBase: Context) {
-        val forced = newBase.getString(R.string.forced_language)
+        val forced = chosenLanguage(newBase) ?: newBase.getString(R.string.forced_language)
         if (forced.isEmpty()) return super.attachBaseContext(newBase)
         val locale = java.util.Locale.forLanguageTag(forced)
         java.util.Locale.setDefault(locale)
@@ -406,7 +433,15 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) { narration.ensureVoice() }
                 // Las frases fijas del asistente se sintetizan antes de que hagan
                 // falta: la primera respuesta también tiene que ser inmediata.
-                LaunchedEffect(narration.voiceInstalled) { if (narration.voiceInstalled) narration.prewarm(fixedReplies(language)) }
+                LaunchedEffect(narration.voiceInstalled) {
+                    if (!narration.voiceInstalled) return@LaunchedEffect
+                    narration.prewarm(fixedReplies(language))
+                    val prefs = getSharedPreferences(SETTINGS, MODE_PRIVATE)
+                    if (prefs.getBoolean(ANNOUNCE_KEY, false)) {
+                        prefs.edit().putBoolean(ANNOUNCE_KEY, false).apply()
+                        narration.say(Phrasebook.nowSpeaking(language))
+                    }
+                }
                 // El micrófono se abre con la pantalla y se cierra con ella: una app
                 // que escucha cuando no está delante no se lo merece.
                 val ready by voiceReady.collectAsState()
@@ -690,7 +725,16 @@ class MainActivity : ComponentActivity() {
             )
 
             Panel.Settings -> SettingsPanel(
-                voiceLanguage = when (language) { VoiceLanguage.SPANISH -> "Español"; VoiceLanguage.ITALIAN -> "Italiano"; else -> "English" },
+                // Cada idioma con su propio nombre: quien no entiende el actual
+                // tiene que poder encontrar el suyo.
+                languages = voiceInstaller.availableLanguages().map { available ->
+                    LanguageOption(
+                        code = available.code,
+                        label = available.say(en = "English", es = "Español", it = "Italiano"),
+                        selected = available == language,
+                    )
+                },
+                onLanguage = { code -> VoiceLanguage.fromTag(code)?.let(::switchLanguage) },
                 voiceInstalled = narration.voiceInstalled,
                 voiceSizeMb = 21,
                 catalogueSource = when (result?.source) {
@@ -880,6 +924,23 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            is VoiceCommand.SwitchLanguage -> {
+                if (command.language !in voiceInstaller.availableLanguages()) {
+                    // Sin voz en ese idioma no se puede hablar en él: se dice, no se finge.
+                    val reply = language.say(
+                        en = "I don't have that language on this device.",
+                        es = "No tengo ese idioma en este dispositivo.",
+                        it = "Non ho quella lingua su questo dispositivo.",
+                    )
+                    narration.say(reply)
+                    reply
+                } else {
+                    // La confirmación se dice ya en el idioma nuevo, al reabrir.
+                    switchLanguage(command.language, announce = true)
+                    Phrasebook.nowSpeaking(command.language)
+                }
+            }
+
             VoiceCommand.EndRoute -> {
                 narration.stop()
                 if (activeRoute.value == null) {
@@ -958,7 +1019,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             val here = vehicle.state.value.position
             val c = Phrasebook.Context(here, memory.listed, memory, language)
-            val results = search.search(query, here, limit = 4)
+            val results = search.search(query, here, limit = 4, category = VoiceGrammar.searchCategoryOf(query))
             Log.i("SWSearch", "«$query»: ${results.size} resultados · ${results.joinToString { it.name }}")
             searchResults.value = results
             if (results.isEmpty()) {
@@ -1043,7 +1104,7 @@ class MainActivity : ComponentActivity() {
     private fun setUpVoice() {
         val models = ModelStore(this)
         val local = OnDeviceVoiceInput(this, models, language)
-        val llm = GemmaLanguageModel(this, models)
+        val llm = SharedLanguageModel.get(this)
 
         // Lo que trae el APK cuenta como instalado: se instala justo abajo, antes
         // de cargarlo. Es lo que hace que la demo funcione sin adb ni CDN.
@@ -1089,7 +1150,7 @@ class MainActivity : ComponentActivity() {
      * hay nada que hacer y no se enseña nada.
      */
     private suspend fun installBundledModels(models: ModelStore) {
-        val packs = ModelCatalog.listening(language) + ModelCatalog.DENOISER + ModelCatalog.LLM
+        val packs = models.listening(language) + ModelCatalog.DENOISER + ModelCatalog.LLM
         if (packs.none { !models.isAvailable(it) && models.isBundled(it) }) return
         withContext(Dispatchers.IO) {
             val failed = models.installBundled(packs) { modelsPercent.value = it }
@@ -1159,7 +1220,10 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         device?.stop()
         onDevice?.release()
-        gemma?.release()
+        narration.release()
+        // Solo al salir de verdad: al reabrirse —cambio de idioma— el modelo se
+        // queda cargado para la actividad nueva.
+        if (isFinishing) gemma?.release()
     }
 
     private sealed interface Panel {
@@ -1203,6 +1267,11 @@ class MainActivity : ComponentActivity() {
         val ROME = Coordinates(41.8859, 12.4850)
         /** Cómo se llama el punto de partida en el aviso de ubicación. */
         const val ROME_NAME = "Roma"
+
+        const val SETTINGS = "settings"
+        const val LANGUAGE_KEY = "language"
+        /** Al reabrir tras un cambio de idioma pedido de viva voz, confirmarlo. */
+        const val ANNOUNCE_KEY = "announce_language"
 
         /** La ubicación, en sus dos precisiones: basta con una. */
         val LOCATION = listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)

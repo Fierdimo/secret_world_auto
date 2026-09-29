@@ -51,8 +51,11 @@ class PlaceCache(root: File) {
 
     /** Un [PlaceSearch] que pasa por aquí. */
     fun caching(delegate: PlaceSearch, language: VoiceLanguage): PlaceSearch = object : PlaceSearch {
-        override suspend fun search(query: String, near: Coordinates, limit: Int): List<Place> =
-            around(near, "q:${query.lowercase().trim()}", language) { delegate.search(query, near, limit) }.take(limit)
+        override suspend fun search(query: String, near: Coordinates, limit: Int, category: String?): List<Place> =
+            around(near, "q:${category ?: query.lowercase().trim()}", language) { delegate.search(query, near, limit, category) }
+                // También lo guardado: una semana de caché podía conservar resultados de otro continente.
+                .filter { near.distanceTo(it.position) <= PlaceSearch.MAX_DISTANCE_M }
+                .take(limit)
     }
 
     private fun read(file: File): List<Place>? = runCatching {

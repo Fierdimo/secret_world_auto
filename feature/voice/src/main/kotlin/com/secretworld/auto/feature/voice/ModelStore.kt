@@ -107,12 +107,9 @@ object ModelCatalog {
         licence = "MIT (GTCRN)",
     )
 
-    /** El reconocedor que entiende el idioma. */
+    /** El reconocedor que entiende el idioma, sin mirar qué hay instalado. */
     fun asrFor(language: VoiceLanguage): ModelPack =
         if (language == VoiceLanguage.ITALIAN) ASR_EU else ASR
-
-    /** Lo que hace falta para escuchar sin tocar nada. El LLM es aparte. */
-    fun listening(language: VoiceLanguage): List<ModelPack> = listOf(KWS_EN, VAD, asrFor(language))
 
     fun urlFor(pack: ModelPack): String = "$baseUrl/${pack.url}"
 }
@@ -173,6 +170,17 @@ class ModelStore(private val context: Context) {
             onProgress = onProgress,
         )
     }
+
+    /**
+     * El reconocedor para el idioma. El de diez idiomas entiende también
+     * inglés y español: si está —instalado o dentro del APK— vale para todos,
+     * y cambiar de idioma no obliga a descargar otro.
+     */
+    fun asrFor(language: VoiceLanguage): ModelPack =
+        if (isAvailable(ModelCatalog.ASR_EU) || isBundled(ModelCatalog.ASR_EU)) ModelCatalog.ASR_EU else ModelCatalog.asrFor(language)
+
+    /** Lo que hace falta para escuchar sin tocar nada. El LLM es aparte. */
+    fun listening(language: VoiceLanguage): List<ModelPack> = listOf(ModelCatalog.KWS_EN, ModelCatalog.VAD, asrFor(language))
 
     /** Si el APK trae este paquete dentro. */
     fun isBundled(pack: ModelPack): Boolean = packs.hasAsset(bundledName(pack))

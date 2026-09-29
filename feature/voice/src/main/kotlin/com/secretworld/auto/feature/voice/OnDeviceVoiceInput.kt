@@ -77,11 +77,11 @@ class OnDeviceVoiceInput(
     override val hearing: StateFlow<Boolean> = _hearing.asStateFlow()
 
     override val available: Boolean
-        get() = models.missing(ModelCatalog.listening(language)).isEmpty()
+        get() = models.missing(models.listening(language)).isEmpty()
 
     /** Si el APK trae dentro lo que falta para escuchar: se instalará al arrancar. */
     val bundled: Boolean
-        get() = models.missing(ModelCatalog.listening(language)).all(models::isBundled)
+        get() = models.missing(models.listening(language)).all(models::isBundled)
 
     override val hasPermission: Boolean
         get() = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
@@ -172,7 +172,7 @@ class OnDeviceVoiceInput(
         runCatching {
             val kws = requireNotNull(models.dirFor(ModelCatalog.KWS_EN)) { "falta ${ModelCatalog.KWS_EN.id}" }
             val vad = requireNotNull(models.dirFor(ModelCatalog.VAD)) { "falta ${ModelCatalog.VAD.id}" }
-            val asrPack = ModelCatalog.asrFor(language)
+            val asrPack = models.asrFor(language)
             val asr = requireNotNull(models.dirFor(asrPack)) { "falta ${asrPack.id}" }
 
             val started = System.nanoTime()

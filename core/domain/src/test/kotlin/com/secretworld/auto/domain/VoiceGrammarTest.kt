@@ -3,6 +3,7 @@ package com.secretworld.auto.domain
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -92,7 +93,8 @@ class VoiceGrammarTest {
         assertEquals(VoiceCommand.FindPlaces("gasolinera"), VoiceGrammar.parse("necesito echar gasolina", places))
         assertEquals(VoiceCommand.FindPlaces("shawarma"), VoiceGrammar.parse("busca shawarma", places))
         assertEquals(VoiceCommand.FindPlaces("cajero automático"), VoiceGrammar.parse("dónde hay un cajero", places))
-        assertEquals(VoiceCommand.FindPlaces("ceviche"), VoiceGrammar.parse("búscame un ceviche por aquí", places))
+        // El ceviche es cocina peruana: se busca el restaurante, no la palabra.
+        assertEquals(VoiceCommand.FindPlaces("restaurante peruano"), VoiceGrammar.parse("búscame un ceviche por aquí", places))
         assertEquals(VoiceCommand.FindPlaces("restaurante"), VoiceGrammar.parse("where can I eat", places))
         assertEquals(VoiceCommand.FindPlaces("estación de carga eléctrica"), VoiceGrammar.parse("I need a charging station", places))
         // "qué hay cerca" sigue siendo enumerar, no buscar.
@@ -312,5 +314,73 @@ class VoiceGrammarTest {
         assertEquals(VoiceCommand.ChooseAction(old), VoiceGrammar.parse("castillo", options, listed = options, language = it, choosing = true))
         // Tras "¿qué hay cerca?" el ordinal sigue contando, como antes.
         assertEquals(VoiceCommand.TellMeAbout(new), VoiceGrammar.parse("la seconda", options, listed = options, language = it))
+    }
+
+    @Test
+    fun `lo buscado se pide por categoria cuando la tiene`() {
+        assertEquals("gas_station", VoiceGrammar.searchCategoryOf("distributore di benzina"))
+        assertEquals("restaurant", VoiceGrammar.searchCategoryOf("ristorante"))
+        assertEquals("restaurant", VoiceGrammar.searchCategoryOf("restaurante"))
+        // Lo que propone el modelo con sus palabras.
+        assertEquals("cafe", VoiceGrammar.searchCategoryOf("coffee"))
+        assertEquals("gas_station", VoiceGrammar.searchCategoryOf("gasolina"))
+        // Sin categoría, se busca el texto.
+        assertNull(VoiceGrammar.searchCategoryOf("carbonara"))
+    }
+
+    @Test
+    fun `busquedas dichas como se dicen, con el tipo de cocina`() {
+        val es = VoiceLanguage.SPANISH
+        val it = VoiceLanguage.ITALIAN
+        fun category(said: String, language: VoiceLanguage): String? {
+            val command = VoiceGrammar.parse(said, emptyList(), language = language)
+            return (command as? VoiceCommand.FindPlaces)?.let { VoiceGrammar.searchCategoryOf(it.query) }
+        }
+        mapOf(
+            "dame los restaurantes de comida mejicana más cercana" to "mexican_restaurant",
+            "en dónde encuentro un centro comercial" to "shopping_mall",
+            "dónde puedo comer comida italiana" to "italian_restaurant",
+            "quiero comer sushi" to "sushi_restaurant",
+            "hay alguna marisquería cerca" to "seafood_restaurant",
+            "busca un restaurante peruano" to "peruvian_restaurant",
+            "necesito una lavandería" to "laundry",
+            "dónde hay un cine" to "cinema",
+            "llévame al centro comercial más cercano" to "shopping_mall",
+            "where can I find a mexican restaurant" to "mexican_restaurant",
+            "find me the nearest mall" to "shopping_mall",
+            "tengo hambre" to "restaurant",
+        ).forEach { (said, expected) -> assertEquals(expected, category(said, es), "con «$said»") }
+        mapOf(
+            "dove trovo un ristorante messicano" to "mexican_restaurant",
+            "voglio mangiare pesce" to "seafood_restaurant",
+            "c'è un centro commerciale qui vicino" to "shopping_mall",
+            "dove posso comprare vestiti" to "clothing_store",
+            "un ristorante cinese vicino" to "chinese_restaurant",
+            "ho fame" to "restaurant",
+        ).forEach { (said, expected) -> assertEquals(expected, category(said, it), "con «$said»") }
+        // Lo que se busca se dice en el idioma del conductor.
+        assertEquals(VoiceCommand.FindPlaces("ristorante messicano"), VoiceGrammar.parse("dove trovo un ristorante messicano", emptyList(), language = it))
+    }
+
+    @Test
+    fun `cambiar de idioma de viva voz`() {
+        val es = VoiceLanguage.SPANISH
+        val it = VoiceLanguage.ITALIAN
+        val en = VoiceLanguage.ENGLISH
+        mapOf(
+            "parla spagnolo" to es,
+            "habla en español" to es,
+            "cambia la lingua in italiano" to it,
+            "in italiano" to it,
+            "en español" to es,
+            "speak English" to en,
+            "cambia el idioma a inglés" to en,
+            "háblame en italiano" to it,
+        ).forEach { (said, expected) ->
+            assertEquals(VoiceCommand.SwitchLanguage(expected), VoiceGrammar.parse(said, places, language = it), "con «$said»")
+        }
+        // El nombre del idioma suelto sigue siendo cocina.
+        assertEquals("italian_restaurant", (VoiceGrammar.parse("dónde puedo comer comida italiana", places) as VoiceCommand.FindPlaces).let { VoiceGrammar.searchCategoryOf(it.query) })
+        assertEquals("italian_restaurant", (VoiceGrammar.parse("un ristorante italiano vicino", places, language = it) as VoiceCommand.FindPlaces).let { VoiceGrammar.searchCategoryOf(it.query) })
     }
 }

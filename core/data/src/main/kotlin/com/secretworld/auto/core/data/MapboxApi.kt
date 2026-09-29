@@ -51,6 +51,16 @@ interface MapboxApi {
         @Query("language") language: String = "es",
     ): SearchResponse
 
+    /** Los sitios más cercanos de una categoría canónica ("restaurant", "gas_station"). */
+    @GET("search/searchbox/v1/category/{category}")
+    suspend fun category(
+        @Path("category") category: String,
+        @Query("proximity") proximity: String,
+        @Query("access_token") token: String,
+        @Query("limit") limit: Int = 6,
+        @Query("language") language: String = "es",
+    ): SearchResponse
+
     companion object {
         const val BASE_URL = "https://api.mapbox.com/"
 

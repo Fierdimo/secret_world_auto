@@ -35,7 +35,21 @@ data class Route(
  * narrar, con dirección y categoría, y siempre alrededor del coche.
  */
 interface PlaceSearch {
-    suspend fun search(query: String, near: Coordinates, limit: Int = 5): List<Place>
+    /**
+     * @param category la categoría canónica del buscador ("restaurant",
+     *   "gas_station"), si se sabe: con ella se piden los más cercanos de ese
+     *   tipo en vez de buscar el texto. Ver [VoiceGrammar.searchCategoryOf].
+     */
+    suspend fun search(query: String, near: Coordinates, limit: Int = 5, category: String? = null): List<Place>
+
+    companion object {
+        /**
+         * Nada más lejos que esto se ofrece nunca. El buscador de texto puede
+         * devolver coincidencias en otro continente, y "a 10 112 km" no es una
+         * respuesta para quien va conduciendo.
+         */
+        const val MAX_DISTANCE_M = 50_000.0
+    }
 }
 
 /** Quien sabe calcular rutas. */

@@ -54,10 +54,18 @@ class MapboxPlaceSearch(
     private val language: VoiceLanguage = VoiceLanguage.SPANISH,
 ) : PlaceSearch {
 
-    override suspend fun search(query: String, near: Coordinates, limit: Int): List<Place> {
+    override suspend fun search(query: String, near: Coordinates, limit: Int, category: String?): List<Place> {
         val token = credentials.mapboxToken() ?: return emptyList()
+        val proximity = "${near.longitude},${near.latitude}"
         val response = runCatching {
-            withContext(Dispatchers.IO) { api.forward(query, "${near.longitude},${near.latitude}", token, limit = limit + 2, language = language.code) }
+            withContext(Dispatchers.IO) {
+                // Con categoría, los más cercanos de ese tipo; sin ella, el texto.
+                if (category != null) {
+                    api.category(category, proximity, token, limit = limit + 2, language = language.code)
+                } else {
+                    api.forward(query, proximity, token, limit = limit + 2, language = language.code)
+                }
+            }
         }.getOrElse { return emptyList() }
         return response.features
             .mapNotNull { feature ->
@@ -76,6 +84,7 @@ class MapboxPlaceSearch(
                 )
             }
             .distinctBy { it.id }
+            .filter { near.distanceTo(it.position) <= PlaceSearch.MAX_DISTANCE_M }
             .sortedBy { near.distanceTo(it.position) }
             .take(limit)
     }

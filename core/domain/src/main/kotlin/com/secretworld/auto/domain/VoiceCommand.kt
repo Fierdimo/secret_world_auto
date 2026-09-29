@@ -63,6 +63,9 @@ sealed interface VoiceCommand {
      */
     data object EndRoute : VoiceCommand
 
+    /** "Habla en español", "parla italiano", "speak English" → cambia el idioma de la app. */
+    data class SwitchLanguage(val language: VoiceLanguage) : VoiceCommand
+
     /** "Calla", "para" → corta la narración. */
     data object Stop : VoiceCommand
 
@@ -127,6 +130,8 @@ object VoiceGrammar {
         // Terminar la ruta va antes que callar: "stop navigation" lleva "stop".
         if (words.hasAny(END_ROUTE) || words.any(::endsRoute)) return VoiceCommand.EndRoute
         if (words.hasAny(STOP)) return VoiceCommand.Stop
+        // Antes que las búsquedas: "parla italiano" no es buscar comida italiana.
+        languageSwitchIn(words)?.let { return VoiceCommand.SwitchLanguage(it) }
         if (words.hasAny(SKIP)) return VoiceCommand.Skip
 
         // Un "sí" o un "no" a secas solo tienen sentido como respuesta; con más
@@ -253,6 +258,21 @@ object VoiceGrammar {
         return null
     }
 
+    /**
+     * La categoría del buscador de mapas para lo que se busca, si la tiene:
+     * "ristorante" → `restaurant`. Sirve también para lo que propone el modelo
+     * de lenguaje, que busca con sus propias palabras ("coffee", "gasolina").
+     */
+    fun searchCategoryOf(query: String): String? {
+        val words = normalise(query).split(' ').filter { it.isNotBlank() }
+        val said = normalise(query)
+        // Primero la etiqueta exacta —la que puso la propia gramática—, y solo
+        // después palabras sueltas: "negozio di abbigliamento" lleva "negozio",
+        // que también es tienda de conveniencia.
+        CATEGORIES.firstOrNull { said == normalise(it.spanish) || said == normalise(it.italian) }?.let { return it.searchId }
+        return CATEGORIES.firstOrNull { words.hasAny(it.keys) }?.searchId
+    }
+
     /** Lo que sigue a un verbo de búsqueda ("busca shawarma" → "shawarma"). */
     private fun searchedFor(words: List<String>, language: VoiceLanguage): String? {
         val verbs = if (language == VoiceLanguage.ITALIAN) SEARCH_VERBS + SEARCH_VERBS_IT else SEARCH_VERBS
@@ -350,6 +370,32 @@ object VoiceGrammar {
         "raccontala", "raccontamelo", "raccontalo", "cuéntala", "cuentala", "cuéntalo", "cuentalo",
     )
 
+    /**
+     * Pedir otro idioma. Hace falta un verbo de cambio o una frase muy corta
+     * ("in italiano", "en español"): el nombre del idioma suelto también es
+     * una cocina, y "comida italiana" es buscar restaurantes.
+     */
+    private fun languageSwitchIn(words: List<String>): VoiceLanguage? {
+        val language = LANGUAGE_NAMES.entries.firstOrNull { (_, names) -> words.hasAny(names) }?.key ?: return null
+        val asked = words.hasAny(SWITCH_VERBS) || (words.size <= 3 && words.hasAny(LANGUAGE_PREPOSITIONS))
+        return language.takeIf { asked }
+    }
+
+    private val LANGUAGE_NAMES = mapOf(
+        VoiceLanguage.SPANISH to listOf("español", "espanol", "castellano", "spagnolo", "spanish"),
+        VoiceLanguage.ITALIAN to listOf("italiano", "italian"),
+        VoiceLanguage.ENGLISH to listOf("inglés", "ingles", "inglese", "english"),
+    )
+
+    private val SWITCH_VERBS = listOf(
+        "habla", "háblame", "hablame", "hablemos", "cambia", "cambiar", "pasa a", "pon",
+        "parla", "parlami", "parliamo", "cambia lingua", "passa a", "metti",
+        "speak", "talk", "switch", "change", "use",
+        "idioma", "lingua", "language",
+    )
+
+    private val LANGUAGE_PREPOSITIONS = listOf("en", "in")
+
     /** Cuántas opciones se leen en voz alta como mucho: más no se recuerdan. */
     private const val MAX_OPTIONS = 3
 
@@ -390,39 +436,77 @@ object VoiceGrammar {
      * devuelve y en el que luego se le dice al conductor: español para
      * Colombia, italiano para Italia.
      */
-    private class Category(val keys: List<String>, val spanish: String, val italian: String)
+    private class Category(
+        val keys: List<String>,
+        val spanish: String,
+        val italian: String,
+        /**
+         * La categoría canónica del buscador de mapas. Con ella se piden **los
+         * más cercanos de ese tipo**, sin depender del idioma de la consulta:
+         * "distributore di benzina" en texto libre devolvía gasolineras de
+         * Italia a 10 000 km de Cartagena; como categoría, la Terpel a 600 m.
+         */
+        val searchId: String? = null,
+    )
 
     private val CATEGORIES: List<Category> = listOf(
-        Category(listOf("comer", "comida", "hambre", "restaurante", "restaurantes", "almorzar", "cenar", "desayunar", "eat", "food", "hungry", "restaurant", "lunch", "dinner", "breakfast", "mangiare", "cibo", "fame", "ristorante", "ristoranti", "pranzo", "pranzare", "cena", "cenare", "colazione", "trattoria", "osteria"), "restaurante", "ristorante"),
-        Category(listOf("bar", "bares", "cerveza", "copa", "copas", "beer", "drink", "drinks", "pub", "birra", "aperitivo", "bere"), "bar", "bar"),
-        Category(listOf("café", "cafe", "cafetería", "cafeteria", "coffee", "caffè", "caffetteria", "cappuccino"), "café", "caffè"),
-        Category(listOf("gasolina", "gasolinera", "combustible", "tanquear", "echar gasolina", "gas station", "fuel", "petrol", "benzina", "benzinaio", "distributore", "carburante", "rifornimento"), "gasolinera", "distributore di benzina"),
-        Category(listOf("parquear", "parqueadero", "aparcar", "aparcamiento", "estacionar", "parking", "park the car", "parcheggio", "parcheggiare", "posteggio"), "parqueadero", "parcheggio"),
-        Category(listOf("farmacia", "droguería", "drogueria", "pharmacy", "drugstore"), "farmacia", "farmacia"),
-        Category(listOf("cajero", "banco", "atm", "bank", "bancomat", "banca"), "cajero automático", "bancomat"),
-        Category(listOf("supermercado", "mercado", "supermarket", "grocery", "supermercato", "alimentari"), "supermercado", "supermercato"),
-        Category(listOf("hotel", "hoteles", "dormir", "hostal", "albergo", "dormire", "alloggio"), "hotel", "hotel"),
-        Category(listOf("hospital", "urgencias", "clínica", "clinica", "emergency", "ospedale", "pronto soccorso"), "hospital", "ospedale"),
+        // Las cocinas van **antes** que "restaurante": se comprueba en orden, y
+        // "dame restaurantes de comida mejicana" acababa buscando restaurantes
+        // a secas porque "restaurantes" y "comida" casaban primero.
+        Category(listOf("mexicana", "mexicano", "mexicanos", "mexicanas", "mejicana", "mejicano", "messicano", "messicana", "messicani", "mexican"), "restaurante mexicano", "ristorante messicano", "mexican_restaurant"),
+        Category(listOf("comida italiana", "restaurante italiano", "italiana", "italiano", "italian food", "italian restaurant", "cucina italiana", "trattoria"), "restaurante italiano", "ristorante italiano", "italian_restaurant"),
+        Category(listOf("china", "chino", "chinos", "cinese", "cinesi", "chinese"), "restaurante chino", "ristorante cinese", "chinese_restaurant"),
+        Category(listOf("sushi"), "sushi", "sushi", "sushi_restaurant"),
+        Category(listOf("japonesa", "japonés", "japones", "giapponese", "japanese", "ramen"), "restaurante japonés", "ristorante giapponese", "japanese_restaurant"),
+        Category(listOf("peruana", "peruano", "peruviano", "peruviana", "peruvian", "ceviche", "cebiche"), "restaurante peruano", "ristorante peruviano", "peruvian_restaurant"),
+        Category(listOf("marisco", "mariscos", "marisquería", "marisqueria", "pescado", "pescados", "pesce", "frutti di mare", "seafood", "fish"), "marisquería", "ristorante di pesce", "seafood_restaurant"),
+        Category(listOf("asado", "parrilla", "carne asada", "steak", "steakhouse", "bistecca", "grigliata"), "asadero", "steakhouse", "steakhouse"),
+        Category(listOf("comida india", "restaurante indio", "hindú", "hindu", "indiano", "indiana", "indian food", "indian restaurant", "curry"), "restaurante indio", "ristorante indiano", "indian_restaurant"),
+        Category(listOf("tailandesa", "tailandés", "thai", "tailandese"), "restaurante tailandés", "ristorante thailandese", "thai_restaurant"),
+        Category(listOf("comida rápida", "comida rapida", "fast food", "cibo veloce"), "comida rápida", "fast food", "fast_food"),
+        Category(listOf("comida típica", "comida tipica", "comida colombiana", "comida criolla", "cucina tipica", "local food"), "comida típica", "cucina tipica", "latin_american_restaurant"),
+        Category(listOf("comer", "comida", "hambre", "restaurante", "restaurantes", "almorzar", "cenar", "desayunar", "eat", "food", "hungry", "restaurant", "lunch", "dinner", "breakfast", "mangiare", "cibo", "fame", "ristorante", "ristoranti", "pranzo", "pranzare", "cena", "cenare", "colazione", "trattoria", "osteria"), "restaurante", "ristorante", "restaurant"),
+        Category(listOf("bar", "bares", "cerveza", "copa", "copas", "beer", "drink", "drinks", "pub", "birra", "aperitivo", "bere"), "bar", "bar", "bar"),
+        Category(listOf("café", "cafe", "cafetería", "cafeteria", "coffee", "caffè", "caffetteria", "cappuccino"), "café", "caffè", "cafe"),
+        Category(listOf("gasolina", "gasolinera", "combustible", "tanquear", "echar gasolina", "gas station", "fuel", "petrol", "benzina", "benzinaio", "distributore", "carburante", "rifornimento"), "gasolinera", "distributore di benzina", "gas_station"),
+        Category(listOf("parquear", "parqueadero", "aparcar", "aparcamiento", "estacionar", "parking", "park the car", "parcheggio", "parcheggiare", "posteggio"), "parqueadero", "parcheggio", "parking_lot"),
+        Category(listOf("farmacia", "droguería", "drogueria", "pharmacy", "drugstore"), "farmacia", "farmacia", "pharmacy"),
+        Category(listOf("cajero", "banco", "atm", "bank", "bancomat", "banca"), "cajero automático", "bancomat", "atm"),
+        Category(listOf("supermercado", "mercado", "supermarket", "grocery", "supermercato", "alimentari"), "supermercado", "supermercato", "supermarket"),
+        Category(listOf("hotel", "hoteles", "dormir", "hostal", "albergo", "dormire", "alloggio"), "hotel", "hotel", "hotel"),
+        Category(listOf("hospital", "urgencias", "clínica", "clinica", "emergency", "ospedale", "pronto soccorso"), "hospital", "ospedale", "hospital"),
         Category(listOf("baño", "baños", "toilet", "restroom", "bathroom", "bagno", "bagni", "toilette"), "baño público", "bagno pubblico"),
-        Category(listOf("pizza", "pizzería", "pizzeria"), "pizza", "pizzeria"),
-        Category(listOf("hamburguesa", "hamburguesas", "burger", "burgers", "hamburger"), "hamburguesa", "hamburger"),
+        Category(listOf("pizza", "pizzería", "pizzeria"), "pizza", "pizzeria", "pizza_restaurant"),
+        Category(listOf("hamburguesa", "hamburguesas", "burger", "burgers", "hamburger"), "hamburguesa", "hamburger", "burger_restaurant"),
         Category(listOf("sushi"), "sushi", "sushi"),
-        Category(listOf("shawarma", "shawarmas", "kebab", "döner", "doner"), "shawarma", "kebab"),
-        Category(listOf("tacos", "taco"), "tacos", "tacos"),
-        Category(listOf("helado", "heladería", "heladeria", "ice cream", "gelato", "gelati", "gelateria"), "helado", "gelateria"),
-        Category(listOf("panadería", "panaderia", "pan", "bakery", "panificio", "forno", "pasticceria"), "panadería", "panificio"),
+        Category(listOf("shawarma", "shawarmas", "kebab", "döner", "doner"), "shawarma", "kebab", "middle_eastern_restaurant"),
+        Category(listOf("tacos", "taco"), "tacos", "tacos", "taco_shop"),
+        Category(listOf("helado", "heladería", "heladeria", "ice cream", "gelato", "gelati", "gelateria"), "helado", "gelateria", "ice_cream"),
+        Category(listOf("panadería", "panaderia", "pan", "bakery", "panificio", "forno", "pasticceria"), "panadería", "panificio", "bakery"),
         // Lo que hace falta en carretera, más allá de comer y dormir.
-        Category(listOf("taller", "mecánico", "mecanico", "llanta", "llantas", "pinchazo", "grúa", "grua", "mechanic", "garage", "tire", "tyre", "tow", "meccanico", "officina", "gommista", "gomma", "gomme", "foratura", "carro attrezzi"), "taller mecánico", "officina meccanica"),
-        Category(listOf("cargador", "cargar el coche", "carga eléctrica", "electrolinera", "ev charger", "charging station", "charge the car", "colonnina", "ricarica", "ricaricare", "stazione di ricarica"), "estación de carga eléctrica", "stazione di ricarica"),
-        Category(listOf("lavadero", "lavar el carro", "lavar el coche", "car wash", "autolavaggio", "lavare la macchina"), "lavadero de carros", "autolavaggio"),
-        Category(listOf("aeropuerto", "airport", "aeroporto"), "aeropuerto", "aeroporto"),
-        Category(listOf("terminal", "estación de buses", "estacion de buses", "bus station", "stazione", "stazione dei treni", "treno", "autobus"), "terminal de transporte", "stazione"),
-        Category(listOf("cambio", "casa de cambio", "cambiar dinero", "exchange", "money exchange", "cambio valuta", "cambiare soldi"), "casa de cambio", "cambio valuta"),
-        Category(listOf("policía", "policia", "police", "polizia", "carabinieri", "questura"), "policía", "polizia"),
-        Category(listOf("playa", "beach", "spiaggia"), "playa", "spiaggia"),
-        Category(listOf("mirador", "viewpoint", "view point", "lookout", "belvedere", "panorama"), "mirador", "belvedere"),
-        Category(listOf("tienda", "minimarket", "convenience store", "shop", "negozio", "tabaccheria", "tabacchi"), "tienda", "negozio"),
-        Category(listOf("centro comercial", "mall", "shopping", "centro commerciale"), "centro comercial", "centro commerciale"),
+        Category(listOf("taller", "mecánico", "mecanico", "llanta", "llantas", "pinchazo", "grúa", "grua", "mechanic", "garage", "tire", "tyre", "tow", "meccanico", "officina", "gommista", "gomma", "gomme", "foratura", "carro attrezzi"), "taller mecánico", "officina meccanica", "auto_repair"),
+        Category(listOf("cargador", "cargar el coche", "carga eléctrica", "electrolinera", "ev charger", "charging station", "charge the car", "colonnina", "ricarica", "ricaricare", "stazione di ricarica"), "estación de carga eléctrica", "stazione di ricarica", "charging_station"),
+        Category(listOf("lavadero", "lavar el carro", "lavar el coche", "car wash", "autolavaggio", "lavare la macchina"), "lavadero de carros", "autolavaggio", "car_wash"),
+        Category(listOf("aeropuerto", "airport", "aeroporto"), "aeropuerto", "aeroporto", "airport"),
+        Category(listOf("terminal", "estación de buses", "estacion de buses", "bus station", "stazione", "stazione dei treni", "treno", "autobus"), "terminal de transporte", "stazione", "bus_station"),
+        Category(listOf("cambio", "casa de cambio", "cambiar dinero", "exchange", "money exchange", "cambio valuta", "cambiare soldi"), "casa de cambio", "cambio valuta", "currency_exchange"),
+        Category(listOf("policía", "policia", "police", "polizia", "carabinieri", "questura"), "policía", "polizia", "police_station"),
+        Category(listOf("playa", "beach", "spiaggia"), "playa", "spiaggia", "beach"),
+        Category(listOf("mirador", "viewpoint", "view point", "lookout", "belvedere", "panorama"), "mirador", "belvedere", "viewpoint"),
+        Category(listOf("tienda", "minimarket", "convenience store", "shop", "negozio", "tabaccheria", "tabacchi"), "tienda", "negozio", "convenience_store"),
+        Category(listOf("centro comercial", "mall", "shopping", "centro commerciale"), "centro comercial", "centro commerciale", "shopping_mall"),
+        // Servicios corrientes, de viaje y de todos los días.
+        Category(listOf("cine", "cinema", "película", "pelicula", "film", "movie", "movies"), "cine", "cinema", "cinema"),
+        Category(listOf("lavandería", "lavanderia", "laundry", "lavar ropa", "lavare i vestiti"), "lavandería", "lavanderia", "laundry"),
+        Category(listOf("ropa", "vestiti", "abbigliamento", "clothes", "clothing", "tienda de ropa", "negozio di abbigliamento"), "tienda de ropa", "negozio di abbigliamento", "clothing_store"),
+        Category(listOf("zapatos", "zapatería", "zapateria", "scarpe", "shoes", "shoe store"), "zapatería", "negozio di scarpe", "shoe_store"),
+        Category(listOf("ferretería", "ferreteria", "ferramenta", "hardware store"), "ferretería", "ferramenta", "hardware_store"),
+        Category(listOf("correo", "correos", "oficina de correos", "ufficio postale", "poste", "post office"), "oficina de correos", "ufficio postale", "post_office"),
+        Category(listOf("alquiler de carros", "alquiler de coches", "rentar un carro", "autonoleggio", "noleggio auto", "car rental", "rent a car"), "alquiler de carros", "autonoleggio", "car_rental"),
+        Category(listOf("taxi", "taxis"), "taxi", "taxi", "taxi"),
+        Category(listOf("dentista", "odontólogo", "odontologo", "dentist"), "dentista", "dentista", "dentist"),
+        Category(listOf("veterinario", "veterinaria", "vet", "veterinarian"), "veterinario", "veterinario", "veterinarian"),
+        Category(listOf("discoteca", "rumba", "bailar", "ballare", "night club", "nightclub", "nightlife", "vida nocturna"), "discoteca", "discoteca", "nightlife"),
     )
 
     /** Verbos tras los que viene lo que se busca. */

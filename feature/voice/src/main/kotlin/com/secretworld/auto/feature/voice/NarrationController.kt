@@ -306,6 +306,15 @@ class NarrationController(
         _state.value = State.Idle
     }
 
+    /**
+     * Suelta la voz al cerrar la actividad. Sin esto, cada vez que se reabre
+     * —al cambiar de idioma— se quedaba otro motor de síntesis en memoria.
+     */
+    fun release() {
+        stop()
+        synthesizer.release()
+    }
+
     /** Posicion actual de la reproduccion, para que la pantalla no mienta. */
     fun positionMs(): Int = player.positionMs
 

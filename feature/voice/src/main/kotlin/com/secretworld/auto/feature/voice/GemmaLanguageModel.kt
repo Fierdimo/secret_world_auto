@@ -8,6 +8,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 import com.secretworld.auto.domain.LanguageModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -101,6 +103,9 @@ class GemmaLanguageModel(
         val llm = engine ?: return@withContext
         lock.withLock {
             if (!canClone) return@withLock
+            // Ya preparado —la actividad se reabrió, por ejemplo al cambiar de
+            // idioma—: no se paga otra vez. En un moto g75 son 9 s.
+            if (base != null && basePrefix == prefix) return@withLock
             val started = System.nanoTime()
             runCatching {
                 // Añadir el prefijo no lo procesa: el motor lo deja pendiente
@@ -254,17 +259,29 @@ class GemmaLanguageModel(
     /**
      * Suelta el modelo. Es el consumidor de RAM más grande de la app.
      *
-     * No espera al candado a propósito: se llama al destruir la actividad, cuando
-     * ya no hay escucha y por tanto no hay generación en curso.
+     * **Espera al candado**: puede haber una generación en marcha —el prefijo
+     * preparándose, una traducción— y cerrar el motor debajo de ella es un
+     * cierre nativo (medido: SIGSEGV en `Prefill` al cambiar de idioma tres
+     * veces seguidas). Se hace en segundo plano para no bloquear a quien llama.
      */
     fun release() {
-        val llm = engine
-        engine = null
-        runCatching { base?.close() }
-        base = null
-        basePrefix = null
-        runCatching { llm?.close() }
+        released = true
+        CoroutineScope(Dispatchers.IO).launch {
+            lock.withLock {
+                val llm = engine
+                engine = null
+                runCatching { base?.close() }
+                base = null
+                basePrefix = null
+                runCatching { llm?.close() }
+            }
+        }
     }
+
+    /** Ya se soltó: no sirve, hay que crear otro. */
+    @Volatile
+    var released: Boolean = false
+        private set
 
     private companion object {
         const val TAG = "SWVoiceLlm"
@@ -277,4 +294,19 @@ class GemmaLanguageModel(
         const val CLOSE_RETRIES = 10
         const val CLOSE_RETRY_MS = 100L
     }
+}
+
+/**
+ * Un solo modelo para toda la app. La actividad se destruye y se crea al
+ * cambiar de idioma, y el modelo no depende del idioma: cargarlo otra vez son
+ * 555 MB y segundos, y soltarlo mientras genera, un cierre nativo.
+ */
+object SharedLanguageModel {
+    private var instance: GemmaLanguageModel? = null
+
+    /** Con el contexto de la aplicación: el de la actividad se quedaría retenido. */
+    @Synchronized
+    fun get(context: Context): GemmaLanguageModel =
+        instance?.takeUnless { it.released }
+            ?: context.applicationContext.let { app -> GemmaLanguageModel(app, ModelStore(app)) }.also { instance = it }
 }
