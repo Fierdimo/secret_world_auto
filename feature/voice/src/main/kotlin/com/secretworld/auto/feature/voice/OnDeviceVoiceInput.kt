@@ -73,6 +73,9 @@ class OnDeviceVoiceInput(
     private val _state = MutableStateFlow<VoiceInput.State>(VoiceInput.State.Idle)
     override val state: StateFlow<VoiceInput.State> = _state.asStateFlow()
 
+    private val _hearing = MutableStateFlow(false)
+    override val hearing: StateFlow<Boolean> = _hearing.asStateFlow()
+
     override val available: Boolean
         get() = models.missing(ModelCatalog.listening(language)).isEmpty()
 
@@ -498,6 +501,7 @@ class OnDeviceVoiceInput(
                     if (vad.isSpeechDetected()) {
                         if (!speechSeen) firstSpeechAt = total
                         speechSeen = true
+                        _hearing.value = true
                         lastSpeechAt = total
                     }
                     // Los segmentos no se usan: solo se vacían para no acumular.
@@ -540,6 +544,15 @@ class OnDeviceVoiceInput(
     }
 
     private fun finish(capture: Capture, engines: Engines, chime: ToneGenerator?) {
+        // Pase lo que pase con la frase, cuando esto acaba ya no se está oyendo.
+        try {
+            finishHeard(capture, engines, chime)
+        } finally {
+            _hearing.value = false
+        }
+    }
+
+    private fun finishHeard(capture: Capture, engines: Engines, chime: ToneGenerator?) {
         val audio = capture.audio()
         if (audio == null) {
             if (capture.transcriptWake) return

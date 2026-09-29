@@ -36,10 +36,22 @@ interface VoiceInput {
 
     val state: StateFlow<State>
 
+    /**
+     * Si ahora mismo está oyendo hablar a alguien y todavía no sabe qué dijo:
+     * desde que el detector nota voz hasta que la frase queda transcrita. Es lo
+     * que permite enseñar "te oigo" antes de saber si iba con nosotros; sin
+     * ello, el conductor no distingue "no me oyó" de "me está oyendo".
+     */
+    val hearing: StateFlow<Boolean> get() = NEVER
+
     /** ¿Puede oír en este dispositivo? Sin reconocedor ni modelos, no. */
     val available: Boolean
 
     val hasPermission: Boolean
+
+    private companion object {
+        val NEVER: StateFlow<Boolean> = kotlinx.coroutines.flow.MutableStateFlow(false)
+    }
 
     /**
      * Si al terminar una frase sigue escuchando solo. Un reconocedor que se cierra

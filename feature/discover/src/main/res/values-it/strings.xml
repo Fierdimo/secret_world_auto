@@ -19,4 +19,7 @@
     <string name="nav_end">Termina percorso</string>
     <string name="more_when_stopped">altri %1$d quando ti fermi</string>
     <string name="more_nearby">altri %1$d qui vicino</string>
+    <string name="voice_waiting">In ascolto</string>
+    <string name="voice_hearing">Ti sento…</string>
+    <string name="voice_thinking">Elaboro…</string>
 </resources>

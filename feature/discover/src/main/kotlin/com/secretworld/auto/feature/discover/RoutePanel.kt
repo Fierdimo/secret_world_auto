@@ -29,6 +29,17 @@ import androidx.compose.ui.res.stringResource
 import com.secretworld.auto.feature.discover.R
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.alpha
+import androidx.compose.runtime.getValue
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.layout.Layout
@@ -86,7 +97,7 @@ fun RoutePanel(
             // único que el conductor va a leer.
             .padding(horizontal = d.spaceM, vertical = d.spaceXs),
     ) {
-        PanelHeader(city = city, offline = offline)
+        PanelHeader(city = city, offline = offline, status = voice.status)
 
         // Lo que falta para funcionar entero va arriba, antes que nada: sin
         // micrófono la app no oye, y sin botón de hablar sería imposible
@@ -340,6 +351,7 @@ private fun NowPlayingCard(state: NowPlaying) {
 private fun PanelHeader(
     city: String?,
     offline: Boolean,
+    status: VoiceStatus,
 ) {
     val place = city ?: stringResource(R.string.finding_where)
     if (CarTheme.metrics.heightDp < COMPACT_HEIGHT) {
@@ -352,7 +364,7 @@ private fun PanelHeader(
                 style = MaterialTheme.typography.titleLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
+                modifier = Modifier.weight(1f),
             )
             if (offline) {
                 Text(
@@ -361,6 +373,8 @@ private fun PanelHeader(
                     color = MaterialTheme.colorScheme.secondary,
                 )
             }
+            // El título se lleva lo que sobre; el estado, solo lo que ocupa.
+            VoiceStatusChip(status)
         }
         return
     }
@@ -368,7 +382,10 @@ private fun PanelHeader(
     // Sin botón de hablar: se habla con la palabra de activación, y el
     // micrófono está abierto siempre que hay permiso.
     Column {
-        Text(stringResource(R.string.brand), style = MaterialTheme.typography.displayMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.brand), style = MaterialTheme.typography.displayMedium, modifier = Modifier.weight(1f))
+            VoiceStatusChip(status)
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = place,
@@ -401,8 +418,26 @@ data class VoiceUi(
     val handsFree: Boolean = false,
     val heard: String? = null,
     val answer: String? = null,
+    val status: VoiceStatus = VoiceStatus.OFF,
 ) {
     val visible: Boolean get() = listening || heard != null || answer != null
+}
+
+/**
+ * Qué está haciendo el asistente con lo que oye. Existe porque sin botón de
+ * hablar no había forma de distinguir "no me oyó" de "me está atendiendo".
+ */
+enum class VoiceStatus {
+    /** Sin micrófono: el aviso de permisos ya lo explica. */
+    OFF,
+    /** Micrófono abierto, esperando la palabra de activación. */
+    WAITING,
+    /** Acaba de preguntar algo: es el turno del conductor. */
+    YOUR_TURN,
+    /** Alguien está hablando y aún no se sabe qué dijo. */
+    HEARING,
+    /** Se oyó la palabra y la orden: entendiendo o preparando la respuesta. */
+    THINKING,
 }
 
 /** La tira del asistente, al pie: lo que se oyó y lo que se contesta. */
@@ -580,3 +615,59 @@ private fun PermissionCard(notice: PermissionNotice) {
         CarSecondaryButton(label = notice.action, onClick = notice.onClick, dense = true)
     }
 }
+
+/**
+ * El estado del asistente, en una línea: un punto y una palabra. Discreto en
+ * reposo, visible cuando pasa algo. El punto late mientras oye; mientras
+ * piensa, gira. Lo que no se ve aquí —la app hablando— ya lo dice la tarjeta de
+ * lo que suena.
+ */
+@Composable
+private fun VoiceStatusChip(status: VoiceStatus) {
+    if (status == VoiceStatus.OFF) return
+    val d = CarTheme.dimens
+    val active = status != VoiceStatus.WAITING
+    val color = when (status) {
+        VoiceStatus.THINKING, VoiceStatus.YOUR_TURN -> MaterialTheme.colorScheme.primary
+        VoiceStatus.HEARING -> MaterialTheme.colorScheme.secondary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+    }
+    val label = stringResource(
+        when (status) {
+            VoiceStatus.WAITING -> R.string.voice_waiting
+            VoiceStatus.YOUR_TURN -> R.string.listening
+            VoiceStatus.HEARING -> R.string.voice_hearing
+            else -> R.string.voice_thinking
+        },
+    )
+    val pulse = rememberInfiniteTransition(label = "voz")
+    val alpha by pulse.animateFloat(
+        initialValue = 1f,
+        targetValue = if (status == VoiceStatus.HEARING || status == VoiceStatus.YOUR_TURN) 0.25f else 1f,
+        animationSpec = infiniteRepeatable(tween(PULSE_MS), RepeatMode.Reverse),
+        label = "latido",
+    )
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(d.cardCorner))
+            .background(if (active) color.copy(alpha = 0.12f) else Color.Transparent)
+            .padding(horizontal = d.spaceS, vertical = d.spaceXs / 2),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val dot = d.spaceS * 0.8f
+        if (status == VoiceStatus.THINKING) {
+            CircularProgressIndicator(modifier = Modifier.size(dot), color = color, strokeWidth = dot / 5)
+        } else {
+            Box(Modifier.size(dot).alpha(alpha).clip(CircleShape).background(color))
+        }
+        Spacer(Modifier.width(d.spaceXs))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (active) color else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+    }
+}
+
+private const val PULSE_MS = 600

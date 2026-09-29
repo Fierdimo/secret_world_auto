@@ -19,4 +19,7 @@
     <string name="nav_end">End route</string>
     <string name="more_when_stopped">%1$d more when you stop</string>
     <string name="more_nearby">%1$d more nearby</string>
+    <string name="voice_waiting">Listening</string>
+    <string name="voice_hearing">Hearing you…</string>
+    <string name="voice_thinking">Working on it…</string>
 </resources>

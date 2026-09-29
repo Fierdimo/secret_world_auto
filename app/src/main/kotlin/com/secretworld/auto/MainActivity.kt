@@ -94,6 +94,7 @@ import com.secretworld.auto.map.PlatformMap
 import com.secretworld.auto.feature.discover.NowPlaying
 import com.secretworld.auto.feature.discover.PermissionNotice
 import com.secretworld.auto.feature.discover.RoutePanel
+import com.secretworld.auto.feature.discover.VoiceStatus
 import com.secretworld.auto.feature.discover.VoiceUi
 import com.secretworld.auto.feature.parked.ItineraryPanel
 import com.secretworld.auto.feature.parked.PlaceDetailPanel
@@ -324,6 +325,11 @@ class MainActivity : ComponentActivity() {
                     ).takeIf { !locationOn },
                 )
                 val voiceState by voiceInput.state.collectAsState()
+                val hearingNow by voiceInput.hearing.collectAsState()
+                // Desde que se acepta una orden hasta que la app empieza a
+                // contestar. Sin esto, entre la frase y la respuesta —en un
+                // móvil lento, segundos— no se veía nada.
+                var thinking by remember { mutableStateOf(false) }
 
                 var catalogueResult by remember { mutableStateOf<CatalogueRepository.Result?>(null) }
                 var panel by remember { mutableStateOf<Panel>(Panel.Home) }
@@ -418,6 +424,15 @@ class MainActivity : ComponentActivity() {
                     onDevice?.muted = narrationState !is NarrationController.State.Idle &&
                         narrationState !is NarrationController.State.Failed
                 }
+                // Se deja de "pensar" en cuanto la app empieza a contestar; si por
+                // lo que sea no contesta, a los pocos segundos, para no quedarse
+                // girando.
+                LaunchedEffect(narrationState) { if (narrationState !is NarrationController.State.Idle) thinking = false }
+                LaunchedEffect(thinking) {
+                    if (!thinking) return@LaunchedEffect
+                    delay(THINKING_MAX_MS)
+                    thinking = false
+                }
                 LaunchedEffect(upcoming.joinToString { it.id }) { narration.prefetch(upcoming) }
 
                 // Lo que se oye se atiende una sola vez: el estado se reconoce en
@@ -443,6 +458,7 @@ class MainActivity : ComponentActivity() {
                         voiceInput.acknowledge()
                         return@LaunchedEffect
                     }
+                    thinking = true
 
                     if (order.isBlank()) {
                         // La despertaron sin pedirle nada: contesta y, **cuando
@@ -588,7 +604,7 @@ class MainActivity : ComponentActivity() {
                                 mode = mode,
                                 result = catalogueResult,
                                 nowPlaying = nowPlayingOf(narrationState, tick) ?: installingOf(modelsPercentNow),
-                                voice = voiceUiOf(voiceState, heard, answer, listening),
+                                voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
                                 navigation = navigationUi,
                                 notices = notices,
                                 onPanel = { panel = it },
@@ -696,7 +712,16 @@ class MainActivity : ComponentActivity() {
         heard: String?,
         answer: String?,
         handsFreeOn: Boolean,
+        hearingNow: Boolean,
+        thinkingNow: Boolean,
     ) = VoiceUi(
+        status = when {
+            thinkingNow -> VoiceStatus.THINKING
+            hearingNow -> VoiceStatus.HEARING
+            state is VoiceInput.State.Listening -> VoiceStatus.YOUR_TURN
+            handsFreeOn -> VoiceStatus.WAITING
+            else -> VoiceStatus.OFF
+        },
         wakeWord = WakeWord.spoken(language),
         listening = state is VoiceInput.State.Listening && !handsFreeOn,
         handsFree = handsFreeOn,
@@ -1136,6 +1161,8 @@ class MainActivity : ComponentActivity() {
         /** Cuánto se queda en pantalla una respuesta del asistente. */
         const val ANSWER_LINGER_MS = 8_000L
         const val REROUTE_EVERY_MS = 15_000L
+        /** Lo más que se enseña "elaboro" sin que la app llegue a contestar. */
+        const val THINKING_MAX_MS = 10_000L
 
         /** Lo que se dice al oír "Siky" a secas, por idioma. */
         fun yes(language: VoiceLanguage) = language.say(en = "Yes?", es = "¿Sí?", it = "Sì?")
