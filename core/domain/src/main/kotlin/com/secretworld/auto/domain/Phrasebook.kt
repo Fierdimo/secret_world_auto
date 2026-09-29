@@ -23,7 +23,7 @@ object Phrasebook {
         val memory: ConversationMemory,
         val language: VoiceLanguage = VoiceLanguage.ENGLISH,
     ) {
-        val turn: Int get() = memory.turns.size
+        val turn: Int get() = memory.exchanges
 
         fun <T> say(en: T, es: T, it: T): T = language.say(en, es, it)
     }
@@ -146,6 +146,46 @@ object Phrasebook {
         ),
     )
 
+    fun lookingFor(c: Context, name: String): String = c.say(
+        en = "Looking for $name.",
+        es = "Busco $name.",
+        it = "Cerco $name.",
+    )
+
+    /** No está el sitio pedido, pero hay parecidos: se dice, y se ofrecen. */
+    fun closestTo(c: Context, name: String, results: List<Place>): String {
+        val options = joined(c, results.map(::shortName))
+        return c.say(
+            en = "I can't find $name exactly. The closest: $options. Any of these?",
+            es = "No encuentro $name exactamente. Lo más parecido: $options. ¿Alguno de estos?",
+            it = "Non trovo esattamente $name. I più simili: $options. Uno di questi?",
+        )
+    }
+
+    fun namedNotFound(c: Context, name: String): String = c.say(
+        en = "I can't find $name around here. Try saying it another way, or the neighbourhood.",
+        es = "No encuentro $name por aquí. Prueba a decirlo de otra forma, o el barrio.",
+        it = "Non trovo $name qui intorno. Prova a dirlo in un altro modo, o il quartiere.",
+    )
+
+    /** ¿Es este el sitio pedido? Ver [NameMatcher]. */
+    fun sameName(asked: String, found: String): Boolean = NameMatcher.matches(asked, found)
+
+    fun searchingIn(c: Context, query: String, area: String): String = c.say(
+        en = "Looking for $query in $area.",
+        es = "Busco $query en $area.",
+        it = "Cerco $query a $area.",
+    )
+
+    fun areaNotFound(c: Context, area: String): String = c.say(
+        en = "I can't find $area around here.",
+        es = "No encuentro $area por aquí.",
+        it = "Non trovo $area qui intorno.",
+    )
+
+    /** Cómo se dice "el centro" cuando se contesta. */
+    fun cityCentre(c: Context): String = c.say(en = "the city centre", es = "el centro", it = "centro")
+
     fun nothingFound(c: Context, query: String): String = c.say(
         en = "I can't find $query around here. Want me to look for something else?",
         es = "No encuentro $query por aquí cerca. ¿Busco otra cosa?",
@@ -157,7 +197,8 @@ object Phrasebook {
      * es, y cuánto se tarda **conduciendo**, que es lo que importa al volante.
      * Termina ofreciendo llevar, y deja la lista en memoria para "el segundo".
      */
-    fun found(c: Context, query: String, results: List<Place>): String {
+    /** @param area dónde se buscó, si no fue alrededor del coche. */
+    fun found(c: Context, query: String, results: List<Place>, area: String? = null): String {
         val items = results.map { place ->
             val minutes = drivingMinutes(c.here.distanceTo(place.position))
             val what = place.kind?.takeIf { !place.name.contains(it, ignoreCase = true) }?.let { ", $it" }.orEmpty()
@@ -168,14 +209,26 @@ object Phrasebook {
             )
             "${shortName(place)}$what, $away"
         }
-        val opening = pick(
-            c,
-            c.say(
-                en = listOf("Nearby there's ", "I found ", "Around here: "),
-                es = listOf("Cerca tienes ", "He encontrado ", "Por aquí hay "),
-                it = listOf("Qui vicino c'è ", "Ho trovato ", "Qui intorno: "),
-            ),
-        )
+        // En otra zona se dice cuál: "por aquí" era falso si se pidió Bocagrande.
+        val opening = if (area != null) {
+            pick(
+                c,
+                c.say(
+                    en = listOf("In $area there's ", "I found in $area ", "$area has "),
+                    es = listOf("En $area tienes ", "En $area he encontrado ", "En $area hay "),
+                    it = listOf("A $area c'è ", "A $area ho trovato ", "A $area: "),
+                ),
+            )
+        } else {
+            pick(
+                c,
+                c.say(
+                    en = listOf("Nearby there's ", "I found ", "Around here: "),
+                    es = listOf("Cerca tienes ", "He encontrado ", "Por aquí hay "),
+                    it = listOf("Qui vicino c'è ", "Ho trovato ", "Qui intorno: "),
+                ),
+            )
+        }
         val ask = pick(
             c,
             c.say(

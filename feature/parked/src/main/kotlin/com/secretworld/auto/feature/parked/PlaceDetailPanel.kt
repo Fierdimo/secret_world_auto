@@ -45,6 +45,9 @@ fun PlaceDetailPanel(
     modifier: Modifier = Modifier,
 ) {
     val d = CarTheme.dimens
+    // Lo que salió de una búsqueda —un restaurante, una gasolinera— no tiene
+    // historia: se enseña qué es y dónde, y se ofrece ir.
+    val hasStory = place.kind == null && place.summary != null
     Column(
         modifier = modifier
             .fillMaxHeight()
@@ -61,10 +64,11 @@ fun PlaceDetailPanel(
             Column(Modifier.weight(1f)) {
                 Text(place.name, style = MaterialTheme.typography.titleLarge)
                 Text(
-                    text = listOfNotNull(
-                        place.city,
-                        "${place.narrationSeconds}s listen",
-                    ).joinToString(" · "),
+                    text = if (hasStory) {
+                        listOfNotNull(place.city, stringResource(R.string.listen_minutes, (place.narrationSeconds + 59) / 60)).joinToString(" · ")
+                    } else {
+                        listOfNotNull(place.kind, place.address, place.city).joinToString(" · ")
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -87,8 +91,12 @@ fun PlaceDetailPanel(
 
         Spacer(Modifier.height(d.spaceS))
         Row(horizontalArrangement = Arrangement.spacedBy(d.spaceXs)) {
-            CarButton(label = stringResource(R.string.listen), onClick = onListen)
-            CarSecondaryButton(label = stringResource(R.string.take_me_there), onClick = onNavigate)
+            if (hasStory) {
+                CarButton(label = stringResource(R.string.listen), onClick = onListen)
+                CarSecondaryButton(label = stringResource(R.string.take_me_there), onClick = onNavigate)
+            } else {
+                CarButton(label = stringResource(R.string.take_me_there), onClick = onNavigate)
+            }
         }
 
         if (place.summary != null) {

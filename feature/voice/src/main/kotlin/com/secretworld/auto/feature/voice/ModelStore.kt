@@ -62,7 +62,7 @@ object ModelCatalog {
         bytes = 103517461L,
         sha256 = "2afeacfd2c147a019586cd46b7e09c54cc2a6a73499a4987792215de30d898b1",
         marker = "tokens.txt",
-        licence = "MIT (OpenAI Whisper)",
+        licence = "CC-BY-4.0 (NVIDIA NeMo)",
     )
 
     /**
@@ -107,7 +107,11 @@ object ModelCatalog {
         licence = "MIT (GTCRN)",
     )
 
-    /** El reconocedor que entiende el idioma, sin mirar qué hay instalado. */
+    /**
+     * El reconocedor que conviene para el idioma, sin mirar qué hay instalado:
+     * el de diez idiomas solo para italiano; para lo demás el de cuatro, que no
+     * escribe en cirílico.
+     */
     fun asrFor(language: VoiceLanguage): ModelPack =
         if (language == VoiceLanguage.ITALIAN) ASR_EU else ASR
 
@@ -172,12 +176,25 @@ class ModelStore(private val context: Context) {
     }
 
     /**
-     * El reconocedor para el idioma. El de diez idiomas entiende también
-     * inglés y español: si está —instalado o dentro del APK— vale para todos,
-     * y cambiar de idioma no obliga a descargar otro.
+     * El reconocedor para el idioma, entre los que hay —instalados o dentro del
+     * APK—. El preferido es el de [ModelCatalog.asrFor]; si no está, el otro,
+     * que también entiende inglés y español: mejor oír con el segundo que no oír.
+     *
+     * Por qué dos: el de diez idiomas es el único con italiano, pero también
+     * sabe ruso, ucraniano y bielorruso, y con ruido escribe a veces en
+     * cirílico («Секрет», «Игры в каркадины»). El de cuatro no tiene cirílico.
      */
-    fun asrFor(language: VoiceLanguage): ModelPack =
-        if (isAvailable(ModelCatalog.ASR_EU) || isBundled(ModelCatalog.ASR_EU)) ModelCatalog.ASR_EU else ModelCatalog.asrFor(language)
+    fun asrFor(language: VoiceLanguage): ModelPack {
+        val preferred = ModelCatalog.asrFor(language)
+        val other = if (preferred == ModelCatalog.ASR) ModelCatalog.ASR_EU else ModelCatalog.ASR
+        fun present(pack: ModelPack) = isAvailable(pack) || isBundled(pack)
+        return when {
+            present(preferred) -> preferred
+            // El de cuatro no sabe italiano: para italiano no sirve de reserva.
+            language != VoiceLanguage.ITALIAN && present(other) -> other
+            else -> preferred
+        }
+    }
 
     /** Lo que hace falta para escuchar sin tocar nada. El LLM es aparte. */
     fun listening(language: VoiceLanguage): List<ModelPack> = listOf(ModelCatalog.KWS_EN, ModelCatalog.VAD, asrFor(language))

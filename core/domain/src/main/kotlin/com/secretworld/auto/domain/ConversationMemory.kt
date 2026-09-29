@@ -10,7 +10,11 @@ package com.secretworld.auto.domain
  * último que se enumeró. Vive en el dominio para que la gramática y el modelo
  * la usen igual.
  */
-class ConversationMemory(private val maxTurns: Int = 6) {
+class ConversationMemory(
+    private val maxTurns: Int = 6,
+    /** El reloj, inyectable para las pruebas. */
+    private val now: () -> Long = System::currentTimeMillis,
+) {
 
     /** Un intercambio: lo que se oyó y lo que se contestó. */
     data class Turn(val heard: String, val reply: String)
@@ -22,15 +26,32 @@ class ConversationMemory(private val maxTurns: Int = 6) {
     var focus: Place? = null
         private set
 
-    /** Lo último que se enumeró en voz alta, en el mismo orden en que se dijo. */
-    var listed: List<Place> = emptyList()
-        private set
+    /**
+     * Lo último que se enumeró en voz alta, en el mismo orden en que se dijo.
+     * **Caduca**: pasado un rato ya no es "la lista de la que se habla", y
+     * seguir comparando con ella cada frase hacía que una búsqueda nueva
+     * acabase llevando a un sitio de la anterior.
+     */
+    val listed: List<Place>
+        get() = if (now() - listedAt <= LISTED_FOR_MS) listedPlaces else emptyList()
+
+    private var listedPlaces: List<Place> = emptyList()
+    private var listedAt: Long = 0
 
     /** Lugares ya narrados en esta sesión, para no repetirse sin que se pida. */
     private val _heardAbout = LinkedHashSet<String>()
     val heardAbout: Set<String> get() = _heardAbout
 
+    /**
+     * Cuántos intercambios van, **sin tope**. Las respuestas alternan entre
+     * variantes con esto; con el tamaño de [turns], que se queda en seis, a
+     * partir del sexto la app decía siempre la misma ("Busco… por aquí").
+     */
+    var exchanges: Int = 0
+        private set
+
     fun remember(heard: String, reply: String) {
+        exchanges++
         _turns.addLast(Turn(heard, reply))
         while (_turns.size > maxTurns) _turns.removeFirst()
     }
@@ -49,14 +70,15 @@ class ConversationMemory(private val maxTurns: Int = 6) {
         private set
 
     fun listed(places: List<Place>, choosing: Boolean = false) {
-        listed = places
+        listedPlaces = places
+        listedAt = now()
         this.choosing = choosing
     }
 
     fun forget() {
         _turns.clear()
         focus = null
-        listed = emptyList()
+        listedPlaces = emptyList()
         choosing = false
         _heardAbout.clear()
     }
@@ -72,5 +94,10 @@ class ConversationMemory(private val maxTurns: Int = 6) {
             appendLine("Driver: \"${turn.heard.take(80)}\"")
             appendLine("Assistant: \"${turn.reply.take(80)}\"")
         }
+    }
+
+    private companion object {
+        /** Lo que dura una lista enumerada como "la lista de la que se habla". */
+        const val LISTED_FOR_MS = 60_000L
     }
 }

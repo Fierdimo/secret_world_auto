@@ -13,6 +13,8 @@ import com.mapbox.maps.extension.compose.annotation.generated.PolylineAnnotation
 import com.mapbox.common.MapboxOptions
 import com.mapbox.geojson.Point
 import com.mapbox.maps.EdgeInsets
+import com.mapbox.maps.plugin.animation.MapAnimationOptions
+import com.mapbox.maps.CameraOptions
 import com.mapbox.maps.MapboxExperimental
 import com.mapbox.maps.extension.compose.MapEffect
 import com.mapbox.maps.extension.compose.MapboxMap
@@ -63,6 +65,8 @@ fun PlatformMap(state: MapState, modifier: Modifier = Modifier) {
     // La barra inferior también tapa mapa: sin este margen el vehículo queda
     // justo debajo de ella y no se ve dónde está uno.
     val bottomInset = with(density) { BOTTOM_BAR.toPx().toDouble() }
+    val frameMargin = with(density) { FRAME_MARGIN.toPx().toDouble() }
+    val topInset = with(density) { STATUS_BAR.toPx().toDouble() }
 
     // Con ruta activa se acerca la cámara: lo que importa son las próximas
     // calles, no la ciudad. Sin ruta, la ciudad, para situar.
@@ -121,11 +125,33 @@ fun PlatformMap(state: MapState, modifier: Modifier = Modifier) {
             )
         },
     ) {
-        MapEffect(centre, state.vehicle.headingDegrees, navigating) { _ ->
+        // Con algo que enseñar —resultados de una búsqueda— y sin ruta, la
+        // cámara los encuadra todos, vista desde arriba y con el norte arriba,
+        // que para comparar sitios se lee mejor que la vista de conducción.
+        val framing = state.frame.isNotEmpty() && !navigating
+        MapEffect(state.frame, navigating) { mapView ->
+            if (!framing) return@MapEffect
+            val points = state.frame.map { Point.fromLngLat(it.longitude, it.latitude) }
+            // En dp, no en píxeles: con 36 px los puntos de arriba quedaban
+            // bajo la barra de estado. Arriba, además, el hueco de esa barra.
+            val margin = frameMargin
+            val camera = mapView.mapboxMap.cameraForCoordinates(
+                points,
+                CameraOptions.Builder().bearing(0.0).pitch(0.0).build(),
+                EdgeInsets(margin + topInset, leftInset + margin, bottomInset + margin, margin),
+                FRAME_MAX_ZOOM,
+                null,
+            )
+            viewport.easeTo(camera, MapAnimationOptions.mapAnimationOptions { duration(FRAME_ANIMATION_MS) })
+        }
+
+        MapEffect(centre, state.vehicle.headingDegrees, navigating, framing) { _ ->
+            if (framing) return@MapEffect
             viewport.setCameraOptions {
                 center(Point.fromLngLat(centre.longitude, centre.latitude))
                 bearing(state.vehicle.headingDegrees ?: 0.0)
                 zoom(zoom)
+                pitch(DRIVING_PITCH)
                 padding(EdgeInsets(0.0, leftInset, bottomInset, 0.0))
             }
         }
@@ -175,6 +201,11 @@ fun PlatformMap(state: MapState, modifier: Modifier = Modifier) {
 private const val DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
 private const val LIGHT_STYLE = "mapbox://styles/mapbox/light-v11"
 private const val CITY_ZOOM = 14.5
+/** Encuadrando resultados: no más cerca que esto, aunque sea uno solo. */
+private const val FRAME_MAX_ZOOM = 16.0
+private val FRAME_MARGIN = 40.dp
+private val STATUS_BAR = 32.dp
+private const val FRAME_ANIMATION_MS = 900L
 /** Con ruta: las dos próximas manzanas. */
 private const val ROUTE_ZOOM = 16.0
 /** Algo de inclinación: en un coche mirar el mapa en picado desorienta. */

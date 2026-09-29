@@ -68,7 +68,10 @@ need "$MODELS/vad.zip" "ejecutar tools/fetch-voice-models.sh"
 need "$MODELS/llm-gemma3-1b.zip" "ejecutar tools/fetch-voice-models.sh"
 
 mkdir -p "$OUT/models" "$OUT/voices"
-for id in kws-en vad asr-nemo-eu denoiser-gtcrn llm-gemma3-1b; do
+# Dos reconocedores: el de diez idiomas para italiano y el de cuatro para
+# español e inglés, que no escribe en cirílico.
+need "$MODELS/asr-nemo-multi.zip" "ejecutar tools/fetch-voice-models.sh"
+for id in kws-en vad asr-nemo-eu asr-nemo-multi denoiser-gtcrn llm-gemma3-1b; do
   cp "$MODELS/$id.zip" "$OUT/models/$id.zip"
 done
 cp "$VOICES/it-riccardo.zip" "$OUT/voices/it.zip"

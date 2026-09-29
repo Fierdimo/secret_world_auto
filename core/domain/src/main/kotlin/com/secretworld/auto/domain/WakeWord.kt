@@ -52,7 +52,9 @@ object WakeWord {
         // También en la cafetería, y la forma más repetida: 8 veces en dos
         // minutos. "Tigre" es una palabra real, pero al principio de una frase
         // dicha en un coche es mucho más probable que sea la llamada.
-        "tigre", "tygre", "tigri", "tigret", "tigred", "ticret", "igre", "igri", "igry", "seacret", "sécret", "secrets", "sicre", "secre", "sicrit", "secrit", "siquet", "secreth",
+        "tigre", "tygre", "tigri", "tigret", "tigred", "ticret", "igre", "igri", "igry",
+        // Más formas del registro, demasiado cortas o lejos para la comparación por sonido.
+        "icre", "cicre", "dicre", "hicre", "picret", "picred", "tickred", "ticre", "sicred", "cigret", "seacret", "sécret", "secrets", "sicre", "secre", "sicrit", "secrit", "siquet", "secreth",
         "siky", "sicky", "seeky", "sikhi", "psyche", "silky", "sikey", "siki", "sicri", "sikee", "ciky",
     )
 
@@ -145,8 +147,37 @@ object WakeWord {
         // llamada delante, dos. Menos de cinco letras no es nada.
         if (squashed.length < 5) return false
         val fuzz = if (squashed.length <= 6) 1 else FUZZ
-        return spec.canonical.any { Script.editDistance(squashed, it) <= fuzz }
+        if (spec.canonical.any { Script.editDistance(squashed, it) <= fuzz }) return true
+        return soundsLikeTheName(candidate)
     }
+
+    /**
+     * ¿Suena como la palabra, aunque se escriba distinto? El reconocedor escribe
+     * "Sícret" de formas sin fin —«Zikre», «Sikre», «Tigret», «Cigres»,
+     * «Digret», «Segret», todas en diez minutos en un móvil—, y una lista no
+     * alcanza. Se compara **cómo suena**: z→s, c/g/q→k, d→t, e/y→i. Así todas
+     * quedan cerca de "sikrit", y las palabras corrientes ("sigue", "segura")
+     * lejos. Solo para una palabra suelta de cinco letras o más.
+     */
+    private fun soundsLikeTheName(candidate: String): Boolean {
+        if (' ' in candidate || candidate.length < 5) return false
+        val sound = phonetic(candidate)
+        val allowed = if (sound.length <= 5) 1 else 2
+        return Script.editDistance(sound, NAME_SOUND) <= allowed
+    }
+
+    private fun phonetic(word: String): String = word.map {
+        when (it) {
+            'z' -> 's'
+            'c', 'g', 'q' -> 'k'
+            'd' -> 't'
+            'e', 'y' -> 'i'
+            else -> it
+        }
+    }.joinToString("")
+
+    /** "Sícret" dicho: s-i-k-r-i-t. */
+    private const val NAME_SOUND = "sikrit"
 
 
     private const val FUZZ = 2

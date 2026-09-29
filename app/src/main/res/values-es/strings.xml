@@ -12,4 +12,5 @@
     <string name="permission_mic_off">Micrófono desactivado: no puedo oírte.</string>
     <string name="permission_location_off">Ubicación no disponible: muestro %1$s.</string>
     <string name="permission_enable">Activar</string>
+    <string name="search_similar">Parecidos a %1$s</string>
 </resources>

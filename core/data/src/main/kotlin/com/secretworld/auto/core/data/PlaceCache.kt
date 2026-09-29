@@ -1,5 +1,6 @@
 package com.secretworld.auto.core.data
 
+import com.secretworld.auto.domain.Bounds
 import com.secretworld.auto.domain.Coordinates
 import com.secretworld.auto.domain.Place
 import com.secretworld.auto.domain.PlaceSearch
@@ -51,11 +52,15 @@ class PlaceCache(root: File) {
 
     /** Un [PlaceSearch] que pasa por aquí. */
     fun caching(delegate: PlaceSearch, language: VoiceLanguage): PlaceSearch = object : PlaceSearch {
-        override suspend fun search(query: String, near: Coordinates, limit: Int, category: String?): List<Place> =
-            around(near, "q:${category ?: query.lowercase().trim()}", language) { delegate.search(query, near, limit, category) }
+        override suspend fun search(query: String, near: Coordinates, limit: Int, category: String?, within: Bounds?): List<Place> =
+            around(near, "q:${category ?: query.lowercase().trim()}${if (within != null) ":zona" else ""}", language) { delegate.search(query, near, limit, category, within) }
                 // También lo guardado: una semana de caché podía conservar resultados de otro continente.
+                // (findByName no se guarda: se delega tal cual, ver abajo.)
                 .filter { near.distanceTo(it.position) <= PlaceSearch.MAX_DISTANCE_M }
                 .take(limit)
+
+        override suspend fun findByName(name: String, near: Coordinates, within: Bounds?): List<Place> =
+            delegate.findByName(name, near, within)
     }
 
     private fun read(file: File): List<Place>? = runCatching {

@@ -18,4 +18,5 @@
     <string name="catalogue_fallback">riserva offline</string>
     <string name="catalogue_poi">luoghi intorno · %1$d, senza storie</string>
     <string name="catalogue_loading">caricamento</string>
+    <string name="listen_minutes">%1$d min di racconto</string>
 </resources>

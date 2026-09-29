@@ -29,6 +29,12 @@ data class MapState(
      * detrás de la información. Cada implementación desplaza su foco con esto.
      */
     val panelCoverFraction: Float = 0f,
+    /**
+     * Puntos a enseñar juntos —lo que se acaba de buscar—. Con ellos, la cámara
+     * los encuadra en vez de seguir al vehículo: si se pidió un restaurante en
+     * otro barrio, lo que interesa ver es ese barrio.
+     */
+    val frame: List<Coordinates> = emptyList(),
 )
 
 /**

@@ -39,8 +39,18 @@ interface PlaceSearch {
      * @param category la categoría canónica del buscador ("restaurant",
      *   "gas_station"), si se sabe: con ella se piden los más cercanos de ese
      *   tipo en vez de buscar el texto. Ver [VoiceGrammar.searchCategoryOf].
+     * @param within si se da, se busca **dentro** de ese recuadro —un barrio—
+     *   en vez de lo más cercano a [near].
      */
-    suspend fun search(query: String, near: Coordinates, limit: Int = 5, category: String? = null): List<Place>
+    suspend fun search(query: String, near: Coordinates, limit: Int = 5, category: String? = null, within: Bounds? = null): List<Place>
+
+    /**
+     * Un sitio **concreto** por su nombre o su dirección —"Hotel Caribe",
+     * "Calle 30 número 5"—, en orden de parecido y no de cercanía: el más
+     * cercano de los que se llaman parecido puede no ser el pedido.
+     */
+    suspend fun findByName(name: String, near: Coordinates, within: Bounds? = null): List<Place> =
+        search(name, near, limit = 5, within = within)
 
     companion object {
         /**
@@ -151,4 +161,52 @@ class NavigationGuide(private val route: Route) {
         const val ANNOUNCE_METERS = 250.0
         private const val STEP_SLACK_METERS = 15.0
     }
+}
+
+/** Un recuadro en el mapa. */
+data class Bounds(val south: Double, val west: Double, val north: Double, val east: Double) {
+    /** Lado mayor, en metros. */
+    val sizeMeters: Double
+        get() = maxOf(
+            Coordinates(south, west).distanceTo(Coordinates(north, west)),
+            Coordinates(south, west).distanceTo(Coordinates(south, east)),
+        )
+
+    val centre: Coordinates get() = Coordinates((south + north) / 2, (west + east) / 2)
+
+    /** En [n] × [n] partes iguales. */
+    fun split(n: Int): List<Bounds> {
+        val dLat = (north - south) / n
+        val dLon = (east - west) / n
+        return (0 until n).flatMap { row ->
+            (0 until n).map { col ->
+                Bounds(south + row * dLat, west + col * dLon, south + (row + 1) * dLat, west + (col + 1) * dLon)
+            }
+        }
+    }
+}
+
+/**
+ * Una zona con nombre: un barrio, el centro.
+ *
+ * @param bounds lo que ocupa, si se sabe. Con ello se busca en todo el barrio y
+ *   no solo alrededor de su punto central, que en uno alargado como Bocagrande
+ *   dejaba fuera casi todo.
+ */
+data class Area(val name: String, val position: Coordinates, val bounds: Bounds? = null)
+
+/**
+ * Quien sabe dónde está una zona dicha de viva voz ("Las Gaviotas", "el
+ * centro"), cerca de donde va el coche. `null` si no la encuentra.
+ */
+interface AreaLocator {
+    suspend fun locate(area: String, near: Coordinates, language: VoiceLanguage): Area?
+}
+
+/** Quien sabe buscar un sitio concreto por su nombre, además del buscador de mapas. */
+interface NamedPlaceFinder {
+    suspend fun find(name: String, near: Coordinates, within: Bounds?, language: VoiceLanguage): List<Place>
+
+    /** Lo que tiene una etiqueta de OpenStreetMap ("shop:mall"), buscando [query]. */
+    suspend fun findTagged(tag: String, query: String, near: Coordinates, within: Bounds?, language: VoiceLanguage): List<Place>
 }

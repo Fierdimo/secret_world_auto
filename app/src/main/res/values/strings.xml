@@ -15,4 +15,5 @@
     <string name="permission_mic_off">Microphone off: I can\'t hear you.</string>
     <string name="permission_location_off">Location unavailable: showing %1$s.</string>
     <string name="permission_enable">Enable</string>
+    <string name="search_similar">Similar to %1$s</string>
 </resources>

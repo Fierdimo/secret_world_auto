@@ -359,7 +359,17 @@ class OnDeviceVoiceInput(
                     levelChunks = 0
                 }
 
-                if (muted && mode != Mode.CAPTURE) {
+                if (muted) {
+                    // Esperando una respuesta y la app se pone a hablar —otra
+                    // contestación que llegó tarde—: esa escucha se abandona. Si
+                    // no, lo que se graba es a ella misma («No ha encuentro de
+                    // las babiotes», medido) y se toma como orden.
+                    if (mode == Mode.CAPTURE) {
+                        Log.i(TAG, "la app habla: se abandona la escucha en curso")
+                        engines.vad.reset()
+                        if (_state.value is VoiceInput.State.Listening) _state.value = VoiceInput.State.Idle
+                        mode = if (wakeByTranscript) Mode.LISTEN_ALL else Mode.SPOT
+                    }
                     // Se sigue leyendo el micrófono —para que no se acumule— y
                     // se tira lo leído.
                     recent.clear()

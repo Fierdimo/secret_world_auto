@@ -108,4 +108,25 @@ class WakeWordTest {
         assertNull(WakeWord.commandIn("sagrada familia", it))
         assertNull(WakeWord.commandIn("segreteria telefonica", it))
     }
+
+    @Test
+    fun `se reconoce por como suena, no por como se escribe`() {
+        val es = VoiceLanguage.SPANISH
+        // Transcripciones reales en un moto g75, con la orden detrás.
+        listOf("Zikre", "Sikre", "Tigret", "Cigres", "Digret", "Segret").forEach { heard ->
+            assertEquals("necesito un restaurante", WakeWord.commandIn("$heard necesito un restaurante", es), "con «$heard»")
+        }
+        // Palabras corrientes al principio de una frase no despiertan.
+        listOf("sigue por la derecha", "segura que sí", "seguro", "siguiente", "sacar la basura", "cigarrillo").forEach {
+            assertNull(WakeWord.commandIn(it, es), "con «$it»")
+        }
+    }
+
+    @Test
+    fun `mas formas del registro`() {
+        val es = VoiceLanguage.SPANISH
+        listOf("Icre,", "Cicre,", "Dicre", "Hicre", "Picret", "Tickred").forEach {
+            assertEquals("llévame al Hotel Caribe.", WakeWord.commandIn("$it llévame al Hotel Caribe.", es), "con «$it»")
+        }
+    }
 }

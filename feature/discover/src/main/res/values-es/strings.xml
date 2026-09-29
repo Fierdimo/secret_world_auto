@@ -23,4 +23,6 @@
     <string name="voice_hearing">Te oigo…</string>
     <string name="voice_thinking">Procesando…</string>
     <string name="stop_narration">Detener</string>
+    <string name="search_clear">Volver</string>
+    <string name="search_nearby">%1$s cerca</string>
 </resources>

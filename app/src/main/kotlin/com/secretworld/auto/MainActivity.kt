@@ -57,6 +57,7 @@ import com.secretworld.auto.core.designsystem.CarTheme
 import com.secretworld.auto.core.designsystem.SecretWorldTheme
 import com.secretworld.auto.core.platform.DrivingModeController
 import com.secretworld.auto.core.data.MapboxApi
+import com.secretworld.auto.core.data.NominatimAreas
 import com.secretworld.auto.core.data.WikipediaPlaces
 import com.secretworld.auto.core.data.MapboxPlaceSearch
 import com.secretworld.auto.core.data.PlaceCache
@@ -89,12 +90,15 @@ import com.secretworld.auto.domain.TourQueue
 import com.secretworld.auto.domain.VoiceCommand
 import com.secretworld.auto.domain.WakeWord
 import com.secretworld.auto.domain.VoiceGrammar
+import com.secretworld.auto.domain.NameMatcher
 import com.secretworld.auto.domain.VoiceLanguage
 import com.secretworld.auto.feature.discover.MapState
 import com.secretworld.auto.map.PlatformMap
 import com.secretworld.auto.feature.discover.NowPlaying
 import com.secretworld.auto.feature.discover.PermissionNotice
 import com.secretworld.auto.feature.discover.RoutePanel
+import com.secretworld.auto.feature.discover.SearchShortcut
+import com.secretworld.auto.feature.discover.SearchUi
 import com.secretworld.auto.feature.discover.VoiceStatus
 import com.secretworld.auto.feature.discover.VoiceUi
 import com.secretworld.auto.feature.parked.ItineraryPanel
@@ -116,6 +120,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 
 /**
@@ -152,6 +159,8 @@ class MainActivity : ComponentActivity() {
 
     /** Lo último que se buscó, para enseñarlo en el mapa hasta que se pida otra cosa. */
     private val searchResults = MutableStateFlow<List<Place>>(emptyList())
+    /** Lo que se buscó, dicho como se enseña: "Ristorante messicano". */
+    private val searchQuery = MutableStateFlow<String?>(null)
 
     /** Un sitio que se ha ofrecido llevar; un "sí" lo confirma. */
     private var offered: Place? = null
@@ -227,6 +236,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var handsFree: HandsFree
     private lateinit var resolver: IntentResolver
     private val voiceInstaller by lazy { VoiceInstaller(this) }
+    private val areas = NominatimAreas()
     private val grammar by lazy { GrammarIntentResolver(language) }
 
     /** Lo que el asistente recuerda de la conversación: foco, lo enumerado, las últimas frases. */
@@ -515,9 +525,25 @@ class MainActivity : ComponentActivity() {
                     // limpia y la original—, que es instantánea; el modelo, que
                     // tarda segundos, solo si ninguna se entiende.
                     val readings = listOf(order) + said.alternatives
-                    val resolution = readings.firstNotNullOfOrNull { reading ->
-                        grammar.resolve(reading, upcoming, memory).takeIf { it.command !is VoiceCommand.NotUnderstood }
-                    } ?: resolver.resolve(order, upcoming, memory)
+                    val understood = readings.map { grammar.resolve(it, upcoming, memory) }
+                        .filter { it.command !is VoiceCommand.NotUnderstood }
+                    // Qué lectura manda: primero la que elige un sitio de la lista
+                    // recién leída —contestar "Sung Waa" no es buscar otra vez—;
+                    // luego la que da una categoría concreta —«ficcería» no es
+                    // nada, «pizería» es pizzería—; luego la primera.
+                    fun picksListed(command: VoiceCommand) = when (command) {
+                        is VoiceCommand.TakeMeThere -> command.place in memory.listed
+                        is VoiceCommand.ChooseAction -> command.place in memory.listed
+                        is VoiceCommand.TellMeAbout -> command.place in memory.listed
+                        else -> false
+                    }
+                    // Pedir ir a un sitio concreto es más preciso que buscar un tipo:
+                    // «llevábame» no se entendía y la otra lectura, «llévame», sí.
+                    val resolution = understood.firstOrNull { picksListed(it.command) }
+                        ?: understood.firstOrNull { it.command is VoiceCommand.NavigateToNamed || it.command is VoiceCommand.TakeMeThere }
+                        ?: understood.firstOrNull { (it.command as? VoiceCommand.FindPlaces)?.let { find -> VoiceGrammar.searchCategoryOf(find.query) != null } ?: false }
+                        ?: understood.firstOrNull()
+                        ?: resolver.resolve(order, upcoming, memory)
                     Log.i("SWVoice", "«$order» → ${resolution.command::class.simpleName} en ${(System.nanoTime() - resolvedAt) / 1_000_000} ms" +
                         " (LLM ${gemma?.let { when { it.ready -> "listo"; it.failed -> "no disponible"; else -> "cargando" } } ?: "ausente"})" +
                         (resolution.reply?.let { " · dice: «$it»" } ?: ""))
@@ -609,6 +635,12 @@ class MainActivity : ComponentActivity() {
                                 ?: upcoming.firstOrNull()?.id,
                             mapboxToken = mapboxToken,
                             panelCoverFraction = panelFraction,
+                            // Lo buscado se encuadra; al volver, se sigue al coche.
+                            frame = if (searchQuery.collectAsState().value != null) {
+                                searchResults.collectAsState().value.map { it.position }
+                            } else {
+                                emptyList()
+                            },
                         ),
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -698,6 +730,24 @@ class MainActivity : ComponentActivity() {
                 onStopNavigation = { endNavigation() },
                 notices = notices,
                 onStopNarration = { narration.stop() },
+                search = searchQuery.collectAsState().value?.let { query ->
+                    SearchUi(
+                        // Con zona, o si son parecidos, el título ya lo dice; si no, "cerca".
+                        title = if (query.endsWith(SIMILAR_MARK)) {
+                            query.removeSuffix(SIMILAR_MARK)
+                        } else if (" · " in query) {
+                            query.replaceFirstChar { it.uppercase() }
+                        } else {
+                            stringResource(com.secretworld.auto.feature.discover.R.string.search_nearby, query.replaceFirstChar { it.uppercase() })
+                        },
+                        places = searchResults.collectAsState().value,
+                    )
+                },
+                onClearSearch = ::clearSearch,
+                shortcuts = SHORTCUTS.map { (category, label) ->
+                    val text = label(language)
+                    SearchShortcut(label = text.replaceFirstChar { it.uppercase() }) { findPlaces(text, category, announce = true) }
+                },
             )
 
             is Panel.Detail -> PlaceDetailPanel(
@@ -842,10 +892,21 @@ class MainActivity : ComponentActivity() {
                 intro
             }
 
-            is VoiceCommand.FindPlaces -> {
-                val reply = said ?: Phrasebook.searching(c, command.query)
+            is VoiceCommand.NavigateToNamed -> {
+                // Un sitio concreto: se busca por su nombre y, si el primero es
+                // el pedido, se va. Si hay dudas, se enumeran para elegir.
+                val reply = said ?: Phrasebook.lookingFor(c, command.name)
                 narration.say(reply)
-                findPlaces(command.query)
+                navigateToNamed(command.name, command.area)
+                reply
+            }
+
+            is VoiceCommand.FindPlaces -> {
+                val reply = said ?: command.area?.let { area ->
+                    Phrasebook.searchingIn(c, command.query, if (area == VoiceGrammar.CITY_CENTRE) Phrasebook.cityCentre(c) else area.replaceFirstChar { it.uppercase() })
+                } ?: Phrasebook.searching(c, command.query)
+                narration.say(reply)
+                findPlaces(command.query, VoiceGrammar.searchCategoryOf(command.query), area = command.area)
                 reply
             }
 
@@ -877,7 +938,7 @@ class MainActivity : ComponentActivity() {
             }
 
             VoiceCommand.WhatIsNearby -> {
-                searchResults.value = emptyList()
+                clearSearch()
                 // Enumerar, no narrar: "¿qué hay cerca?" pide una lista. Con
                 // distancia, y con pregunta al final para que "el segundo"
                 // signifique algo después.
@@ -1015,22 +1076,129 @@ class MainActivity : ComponentActivity() {
      * Busca sitios alrededor, los enumera con minutos en coche y los deja en la
      * memoria y en el mapa: "el segundo" o "llévame al primero" funcionan después.
      */
-    private fun findPlaces(query: String) {
-        lifecycleScope.launch {
+    /**
+     * Busca sitios de un tipo y los deja **en la lista del panel**, no solo en
+     * el mapa: si se pidieron restaurantes, lo que se ve son restaurantes. La
+     * voz dice los tres primeros; la lista enseña hasta ocho.
+     */
+    private fun findPlaces(query: String, category: String?, announce: Boolean = false, area: String? = null) {
+        // Una búsqueda nueva manda sobre la anterior: si aquella tardaba —la
+        // lista de barrios, la red—, su respuesta llegaría después y se
+        // mezclaría con lo que se está pidiendo ahora.
+        searchJob?.cancel()
+        searchJob = lifecycleScope.launch {
             val here = vehicle.state.value.position
             val c = Phrasebook.Context(here, memory.listed, memory, language)
-            val results = search.search(query, here, limit = 4, category = VoiceGrammar.searchCategoryOf(query))
-            Log.i("SWSearch", "«$query»: ${results.size} resultados · ${results.joinToString { it.name }}")
+            if (announce) narration.say(Phrasebook.searching(c, query))
+            // En otra zona —"en el barrio Las Gaviotas", "en el centro"—: primero
+            // dónde está, y se busca alrededor de ella en vez del coche.
+            val where = area?.let { areas.locate(it, here, language) }
+            if (area != null && where == null) {
+                val name = if (area == VoiceGrammar.CITY_CENTRE) Phrasebook.cityCentre(c) else area.replaceFirstChar { it.uppercase() }
+                narration.say(Phrasebook.areaNotFound(c, name))
+                return@launch
+            }
+            val results = search.search(
+                query,
+                where?.position ?: here,
+                limit = if (where != null) SEARCH_AREA_SHOWN else SEARCH_SHOWN,
+                category = category,
+                within = where?.bounds,
+            )
+                .let { mixed ->
+                    // Donde el buscador mezcla lo que no es —tiendas de dentro de
+                    // un centro comercial marcadas como centro comercial—, solo lo
+                    // que lo dice en el nombre, más lo que OpenStreetMap sabe que es.
+                    val strict = VoiceGrammar.strictness(category) ?: return@let mixed
+                    val center = where?.position ?: here
+                    val tagged = coroutineScope {
+                        strict.osmQueries.map { q -> async { areas.findTagged(strict.osmTag, q, center, where?.bounds, language) } }.awaitAll().flatten()
+                    }
+                    (mixed.filter { VoiceGrammar.nameSays(it.name, strict) } + tagged)
+                        .distinctBy { it.name.lowercase().trim() }
+                }
+                .let { inside ->
+                    // Pocos dentro del barrio —lo escaso, como la comida oriental—:
+                    // se completa con lo más cercano a él, aunque caiga justo fuera.
+                    if (where == null || inside.size >= FEW_IN_AREA) {
+                        inside
+                    } else {
+                        (inside + search.search(query, where.position, limit = SEARCH_SHOWN, category = category)).distinctBy { it.id }
+                    }
+                }
+                // Lo que el complemento de arriba añadió pasa por el mismo filtro.
+                .filter { place ->
+                    val strict = VoiceGrammar.strictness(category) ?: return@filter true
+                    place.id.startsWith("osm:") || VoiceGrammar.nameSays(place.name, strict)
+                }
+                // En la lista, por cercanía al coche: es la distancia que se enseña.
+                .sortedBy { here.distanceTo(it.position) }
+            Log.i("SWSearch", "«$query» [$category]${where?.let { " en ${it.name}" }.orEmpty()}: ${results.size} resultados · ${results.joinToString { it.name }}")
             searchResults.value = results
+            searchQuery.value = listOfNotNull(query, where?.name).joinToString(" · ")
             if (results.isEmpty()) {
                 narration.say(Phrasebook.nothingFound(c, query)) { voiceInput.listenForAnswer() }
                 return@launch
             }
             memory.listed(results)
-            val reply = Phrasebook.found(c, query, results)
+            val reply = Phrasebook.found(c, query, results.take(SEARCH_SPOKEN), area = where?.name)
             memory.remember(query, reply)
             narration.say(reply) { voiceInput.listenForAnswer() }
         }
+    }
+
+    private var searchJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * Lleva a un sitio dicho por su nombre o su dirección. Si el buscador
+     * devuelve primero uno que se llama como lo pedido, ruta directa; si no,
+     * las opciones en la lista, para elegir de viva voz o tocando.
+     */
+    private fun navigateToNamed(name: String, area: String?) {
+        searchJob?.cancel()
+        searchJob = lifecycleScope.launch {
+            val here = vehicle.state.value.position
+            val c = Phrasebook.Context(here, memory.listed, memory, language)
+            val where = area?.let { areas.locate(it, here, language) }
+            // Dos buscadores a la vez: Mapbox tiene los negocios; OpenStreetMap,
+            // los monumentos. Se elige el que mejor se llama como lo pedido.
+            val center = where?.position ?: here
+            val (fromMap, fromOsm) = coroutineScope {
+                val map = async { search.findByName(name, center, where?.bounds) }
+                val osm = async { areas.find(name, center, where?.bounds, language) }
+                map.await() to osm.await()
+            }
+            val found = (fromMap + fromOsm).distinctBy { "${it.name.lowercase()}@${"%.3f".format(java.util.Locale.ROOT, it.position.latitude)}" }
+            val best = NameMatcher.best(name, found)
+            Log.i("SWSearch", "destino «$name»${where?.let { " en ${it.name}" }.orEmpty()}: elegido ${best?.name} de ${found.joinToString { it.name }}")
+            when {
+                found.isEmpty() -> narration.say(Phrasebook.namedNotFound(c, name.replaceFirstChar { it.uppercase() }))
+                // Solo si se llama como lo pedido: con un único resultado que no
+                // coincide también se pregunta, no se da por hecho.
+                best != null -> {
+                    val target = best
+                    clearSearch()
+                    navigateTo(target)
+                }
+                else -> {
+                    searchResults.value = found
+                    // El título dice que son parecidos, no lo pedido.
+                    searchQuery.value = getString(R.string.search_similar, name.replaceFirstChar { it.uppercase() }) + SIMILAR_MARK
+                    memory.listed(found)
+                    // Ninguno se llama como lo pedido: se dice que no está, y se
+                    // ofrecen los parecidos. Enumerarlos sin más parecía que sí.
+                    val reply = Phrasebook.closestTo(c, name, found.take(SEARCH_SPOKEN))
+                    memory.remember(name, reply)
+                    narration.say(reply) { voiceInput.listenForAnswer() }
+                }
+            }
+        }
+    }
+
+    /** Vuelve a la lista de siempre. */
+    private fun clearSearch() {
+        searchResults.value = emptyList()
+        searchQuery.value = null
     }
 
     // ------------------------------------------------------------------ navegación
@@ -1267,6 +1435,29 @@ class MainActivity : ComponentActivity() {
         val ROME = Coordinates(41.8859, 12.4850)
         /** Cómo se llama el punto de partida en el aviso de ubicación. */
         const val ROME_NAME = "Roma"
+
+        /**
+         * Búsquedas de un toque: lo que más se necesita en carretera. La
+         * etiqueta es también lo que se dice ("Cerco benzina qui vicino").
+         */
+        val SHORTCUTS: List<Pair<String, (VoiceLanguage) -> String>> = listOf(
+            "restaurant" to { l -> l.say(en = "restaurants", es = "restaurantes", it = "ristoranti") },
+            "gas_station" to { l -> l.say(en = "fuel", es = "gasolina", it = "benzina") },
+            "parking_lot" to { l -> l.say(en = "parking", es = "parqueaderos", it = "parcheggi") },
+            "hotel" to { l -> l.say(en = "hotels", es = "hoteles", it = "hotel") },
+            "pharmacy" to { l -> l.say(en = "pharmacies", es = "farmacias", it = "farmacie") },
+            "atm" to { l -> l.say(en = "ATMs", es = "cajeros", it = "bancomat") },
+        )
+
+        /** Cuántos resultados de búsqueda se enseñan, y cuántos se dicen. */
+        const val SEARCH_SHOWN = 8
+        /** En un barrio se enseña más: se busca por todo él, no solo lo cercano. */
+        const val SEARCH_AREA_SHOWN = 30
+        /** Menos que esto dentro de un barrio y se completa con lo de al lado. */
+        const val FEW_IN_AREA = 5
+        /** Marca, invisible, de una lista de parecidos: su título va tal cual. */
+        const val SIMILAR_MARK = "\u200B"
+        const val SEARCH_SPOKEN = 3
 
         const val SETTINGS = "settings"
         const val LANGUAGE_KEY = "language"

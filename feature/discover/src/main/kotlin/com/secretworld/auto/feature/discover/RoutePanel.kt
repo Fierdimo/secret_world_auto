@@ -2,6 +2,8 @@ package com.secretworld.auto.feature.discover
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -81,9 +83,17 @@ fun RoutePanel(
     onStopNavigation: () -> Unit = {},
     notices: List<PermissionNotice> = emptyList(),
     onStopNarration: () -> Unit = {},
+    /** Lo que se buscó, si se buscó algo: sustituye a la lista de siempre. */
+    search: SearchUi? = null,
+    onClearSearch: () -> Unit = {},
+    /** Búsquedas de un toque, para no tener que hablar. */
+    shortcuts: List<SearchShortcut> = emptyList(),
 ) {
     val d = CarTheme.dimens
     val driving = mode == DrivingMode.DRIVING
+    // Lo buscado manda sobre lo cercano: si se pidieron restaurantes, la lista
+    // son los restaurantes, no los monumentos de siempre.
+    val shown = search?.places ?: places
     // Con ruta, el panel es **solo** la ruta: una tarjeta arriba que deja el
     // resto de la pantalla al mapa. La lista de sitios vuelve al terminar.
     val navigating = navigation != null
@@ -125,7 +135,29 @@ fun RoutePanel(
             return@Column
         }
 
-        if (CarTheme.metrics.heightDp >= COMPACT_HEIGHT) {
+        if (!driving && search == null && shortcuts.isNotEmpty()) {
+            Spacer(Modifier.height(d.spaceS))
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(d.spaceXs),
+            ) {
+                shortcuts.forEach { CarSecondaryButton(label = it.label, onClick = it.onClick, compact = true) }
+            }
+        }
+
+        if (search != null) {
+            Spacer(Modifier.height(d.spaceS))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = search.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                CarSecondaryButton(label = stringResource(R.string.search_clear), onClick = onClearSearch, compact = true)
+            }
+        } else if (CarTheme.metrics.heightDp >= COMPACT_HEIGHT) {
             Spacer(Modifier.height(d.spaceM))
             Text(
                 text = stringResource(if (driving) R.string.section_driving else R.string.section_parked),
@@ -134,7 +166,7 @@ fun RoutePanel(
         }
         Spacer(Modifier.height(d.spaceS))
 
-        if (places.isEmpty()) {
+        if (shown.isEmpty()) {
             // Preferir el silencio al relleno vale también para la pantalla.
             Text(
                 text = stringResource(R.string.nothing_around),
@@ -148,7 +180,7 @@ fun RoutePanel(
         // el primer elemento: en marcha eso significa esconder justo el lugar que
         // viene. Se vuelve arriba en cada cambio.
         val listState = rememberLazyListState()
-        LaunchedEffect(mode) { listState.scrollToItem(0) }
+        LaunchedEffect(mode, search) { listState.scrollToItem(0) }
 
         // Cuántos caben no lo decide una constante ni el alto de la pantalla: lo
         // decide el hueco que de verdad ha sobrado tras componer cabecera, lo que
@@ -162,7 +194,7 @@ fun RoutePanel(
             val limit = if (driving) {
                 CarTheme.metrics.itemsIn(maxHeight - footerReserve, driving = true)
             } else {
-                places.size
+                shown.size
             }
 
             Column(Modifier.fillMaxHeight()) {
@@ -175,7 +207,7 @@ fun RoutePanel(
                     // que el pie de "hay más" quede pegado a la lista.
                     modifier = Modifier.fillMaxWidth().weight(1f, fill = !driving),
                 ) {
-                    items(places.take(limit), key = { it.id }) { place ->
+                    items(shown.take(limit), key = { it.id }) { place ->
                         PlaceEntry(
                             place = place,
                             distance = formatDistance(origin.distanceTo(place.position)),
@@ -184,6 +216,8 @@ fun RoutePanel(
                             // tarjeta entera, que es un objetivo mucho mayor.
                             showDetails = !driving &&
                                 CarTheme.metrics.fitsActions(3, expanded = false),
+                            // Lo que salió de una búsqueda no tiene historia que oír.
+                            hasStory = place.kind == null && place.summary != null,
                             showNavigate = CarTheme.metrics.fitsActions(2, expanded = false),
                             dense = !driving,
                             onSelect = { onSelect(place) },
@@ -193,12 +227,12 @@ fun RoutePanel(
                     }
                 }
 
-                if (places.size > limit) {
+                if (shown.size > limit) {
                     Spacer(Modifier.height(d.spaceXs))
                     Text(
                         text = stringResource(
                             if (driving) R.string.more_when_stopped else R.string.more_nearby,
-                            places.size - limit,
+                            shown.size - limit,
                         ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -540,6 +574,7 @@ private fun PlaceEntry(
     showDetails: Boolean,
     showNavigate: Boolean,
     dense: Boolean,
+    hasStory: Boolean,
     onSelect: () -> Unit,
     onListen: () -> Unit,
     onNavigate: () -> Unit,
@@ -574,12 +609,30 @@ private fun PlaceEntry(
             )
         }
         Spacer(Modifier.height(d.spaceXs))
+        // Qué es y dónde, para lo que salió de una búsqueda: es lo que decide si
+        // merece la pena ir.
+        val about = listOfNotNull(place.kind, place.address).joinToString(" · ")
+        if (!hasStory && about.isNotBlank()) {
+            Text(
+                text = about,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.height(d.spaceXs))
         ActionsThatFit(spacing = d.spaceXs) {
-            CarButton(label = stringResource(R.string.listen), onClick = onListen, dense = dense)
-            // Si no cabe, no se recorta: se deja para la ficha, que se abre
-            // tocando la tarjeta y donde el botón sí tiene sitio.
-            if (showNavigate) {
-                CarSecondaryButton(label = stringResource(R.string.take_me), onClick = onNavigate, dense = dense)
+            if (hasStory) {
+                CarButton(label = stringResource(R.string.listen), onClick = onListen, dense = dense)
+                // Si no cabe, no se recorta: se deja para la ficha, que se abre
+                // tocando la tarjeta y donde el botón sí tiene sitio.
+                if (showNavigate) {
+                    CarSecondaryButton(label = stringResource(R.string.take_me), onClick = onNavigate, dense = dense)
+                }
+            } else {
+                // Sin historia, lo que se hace con un sitio es ir.
+                CarButton(label = stringResource(R.string.take_me), onClick = onNavigate, dense = dense)
             }
             // El detalle solo tiene sentido con el coche parado: es texto largo.
             if (showDetails) {
@@ -599,6 +652,12 @@ private fun formatTime(ms: Int): String {
     return "%d:%02d".format(total / 60, total % 60)
 }
 
+
+/** Lo que se buscó y lo que salió. */
+data class SearchUi(val title: String, val places: List<Place>)
+
+/** Una búsqueda de un toque: "Ristoranti", "Benzina". */
+data class SearchShortcut(val label: String, val onClick: () -> Unit)
 
 /** Un permiso que falta: qué se pierde sin él y cómo activarlo. */
 data class PermissionNotice(

@@ -383,4 +383,180 @@ class VoiceGrammarTest {
         assertEquals("italian_restaurant", (VoiceGrammar.parse("dónde puedo comer comida italiana", places) as VoiceCommand.FindPlaces).let { VoiceGrammar.searchCategoryOf(it.query) })
         assertEquals("italian_restaurant", (VoiceGrammar.parse("un ristorante italiano vicino", places, language = it) as VoiceCommand.FindPlaces).let { VoiceGrammar.searchCategoryOf(it.query) })
     }
+
+    @Test
+    fun `buscar en otra zona, no solo alrededor`() {
+        val es = VoiceLanguage.SPANISH
+        val it = VoiceLanguage.ITALIAN
+        fun heard(said: String, language: VoiceLanguage) = VoiceGrammar.parse(said, places, language = language) as VoiceCommand.FindPlaces
+        assertEquals(VoiceCommand.FindPlaces("restaurante", VoiceGrammar.CITY_CENTRE), heard("necesito un restaurante en el centro de la ciudad", es))
+        assertEquals(VoiceCommand.FindPlaces("hotel", "las gaviotas"), heard("un alojamiento en el barrio las gaviotas", es))
+        assertEquals(VoiceCommand.FindPlaces("pizza", "bocagrande"), heard("una pizzería en Bocagrande", es))
+        assertEquals(VoiceCommand.FindPlaces("ristorante", VoiceGrammar.CITY_CENTRE), heard("un ristorante in centro", it))
+        assertEquals(VoiceCommand.FindPlaces("hotel", "getsemani"), heard("un albergo vicino a Getsemaní", it))
+        assertEquals(VoiceCommand.FindPlaces("ristorante", VoiceGrammar.CITY_CENTRE), heard("un ristorante nel centro storico", it))
+        assertEquals(VoiceCommand.FindPlaces("restaurante", VoiceGrammar.CITY_CENTRE), heard("restaurants downtown", es))
+        // "Cerca de mí" es aquí, no otra zona.
+        assertEquals(VoiceCommand.FindPlaces("farmacia", null), heard("una farmacia cerca de mí", es))
+        assertEquals(VoiceCommand.FindPlaces("restaurante", null), heard("dame los restaurantes de comida mejicana más cercana", es).copy(query = "restaurante"))
+        // "En dónde encuentro…" no es una zona.
+        assertEquals(VoiceCommand.FindPlaces("centro comercial", null), heard("en dónde encuentro un centro comercial", es))
+    }
+
+    @Test
+    fun `lo mal escrito tambien se entiende`() {
+        val es = VoiceLanguage.SPANISH
+        fun find(said: String) = VoiceGrammar.parse(said, places, language = es) as VoiceCommand.FindPlaces
+        // Transcripciones reales.
+        assertEquals("pizza_restaurant", VoiceGrammar.searchCategoryOf(find("necesito una picería en boca grande").query))
+        assertEquals("pizza_restaurant", VoiceGrammar.searchCategoryOf(find("necesito una pilcería").query))
+        assertEquals("asian_restaurant", VoiceGrammar.searchCategoryOf(find("necesito un restaurante de comida oriental cerca").query))
+        assertEquals("las gabiotes", find("necesito alojamiento en el barrio de las Gabiotes").area)
+    }
+
+    @Test
+    fun `la zona acaba donde empieza otra descripcion`() {
+        val es = VoiceLanguage.SPANISH
+        fun find(said: String) = VoiceGrammar.parse(said, places, language = es) as VoiceCommand.FindPlaces
+        val oriental = find("un restaurante en boca grande de comida oriental")
+        assertEquals("boca grande", oriental.area)
+        assertEquals("asian_restaurant", VoiceGrammar.searchCategoryOf(oriental.query))
+        assertEquals("las gaviotas", find("un hotel en las gaviotas con piscina").area)
+        assertEquals("getsemani", find("una pizzería en getsemaní que esté abierta").area)
+        // Los nombres de barrio con "de" siguen enteros.
+        assertEquals("pie de la popa", find("un restaurante en pie de la popa").area)
+    }
+
+    @Test
+    fun `las respuestas siguen alternando despues del sexto intercambio`() {
+        val memory = ConversationMemory()
+        val here = Coordinates(41.89, 12.48)
+        val said = (1..9).map {
+            memory.remember("busca", "…")
+            Phrasebook.searching(Phrasebook.Context(here, emptyList(), memory, VoiceLanguage.SPANISH), "hoteles")
+        }
+        // Con el tope de seis, desde el sexto salía siempre la misma frase.
+        assertTrue(said.takeLast(3).toSet().size > 1, "repetía: ${said.takeLast(3)}")
+        val c = Phrasebook.Context(here, emptyList(), memory, VoiceLanguage.SPANISH)
+        assertTrue(Phrasebook.found(c, "hoteles", places.take(1), area = "Bocagrande").contains("Bocagrande"))
+    }
+
+    @Test
+    fun `nombrar un sitio de la lista recien leida lo elige y no busca otra vez`() {
+        val es = VoiceLanguage.SPANISH
+        val tsuki = place("m1", "Tsuki").copy(kind = "restaurante")
+        val sung = place("m2", "Restaurante Sung Waa | Cartagena").copy(kind = "restaurante")
+        val listed = listOf(tsuki, sung)
+        // Como lo escribió el reconocedor, con la lista de asiáticos delante.
+        assertEquals(VoiceCommand.TakeMeThere(sung), VoiceGrammar.parse("restaurante sung waa", places, listed = listed, language = es))
+        assertEquals(VoiceCommand.TakeMeThere(tsuki), VoiceGrammar.parse("el tsuki", places, listed = listed, language = es))
+        assertEquals(VoiceCommand.TakeMeThere(sung), VoiceGrammar.parse("Restaurantes sung guas", places, listed = listed, language = es))
+        // Sin lista, "restaurantes" sigue siendo buscar.
+        assertIs<VoiceCommand.FindPlaces>(VoiceGrammar.parse("restaurantes son gustos", places, language = es))
+        // Con lista, pedir otra cosa sigue buscando.
+        assertIs<VoiceCommand.FindPlaces>(VoiceGrammar.parse("mejor una farmacia", places, listed = listed, language = es))
+    }
+
+    @Test
+    fun `ir a un sitio concreto no es buscar un tipo de sitio`() {
+        val es = VoiceLanguage.SPANISH
+        val it = VoiceLanguage.ITALIAN
+        assertEquals(VoiceCommand.NavigateToNamed("hotel caribe"), VoiceGrammar.parse("llévame al Hotel Caribe", places, language = es))
+        assertEquals(VoiceCommand.NavigateToNamed("castillo san felipe"), VoiceGrammar.parse("portami al castillo san felipe", places, language = it))
+        assertEquals(VoiceCommand.NavigateToNamed("crepes waffles", "bocagrande"), VoiceGrammar.parse("llévame a Crepes & Waffles en Bocagrande", places, language = es))
+        assertEquals(VoiceCommand.NavigateToNamed("calle 30 numero 5"), VoiceGrammar.parse("llévame a la calle 30 número 5", places, language = es))
+        // Un tipo de sitio sigue siendo buscar.
+        assertIs<VoiceCommand.FindPlaces>(VoiceGrammar.parse("llévame a un hotel", places, language = es))
+        assertIs<VoiceCommand.FindPlaces>(VoiceGrammar.parse("llévame al centro comercial más cercano", places, language = es))
+        assertEquals(VoiceCommand.FindPlaces("terminal de transporte"), VoiceGrammar.parse("llévame a la terminal", places))
+        // Lo conocido y "ahí" siguen como antes.
+        assertEquals(VoiceCommand.TakeMeThere(forum), VoiceGrammar.parse("llévame al roman forum", places, language = es))
+        assertEquals(VoiceCommand.TakeMeThere(cecilia), VoiceGrammar.parse("llévame ahí", places, focus = cecilia, language = es))
+    }
+
+    @Test
+    fun `reconoce el sitio pedido entre lo encontrado`() {
+        assertTrue(Phrasebook.sameName("hotel caribe", "Hotel Caribe by Faranda Grand"))
+        assertTrue(Phrasebook.sameName("castillo san felipe", "Castillo San Felipe de Barajas"))
+        assertTrue(Phrasebook.sameName("crepes waffles", "Crepes & Waffles Bocagrande"))
+        assertTrue(!Phrasebook.sameName("hotel caribe", "Hotel Capilla del Mar"))
+    }
+
+    @Test
+    fun `entre lo encontrado elige el sitio pedido y no el de al lado`() {
+        fun p(name: String) = place(name, name)
+        val parking = p("Parqueadero Castillo San Felipe")
+        val castle = p("Castillo San Felipe de Barajas")
+        assertEquals(castle, NameMatcher.best("castillo san felipe", listOf(parking, p("Castillo San Felipe Rooms").copy(kind = "hotel"), castle).let { listOf(parking, castle) }))
+        val mall = p("Centro Comercial Caribe Plaza")
+        assertEquals(mall, NameMatcher.best("centro comercial caribe plaza", listOf(p("Efecty Centro Comercial Caribe Plaza"), p("GMO Centro Comercial Caribe Plaza"), mall)))
+        assertEquals(null, NameMatcher.best("hotel caribe", listOf(p("Hotel Capilla del Mar"))))
+    }
+
+    @Test
+    fun `un sitio del catalogo no se elige por una palabra suelta`() {
+        val es = VoiceLanguage.SPANISH
+        val manzanillo = place("f1", "Casa del fuerte de San Juan de Manzanillo")
+        val here = places + manzanillo
+        // Transcripciones reales: iba al fuerte de San Juan.
+        assertEquals(VoiceCommand.NavigateToNamed("centro comercial san fernando"), VoiceGrammar.parse("llévame al centro comercial San Fernando", here, language = es))
+        assertEquals(VoiceCommand.NavigateToNamed("centro comercial san fernando"), VoiceGrammar.parse("llevábame al centro comercial San Fernando", here, language = es))
+        // Lo que sí es del catálogo sigue yendo directo.
+        assertEquals(VoiceCommand.TakeMeThere(manzanillo), VoiceGrammar.parse("llévame al fuerte de San Juan de Manzanillo", here, language = es))
+    }
+
+    @Test
+    fun `plurales y nombres de zona con palabras corrientes`() {
+        val es = VoiceLanguage.SPANISH
+        val it = VoiceLanguage.ITALIAN
+        fun find(said: String, language: VoiceLanguage = es) = VoiceGrammar.parse(said, places, language = language) as VoiceCommand.FindPlaces
+        // Transcripción real: acababa en "no te entendí".
+        val malls = find("centros comerciales en San Fernando")
+        assertEquals("shopping_mall", VoiceGrammar.searchCategoryOf(malls.query))
+        assertEquals("san fernando", malls.area)
+        assertEquals("pharmacy", VoiceGrammar.searchCategoryOf(find("farmacias en el bosque").query))
+        assertEquals("el bosque", find("farmacias en el bosque").area)
+        assertEquals("los alpes", find("hoteles en los alpes").area)
+        assertEquals("restaurant", VoiceGrammar.searchCategoryOf(find("ristoranti nel centro", it).query))
+        assertEquals("shopping_mall", VoiceGrammar.searchCategoryOf(find("centri commerciali qui vicino", it).query))
+    }
+
+    @Test
+    fun `un centro comercial es un centro comercial, no una tienda de dentro`() {
+        val strict = VoiceGrammar.strictness("shopping_mall")!!
+        assertTrue(VoiceGrammar.nameSays("Centro Comercial San Fernando", strict))
+        assertTrue(VoiceGrammar.nameSays("Parque de Heredia Mall", strict))
+        assertTrue(VoiceGrammar.nameSays("C.C. Caribe Plaza", strict))
+        // Lo que Mapbox devolvía como centro comercial, en Cartagena.
+        assertTrue(!VoiceGrammar.nameSays("JAMBUR KING - FAST FOOD", strict))
+        assertTrue(!VoiceGrammar.nameSays("Office Arte Papelería", strict))
+        assertTrue(!VoiceGrammar.nameSays("Clínicas Dental World Gran Plazuela", strict))
+        assertNull(VoiceGrammar.strictness("hotel"))
+    }
+
+    @Test
+    fun `una busqueda nueva no se toma por un sitio de la lista`() {
+        val es = VoiceLanguage.SPANISH
+        val bosque = place("cc1", "Centro Comercial Industrial del Bosque").copy(kind = "centro comercial")
+        val listed = listOf(bosque)
+        // Transcripción real: llevaba al del Bosque.
+        val next = VoiceGrammar.parse("centros comerciales en el centro", places, listed = listed, language = es)
+        assertIs<VoiceCommand.FindPlaces>(next)
+        assertEquals(VoiceGrammar.CITY_CENTRE, (next as VoiceCommand.FindPlaces).area)
+        assertIs<VoiceCommand.FindPlaces>(VoiceGrammar.parse("un restaurante en Bocagrande", places, listed = listed, language = es))
+        // Nombrarlo sí lo elige.
+        assertEquals(VoiceCommand.TakeMeThere(bosque), VoiceGrammar.parse("el industrial del bosque", places, listed = listed, language = es))
+    }
+
+    @Test
+    fun `la lista enumerada caduca`() {
+        var clock = 0L
+        val memory = ConversationMemory(now = { clock })
+        memory.listed(places)
+        assertEquals(places, memory.listed)
+        clock += 30_000
+        assertEquals(places, memory.listed)
+        clock += 40_000
+        assertTrue(memory.listed.isEmpty())
+    }
 }

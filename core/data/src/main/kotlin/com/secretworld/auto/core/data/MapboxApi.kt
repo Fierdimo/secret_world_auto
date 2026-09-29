@@ -49,6 +49,7 @@ interface MapboxApi {
         @Query("types") types: String = "poi",
         @Query("limit") limit: Int = 6,
         @Query("language") language: String = "es",
+        @Query("bbox") bbox: String? = null,
     ): SearchResponse
 
     /** Los sitios más cercanos de una categoría canónica ("restaurant", "gas_station"). */
@@ -59,6 +60,8 @@ interface MapboxApi {
         @Query("access_token") token: String,
         @Query("limit") limit: Int = 6,
         @Query("language") language: String = "es",
+        /** "oeste,sur,este,norte": solo lo que caiga dentro. */
+        @Query("bbox") bbox: String? = null,
     ): SearchResponse
 
     companion object {
@@ -127,4 +130,6 @@ data class FeatureProperties(
     val full_address: String? = null,
     val place_formatted: String? = null,
     val poi_category: List<String> = emptyList(),
+    /** "poi", "address", "street"…: qué es lo encontrado. */
+    val feature_type: String? = null,
 )

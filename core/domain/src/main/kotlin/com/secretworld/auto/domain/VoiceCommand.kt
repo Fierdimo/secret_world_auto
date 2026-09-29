@@ -42,11 +42,26 @@ sealed interface VoiceCommand {
     data class TakeMeThere(val place: Place?) : VoiceCommand
 
     /**
+     * "Llévame al Hotel Caribe", "portami al Castillo San Felipe", "take me to
+     * Calle 30 número 5" → ir a un sitio **concreto** que no está en el
+     * catálogo: se busca por su nombre y se traza la ruta. No es buscar un tipo
+     * de sitio ("llévame a un hotel"), que es [FindPlaces].
+     */
+    data class NavigateToNamed(val name: String, val area: String? = null) : VoiceCommand
+
+    /**
      * "Dónde puedo comer", "un bar cerca", "busca shawarma" → busca sitios de
      * ese tipo alrededor del coche. [query] es lo que se busca, en el idioma del
      * conductor.
      */
-    data class FindPlaces(val query: String) : VoiceCommand
+    data class FindPlaces(
+        val query: String,
+        /**
+         * Dónde, si no es alrededor del coche: "en el barrio Las Gaviotas",
+         * "in centro". [VoiceGrammar.CITY_CENTRE] es el centro de la ciudad.
+         */
+        val area: String? = null,
+    ) : VoiceCommand
 
     /** "Sí", "vale", "claro" → confirma lo que el asistente acaba de ofrecer. */
     data object Yes : VoiceCommand
@@ -139,6 +154,19 @@ object VoiceGrammar {
         if (words.size <= 2 && words.hasAny(YES)) return VoiceCommand.Yes
         if (words.size <= 2 && words.hasAny(NO)) return VoiceCommand.No
 
+        // Recién enumerada una lista, un nombre de ella la elige, antes de buscar
+        // nada: «Restaurante Sung Waa» —escrito «restaurantes son guas»— lanzaba
+        // otra búsqueda de restaurantes y la lista cambiaba debajo del conductor.
+        pickFromListed(words, listed)?.let { place ->
+            // Lo que salió de una búsqueda no tiene historia: la pregunta era
+            // "¿te llevo a alguno?", así que se lleva.
+            return when {
+                place.kind != null -> VoiceCommand.TakeMeThere(place)
+                choosing -> VoiceCommand.ChooseAction(place)
+                else -> VoiceCommand.TellMeAbout(place)
+            }
+        }
+
         // Buscar sitios: por categoría conocida ("comer" → restaurante) o por lo
         // que siga a "busca" / "dónde hay". Va antes que "cerca", porque "un bar
         // cerca" es buscar bares, no enumerar monumentos.
@@ -146,13 +174,26 @@ object VoiceGrammar {
         // Catalina" lleva "voglio", que también es verbo de búsqueda, y acababa
         // buscando "andare india catalina" en vez de trazar la ruta.
         val navigate = words.hasAny(NAVIGATE) || words.any { word -> NAVIGATE_STEMS.any(word::startsWith) }
-        if (navigate) resolve(heard, candidates)?.let { return VoiceCommand.TakeMeThere(it) }
+        if (navigate) {
+            val named = namedDestination(words)
+            // Un sitio del catálogo solo si contiene lo pedido: "llévame al centro
+            // comercial San Fernando" iba a la Casa del fuerte de **San** Juan.
+            resolve(heard, candidates)
+                ?.takeIf { named == null || NameMatcher.matches(named.first, it.name) }
+                ?.let { return VoiceCommand.TakeMeThere(it) }
+            // Ir a un sitio concreto que no conocemos: se buscará por su nombre.
+            // "Llévame a un hotel" o "al centro comercial más cercano" no: eso es
+            // buscar un tipo de sitio, y sigue más abajo.
+            named?.let { (name, area) -> return VoiceCommand.NavigateToNamed(name, area) }
+        }
 
-        categoryIn(words, language)?.let { return VoiceCommand.FindPlaces(it) }
+        // Qué se busca y dónde: "un restaurante | en el barrio Las Gaviotas".
+        val (what, area) = splitArea(words)
+        categoryIn(what, language)?.let { return VoiceCommand.FindPlaces(it, area) }
         // Lo que sigue a "busca" / "voglio" se busca en el mapa, salvo que sea
         // un lugar que ya conocemos: "voglio la India Catalina" es ese sitio.
-        searchedFor(words, language)?.let { query ->
-            if (matches(query, candidates).isEmpty()) return VoiceCommand.FindPlaces(query)
+        searchedFor(what, language)?.let { query ->
+            if (matches(query, candidates).isEmpty()) return VoiceCommand.FindPlaces(query, area)
         }
         if (words.hasAny(NEARBY)) return VoiceCommand.WhatIsNearby
         if (words.hasAny(MORE)) return VoiceCommand.TellMeMore
@@ -214,6 +255,130 @@ object VoiceGrammar {
         return Script.editDistance(heard, name) <= allowed
     }
 
+    /**
+     * El sitio de [listed] que se nombró, si alguno se parece lo bastante. Sin
+     * las palabras genéricas ("restaurante", "hotel", la ciudad), que casan con
+     * media lista, y con tolerancia a la ortografía del reconocedor: solo se
+     * compara con los pocos sitios recién leídos, no con el mundo.
+     */
+    private fun pickFromListed(words: List<String>, listed: List<Place>): Place? {
+        if (listed.isEmpty()) return null
+        // Solo lo que distingue un sitio: fuera lo que describe una búsqueda
+        // —categorías en singular o plural, zonas, artículos—. "Centros
+        // comerciales en el centro", tras una lista de uno, se tomaba por ese uno.
+        val said = words.filter { word ->
+            word !in FILLER && word !in GENERIC_NAME_WORDS && word.length > 1 &&
+                ALL_KEY_WORDS.none { sameForm(word, it) } && word !in AREA_WORDS
+        }.joinToString("")
+        if (said.length < 3) return null
+        val scored = listed.map { place ->
+            val core = normalise(place.name).split(' ').filter { it !in FILLER && it !in GENERIC_NAME_WORDS && it.length > 1 }.joinToString("")
+            val distance = when {
+                core.isEmpty() -> Int.MAX_VALUE
+                core == said || (said.length >= 4 && (core.contains(said) || said.contains(core))) -> 0
+                else -> Script.editDistance(said, core)
+            }
+            place to Pair(distance, core.length)
+        }.sortedBy { it.second.first }
+        val (best, bestScore) = scored.first()
+        val (distance, length) = bestScore
+        // Hasta la mitad del nombre: «sung guas» por "Sung Waa" son tres letras.
+        // Se puede ser generoso porque solo se compara con los pocos sitios
+        // recién leídos, y se exige que ninguno otro esté igual de cerca.
+        // Y nunca más de la mitad de lo dicho: una frase larga no casa con un
+        // nombre largo por acumulación de parecidos.
+        if (said.length < 4 || distance > maxOf(1, minOf(length, said.length) / 2)) return null
+        // Solo si no hay otro casi igual de cerca: ante la duda, que busque.
+        val runnerUp = scored.getOrNull(1)?.second?.first ?: Int.MAX_VALUE
+        return best.takeIf { runnerUp > distance }
+    }
+
+    /**
+     * El destino nombrado tras "llévame", si es un sitio concreto y no un tipo
+     * de sitio. Es concreto si queda algo que no sea categoría ni relleno —"el
+     * Hotel **Caribe**"— y no empieza por un artículo indeterminado ni pide "el
+     * más cercano".
+     */
+    private fun namedDestination(words: List<String>): Pair<String, String?>? {
+        val verbAt = words.indices.firstOrNull { i ->
+            NAVIGATE_STEMS.any(words[i]::startsWith) ||
+                NAVIGATE.any { phrase -> val needle = normalise(phrase).split(' '); i + needle.size <= words.size && words.subList(i, i + needle.size) == needle }
+        } ?: return null
+        val verbLength = NAVIGATE.map { normalise(it).split(' ') }
+            .filter { needle -> verbAt + needle.size <= words.size && words.subList(verbAt, verbAt + needle.size) == needle }
+            .maxOfOrNull { it.size } ?: 1
+        var rest = words.drop(verbAt + verbLength)
+        while (rest.isNotEmpty() && rest.first() in DESTINATION_LEAD) rest = rest.drop(1)
+        if (rest.isEmpty() || rest.first() in INDEFINITE || rest.any { it in NEAREST }) return null
+        if (rest.size == 1 && rest.first() in DEICTIC_WORDS) return null
+        val (named, area) = splitArea(listOf("x") + rest).let { (w, a) -> w.drop(1) to a }
+        // Solo categoría y relleno ("la terminal", "a comer"): es buscar un tipo.
+        val distinctive = named.filter { it !in SEARCH_FILLER && it !in ALL_KEY_WORDS && it !in DESTINATION_LEAD }
+        if (distinctive.isEmpty()) return null
+        return named.joinToString(" ") to area
+    }
+
+    /** Lo que va entre el verbo y el nombre: "a", "al", "hasta el", "to the". */
+    private val DESTINATION_LEAD = setOf("a", "al", "hasta", "hacia", "para", "pa", "el", "la", "los", "las", "lo", "il", "alla", "allo", "ai", "agli", "verso", "fino", "per", "di", "to", "the", "at", "ad", "en",
+        // Contracciones italianas: «all'India» se normaliza como "all india".
+        "all", "dell", "nell", "sull", "l", "d")
+
+    private val INDEFINITE = setOf("un", "una", "unos", "unas", "uno", "algun", "alguna", "qualche", "some", "any", "an")
+
+    private val NEAREST = setOf("cercano", "cercana", "proximo", "proxima", "vicino", "vicina", "nearest", "closest", "near", "cerca")
+
+    private val DEICTIC_WORDS = setOf("ahi", "alli", "alla", "li", "la", "there", "ci", "eso", "quello")
+
+    /**
+     * Categorías en las que el buscador de mapas mezcla lo que no es. Medido en
+     * Cartagena: en Mapbox, las tiendas de **dentro** de un centro comercial
+     * llevan la misma categoría que el centro comercial —una papelería, una
+     * clínica dental, un puesto de comida rápida—. Para estas se exige que el
+     * nombre lo diga, y se completa con OpenStreetMap, que sí los distingue.
+     */
+    data class Strict(
+        /** La etiqueta de OpenStreetMap, "clave:valor". */
+        val osmTag: String,
+        /** Lo que busca OpenStreetMap: sin texto no devuelve nada. */
+        val osmQueries: List<String>,
+        /** Alguna de estas, en el nombre, para aceptar lo de Mapbox. */
+        val nameSays: List<String>,
+    )
+
+    fun strictness(searchCategory: String?): Strict? = STRICT[searchCategory]
+
+    private val STRICT = mapOf(
+        "shopping_mall" to Strict(
+            osmTag = "shop:mall",
+            osmQueries = listOf("centro comercial", "mall", "centro commerciale"),
+            nameSays = listOf("centro comercial", "c c", "cc", "mall", "plaza", "outlet", "shopping", "galeria", "galerias", "centro commerciale", "paseo"),
+        ),
+    )
+
+    /** ¿Dice el nombre lo que es? Ver [Strict]. */
+    fun nameSays(name: String, strict: Strict): Boolean {
+        val words = normalise(name).split(' ').filter { it.isNotBlank() }
+        return words.hasAny(strict.nameSays)
+    }
+
+    /** ¿Es una palabra de alguna categoría —"parqueadero", "cajero", "tienda"—? */
+    fun isCategoryWord(word: String): Boolean = normalise(word) in ALL_KEY_WORDS
+
+    /** Todas las palabras de todas las categorías, también las de claves de varias. */
+    private val ALL_KEY_WORDS: Set<String> by lazy { CATEGORIES.flatMap { it.keys }.flatMap { normalise(it).split(' ') }.toSet() }
+
+    /** Lo que dice dónde, no qué: no sirve para elegir un sitio de la lista. */
+    private val AREA_WORDS = setOf(
+        "en", "in", "nel", "nella", "near", "around", "cerca", "vicino", "centro", "center", "centre", "downtown",
+        "barrio", "quartiere", "zona", "sector", "ciudad", "citta", "city", "aqui", "qui", "here",
+    )
+
+    /** Palabras de los nombres que no distinguen un sitio de otro. */
+    private val GENERIC_NAME_WORDS = setOf(
+        "restaurante", "restaurantes", "restaurant", "ristorante", "hotel", "hoteles", "hostal", "bar", "cafe",
+        "cafeteria", "pizzeria", "casa", "de", "del", "la", "el", "cartagena", "indias", "sas", "s", "a",
+    )
+
     /** Los lugares que mejor encajan con lo oído, empatados en puntuación. */
     private fun matches(heard: String, candidates: List<Place>): List<Place> {
         val words = normalise(heard).split(' ').filter { it.length > 2 && it !in FILLER }.toSet()
@@ -245,8 +410,26 @@ object VoiceGrammar {
     /** ¿Contiene la frase alguna de estas expresiones, como palabras enteras y seguidas? */
     private fun List<String>.hasAny(phrases: List<String>): Boolean = phrases.any { phrase ->
         val needle = normalise(phrase).split(' ')
-        indices.any { start -> start + needle.size <= size && subList(start, start + needle.size) == needle }
+        indices.any { start ->
+            start + needle.size <= size && needle.indices.all { i -> sameForm(this[start + i], needle[i]) }
+        }
     }
+
+    /**
+     * La misma palabra, en singular o en plural. Las claves están en singular y
+     * se dicen como se dicen: «centros comerciales» no casaba con "centro
+     * comercial" y la frase acababa en "no te entendí". En español e inglés el
+     * plural añade "s" o "es"; en italiano cambia la vocal final
+     * (ristorante → ristoranti).
+     */
+    private fun sameForm(heard: String, key: String): Boolean {
+        if (heard == key) return true
+        if (heard == key + "s" || heard == key + "es" || key == heard + "s" || key == heard + "es") return true
+        return heard.length >= 5 && key.length == heard.length &&
+            heard.dropLast(1) == key.dropLast(1) && heard.last() in VOWELS && key.last() in VOWELS
+    }
+
+    private val VOWELS = setOf('a', 'e', 'i', 'o')
 
     /**
      * Una categoría conocida en cualquier parte de la frase: "tengo hambre" →
@@ -254,9 +437,105 @@ object VoiceGrammar {
      * shawarma", "dónde hay un cajero"), es [searchedFor].
      */
     private fun categoryIn(words: List<String>, language: VoiceLanguage): String? {
-        CATEGORIES.forEach { if (words.hasAny(it.keys)) return if (language == VoiceLanguage.ITALIAN) it.italian else it.spanish }
-        return null
+        val category = CATEGORIES.firstOrNull { words.hasAny(it.keys) }
+            // Sin coincidencia exacta, con una o dos letras de margen en palabras
+            // largas: el reconocedor escribe «picería» o «pilcería» por pizzería.
+            ?: CATEGORIES.firstOrNull { category -> category.keys.any { key -> ' ' !in key && words.any { sameKey(it, normalise(key)) } } }
+            ?: return null
+        return if (language == VoiceLanguage.ITALIAN) category.italian else category.spanish
     }
+
+    private fun sameKey(heard: String, key: String): Boolean {
+        // Siete letras o más: con seis, "parque" pasaba por "parquear".
+        if (heard.length < 7 || key.length < 7) return false
+        val allowed = if (key.length >= 8) 2 else 1
+        return Script.editDistance(heard, key) <= allowed
+    }
+
+    /** La zona "centro de la ciudad", se diga como se diga. */
+    const val CITY_CENTRE = "centro"
+
+    /**
+     * Separa lo que se busca de dónde se busca. La zona es lo que sigue a "en",
+     * "in", "nel", "cerca de"… siempre que no sea "aquí" —"cerca de mí" es lo
+     * de siempre—. "El centro", "centro storico" o "downtown" son el centro.
+     */
+    private fun splitArea(words: List<String>): Pair<List<String>, String?> {
+        if (words.hasAny(DOWNTOWN)) return words.filterNot { it == "downtown" } to CITY_CENTRE
+        // El primer marcador que deje algo detrás; se prueban los largos antes.
+        for (start in 1 until words.size) {
+            val marker = AREA_MARKERS.firstOrNull { marker ->
+                val needle = normalise(marker).split(' ')
+                start + needle.size < words.size && words.subList(start, start + needle.size) == needle
+            } ?: continue
+            val after = withoutLead(words.drop(start + normalise(marker).split(' ').size))
+            // La zona acaba donde empieza otra descripción: "en Bocagrande | de
+            // comida oriental". Lo que sigue vuelve a contar para qué se busca;
+            // si no, la zona era «boca grande comida oriental» y no existía.
+            val end = after.indices.firstOrNull { i -> i > 0 && endsArea(after, i) } ?: after.size
+            val rest = after.take(end)
+            if (rest.isEmpty()) continue
+            val area = rest.joinToString(" ")
+            if (area in HERE) return words to null
+            return (words.take(start) + after.drop(end)) to if (isCentre(rest)) CITY_CENTRE else area
+        }
+        return words to null
+    }
+
+    private val AREA_MARKERS = listOf(
+        "en el barrio", "en la zona de", "en el sector", "por el barrio", "cerca de", "en", "por",
+        "nel quartiere", "nella zona di", "in zona", "vicino a", "nel", "nella", "in",
+        "in the", "near", "around",
+    ).sortedByDescending { it.length }
+
+    /**
+     * Quita delante del nombre un artículo y una palabra genérica —"el barrio",
+     * "la zona"—, pero no más: en "el barrio Las Gaviotas" el "Las" es del
+     * nombre.
+     */
+    private fun withoutLead(area: List<String>): List<String> {
+        var rest = area
+        // "En el barrio de Las Gaviotas": la preposición no es del nombre.
+        if (rest.size > 1 && rest[0] in setOf("de", "del", "di", "of")) rest = rest.drop(1)
+        // El artículo solo se quita delante de "barrio", "zona" o "centro".
+        if (rest.size > 1 && rest[0] in ARTICLES && (rest[1] in AREA_NOUNS || rest[1] == CITY_CENTRE)) rest = rest.drop(1)
+        if (rest.size > 1 && rest.first() in AREA_NOUNS) rest = rest.drop(1)
+        return rest
+    }
+
+    /** ¿Empieza en [i] otra descripción, y no más nombre de zona? */
+    private fun endsArea(words: List<String>, i: Int): Boolean {
+        val word = words[i]
+        if (word in CATEGORY_WORDS || word in AREA_TAIL) return true
+        // "de comida", "di cucina": la preposición abre la descripción.
+        return word in setOf("de", "di", "of") && words.getOrNull(i + 1)?.let { it in CATEGORY_WORDS || it in DESCRIPTION_NOUNS } == true
+    }
+
+    /** Palabras sueltas de las categorías: "comida", "oriental", "pizzeria"… */
+    private val CATEGORY_WORDS: Set<String> by lazy {
+        CATEGORIES.flatMap { it.keys }.filter { ' ' !in it }.map(::normalise).filter { it.length > 3 }.toSet()
+    }
+
+    private val DESCRIPTION_NOUNS = setOf("comida", "cucina", "food", "cocina")
+    private val AREA_TAIL = setOf("que", "con", "para", "per", "che", "with", "that", "donde", "dove", "where")
+
+    private val ARTICLES = setOf("el", "la", "los", "las", "il", "lo", "the")
+    private val AREA_NOUNS = setOf("barrio", "quartiere", "zona", "sector")
+
+    /** "Cerca de mí", "qui vicino": no es otra zona, es aquí. */
+    private val HERE = setOf("mi", "me", "aqui", "aca", "qui", "qua", "here", "this area", "esta", "questa", "este")
+
+    /**
+     * "El centro", "centro de la ciudad", "centro storico": cualquier zona que
+     * empiece por "centro", salvo un centro comercial, que es un sitio.
+     */
+    private fun isCentre(area: List<String>): Boolean {
+        val first = area.firstOrNull() ?: return false
+        if (first in setOf("centre", "center") || area.joinToString(" ") in setOf("city centre", "city center", "old town")) return true
+        return first == "centro" && area.getOrNull(1) !in setOf("comercial", "commerciale")
+    }
+
+    private val DOWNTOWN = listOf("downtown")
 
     /**
      * La categoría del buscador de mapas para lo que se busca, si la tiene:
@@ -405,7 +684,7 @@ object VoiceGrammar {
      * cómo empieza la palabra y no la palabra entera. Ninguna palabra corriente
      * empieza así salvo "portamonete", que no se le dice a un navegador.
      */
-    private val NAVIGATE_STEMS = listOf("portam", "portar", "portan")
+    private val NAVIGATE_STEMS = listOf("portam", "portar", "portan", "llevab", "llevam", "llevarm", "llevan")
 
     /**
      * Terminar la ruta. Por raíz, como "portami": el reconocedor escribe
@@ -463,9 +742,10 @@ object VoiceGrammar {
         Category(listOf("asado", "parrilla", "carne asada", "steak", "steakhouse", "bistecca", "grigliata"), "asadero", "steakhouse", "steakhouse"),
         Category(listOf("comida india", "restaurante indio", "hindú", "hindu", "indiano", "indiana", "indian food", "indian restaurant", "curry"), "restaurante indio", "ristorante indiano", "indian_restaurant"),
         Category(listOf("tailandesa", "tailandés", "thai", "tailandese"), "restaurante tailandés", "ristorante thailandese", "thai_restaurant"),
+        Category(listOf("oriental", "orientale", "asiática", "asiatica", "asiatico", "asian", "comida oriental", "cucina orientale"), "restaurante asiático", "ristorante asiatico", "asian_restaurant"),
         Category(listOf("comida rápida", "comida rapida", "fast food", "cibo veloce"), "comida rápida", "fast food", "fast_food"),
         Category(listOf("comida típica", "comida tipica", "comida colombiana", "comida criolla", "cucina tipica", "local food"), "comida típica", "cucina tipica", "latin_american_restaurant"),
-        Category(listOf("comer", "comida", "hambre", "restaurante", "restaurantes", "almorzar", "cenar", "desayunar", "eat", "food", "hungry", "restaurant", "lunch", "dinner", "breakfast", "mangiare", "cibo", "fame", "ristorante", "ristoranti", "pranzo", "pranzare", "cena", "cenare", "colazione", "trattoria", "osteria"), "restaurante", "ristorante", "restaurant"),
+        Category(listOf("comer", "comida", "hambre", "restaurante", "restaurantes", "almorzar", "cenar", "desayunar", "eat", "food", "hungry", "restaurant", "restaurants", "lunch", "dinner", "breakfast", "mangiare", "cibo", "fame", "ristorante", "ristoranti", "pranzo", "pranzare", "cena", "cenare", "colazione", "trattoria", "osteria"), "restaurante", "ristorante", "restaurant"),
         Category(listOf("bar", "bares", "cerveza", "copa", "copas", "beer", "drink", "drinks", "pub", "birra", "aperitivo", "bere"), "bar", "bar", "bar"),
         Category(listOf("café", "cafe", "cafetería", "cafeteria", "coffee", "caffè", "caffetteria", "cappuccino"), "café", "caffè", "cafe"),
         Category(listOf("gasolina", "gasolinera", "combustible", "tanquear", "echar gasolina", "gas station", "fuel", "petrol", "benzina", "benzinaio", "distributore", "carburante", "rifornimento"), "gasolinera", "distributore di benzina", "gas_station"),
@@ -473,10 +753,10 @@ object VoiceGrammar {
         Category(listOf("farmacia", "droguería", "drogueria", "pharmacy", "drugstore"), "farmacia", "farmacia", "pharmacy"),
         Category(listOf("cajero", "banco", "atm", "bank", "bancomat", "banca"), "cajero automático", "bancomat", "atm"),
         Category(listOf("supermercado", "mercado", "supermarket", "grocery", "supermercato", "alimentari"), "supermercado", "supermercato", "supermarket"),
-        Category(listOf("hotel", "hoteles", "dormir", "hostal", "albergo", "dormire", "alloggio"), "hotel", "hotel", "hotel"),
+        Category(listOf("hotel", "hoteles", "dormir", "hostal", "albergo", "dormire", "alloggio", "alojamiento", "alojamientos", "hospedaje", "posada", "accommodation", "lodging", "pernottare"), "hotel", "hotel", "hotel"),
         Category(listOf("hospital", "urgencias", "clínica", "clinica", "emergency", "ospedale", "pronto soccorso"), "hospital", "ospedale", "hospital"),
         Category(listOf("baño", "baños", "toilet", "restroom", "bathroom", "bagno", "bagni", "toilette"), "baño público", "bagno pubblico"),
-        Category(listOf("pizza", "pizzería", "pizzeria"), "pizza", "pizzeria", "pizza_restaurant"),
+        Category(listOf("pizza", "pizzería", "pizzeria", "pizería", "pizeria"), "pizza", "pizzeria", "pizza_restaurant"),
         Category(listOf("hamburguesa", "hamburguesas", "burger", "burgers", "hamburger"), "hamburguesa", "hamburger", "burger_restaurant"),
         Category(listOf("sushi"), "sushi", "sushi"),
         Category(listOf("shawarma", "shawarmas", "kebab", "döner", "doner"), "shawarma", "kebab", "middle_eastern_restaurant"),
@@ -555,5 +835,7 @@ object VoiceGrammar {
         "che", "cosa", "cos", "dimmi", "parlami", "raccontami", "della", "dello", "degli", "delle", "sul", "sulla",
         "portami", "andiamo", "luogo", "posto", "qui", "vicino", "quello", "questo", "com",
         "porti", "portarmi", "andare", "voglio", "vorrei", "percorso", "naviga", "portammy", "portamy",
+        // Comunes a muchos nombres: por sí solas no identifican un sitio.
+        "san", "santa", "santo", "saint", "casa", "llevabame", "llevarme", "llevanos",
     )
 }
