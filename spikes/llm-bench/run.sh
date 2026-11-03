@@ -27,11 +27,10 @@ if [ ! -f "$QWEN" ]; then
 fi
 [ "$(shasum -a 256 "$QWEN" | cut -d' ' -f1)" = "$QWEN_SHA" ] || { echo "el .litertlm no es el publicado; se borra"; rm -f "$QWEN"; exit 1; }
 
+# Siempre: Gradle es incremental, y un APK viejo daria resultados de otro codigo.
 APK="$HERE/build/outputs/apk/release/llm-bench-release.apk"
-if [ ! -f "$APK" ]; then
-  export JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home}"
-  (cd "$ROOT" && ./gradlew :spikes:llm-bench:assembleRelease -q)
-fi
+export JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home}"
+(cd "$ROOT" && ./gradlew :spikes:llm-bench:assembleRelease -q)
 echo "instalando el banco..."
 "$ADB" install -r "$APK" >/dev/null
 
@@ -61,8 +60,8 @@ run_model () {
   echo "=== $model ==="
   "$ADB" logcat -c
   "$ADB" shell am start -S -n "$PKG/.BenchActivity" --es model "$model" >/dev/null
-  # Hasta 15 minutos: en un movil modesto cada orden puede costar segundos.
-  for _ in $(seq 1 180); do
+  # Hasta una hora: en un movil modesto cada orden puede costar un minuto.
+  for _ in $(seq 1 720); do
     "$ADB" logcat -d -s SWLlmBench:I | grep -q "BENCH DONE" && break
     sleep 5
   done

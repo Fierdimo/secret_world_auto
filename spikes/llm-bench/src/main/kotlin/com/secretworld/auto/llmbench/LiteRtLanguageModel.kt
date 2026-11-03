@@ -122,7 +122,12 @@ class LiteRtLanguageModel(
     private companion object {
         const val TAG = "SWLlmBench"
         const val MAX_TOKENS = 1024
-        const val GENERATION_TIMEOUT_MS = 15_000L
+        /**
+         * Muy por encima de lo usable, a propósito: el banco mide si entiende,
+         * y el tiempo se anota aparte. Con 15 s, en un Kirin 710 la lectura del
+         * prefijo no llegaba a terminar y todas las órdenes salían vacías.
+         */
+        const val GENERATION_TIMEOUT_MS = 120_000L
         const val CANCEL_GRACE_MS = 3_000L
     }
 }

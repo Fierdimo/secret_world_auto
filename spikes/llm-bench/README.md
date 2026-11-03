@@ -47,6 +47,35 @@ Navona, a propósito distintos de los de los ejemplos del prompt.
 - **Memoria** (PSS) antes y después de cargar el modelo.
 - **La frase que diría**, para juzgar a mano si contesta en el idioma del conductor.
 
+## Resultado (2026‑11‑03): Qwen3 0.6B descartado
+
+Medido en un Huawei Y9 2019 (JKM-LX3, Kirin 710, Android 8.1, 2,7 GB de RAM).
+La prueba se canceló a la tercera frase, porque lo visto ya bastaba.
+
+| | Qwen3 0.6B |
+|---|---|
+| Aciertos | **1 de 3** |
+| Tiempo por orden | **60 a 72 s**; la app cancela a los 8 s |
+| Carga | 4 a 11 s |
+| Memoria | De 360 a 730 MB, según la ejecución |
+
+- **Copia los ejemplos del prompt** en vez de entender la frase. Ante "che cosa
+  c'è da vedere qua intorno" contestó `find_places shawarma … find_places coffee`.
+  Ante "portami al castello" eligió `tell_me_about 2` (otra herramienta y otro
+  lugar) y se inventó un "old market" sacado de otro ejemplo.
+- **Contesta en inglés** a frases en italiano.
+- **Leer el prefijo** (unos 700 tokens) cuesta más de 15 s en este procesador, y
+  LiteRT-LM no permite reutilizarlo entre órdenes.
+
+Gemma no pudo servir de referencia en este teléfono: MediaPipe necesita Android 9.
+
+**Decisión: la demo sigue con Gemma 3 1B dentro del APK.** Ninguna alternativa
+compensa ahí. Gemma 4 E2B (2,58 GB) llevaría el APK a unos 3 GB. Qwen3.5 0.8B
+(965 MB) suma unos 400 MB sin una mejora demostrada. El producto usará la IA de
+Pleos a través de la interfaz `LanguageModel`, así que el modelo de la demo es
+provisional por diseño. Ver
+[../../docs/PLEOS-SDK-SURFACE.md](../../docs/PLEOS-SDK-SURFACE.md).
+
 ## Límites
 
 - Un teléfono no es el coche. Sirve para comparar los dos modelos entre sí, no
