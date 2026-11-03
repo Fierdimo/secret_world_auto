@@ -248,6 +248,10 @@ class OnDeviceVoiceInput(
         if (_state.value !is VoiceInput.State.Listening) _state.value = VoiceInput.State.Idle
     }
 
+    override fun inject(text: String) {
+        _state.value = VoiceInput.State.Heard(text, direct = true)
+    }
+
     /** Suelta los modelos. La RAM del infotainment no es infinita. */
     fun release() {
         stopListening()

@@ -205,7 +205,12 @@ la sección grande y nosotros en la pequeña.
   volumen mientras él habla, y después sigue.
 - **En la demo del móvil se imita con la pantalla dividida de Android**: Google
   Maps en una mitad y Secret World en la otra. Si el teléfono no tiene
-  navegador, se usa la navegación propia con Mapbox como respaldo.
+  navegador, se usa la navegación propia con Mapbox como último recurso.
+- **Todo destino va al navegador del usuario** —"llévame ahí", "llévame al
+  Hotel Caribe", las paradas del itinerario—, no solo en pantalla dividida. A
+  pantalla completa el navegador queda delante y Secret World se oculta: la voz
+  se corta y el micrófono se cierra hasta volver. Por eso el uso pensado es la
+  media pantalla.
 
 ## 5. Requisitos funcionales
 
@@ -242,7 +247,7 @@ la sección grande y nosotros en la pequeña.
 - RF-3.1 La posición se obtiene del **Fused Location SDK** del vehículo.
 - RF-3.2 Si hay ruta activa en el navegador nativo, se usa para precargar contenido por delante del coche.
 - RF-3.3 **Sin narración automática en marcha** (decisión del 2026‑11‑03). Mientras el vehículo se mueve, la app no inicia ninguna narración por su cuenta: solo narra lo que el usuario pide, por voz o pantalla. La velocidad y la posición sirven para **ordenar lo que se ofrece** ("¿qué hay cerca?" prioriza lo que queda por delante, no lo ya pasado) y para **preparar el audio por delante**, nunca para disparar. *Sustituye a la "anticipación" anterior, que disparaba la narración según la velocidad.*
-- RF-3.4 "Llévame ahí" entrega el destino al navegador nativo con **`requestRoute` + `startRouteGuiding`** (permiso `pleos.car.permission.NAVI_ROUTE_SEARCH`, nivel `normal`, sin restricción durante la conducción). La app no dibuja navegación propia. El intent estándar `geo:` **no sirve**: nadie lo atiende.
+- RF-3.4 "Llévame ahí" entrega el destino al navegador nativo con **`requestRoute` + `startRouteGuiding`** (permiso `pleos.car.permission.NAVI_ROUTE_SEARCH`, nivel `normal`, sin restricción durante la conducción). La app no dibuja navegación propia. El intent estándar `geo:` **no sirve**: nadie lo atiende. **En el móvil** (banco de pruebas y demo) el destino va a Google Maps o Waze. *Decidido el 2026‑11‑03:* la navegación no es un eje del producto y nunca es nuestra; la propia con Mapbox queda solo para cuando no hay ningún navegador instalado.
 - RF-3.5 **La narración respeta las maniobras.** Con `getTBTInfo` se conoce el giro que viene; la app calla antes de una maniobra compleja en lugar de narrar encima. Es la diferencia entre copiloto y ruido.
 
 ### RF-4 · Estado del vehículo

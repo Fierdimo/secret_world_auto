@@ -23,6 +23,24 @@ data class ItineraryPreferences(
  */
 object PlaceKinds {
 
+    /**
+     * Una guía de la ciudad entera y no un sitio: "Cartagena de Indias, the
+     * Jewel of the Caribbean". Se llama como la ciudad y sigue con una coletilla.
+     * En un itinerario no es una parada: está en el centro y no hay nada que ver.
+     */
+    fun isCityGuide(place: Place): Boolean {
+        val city = place.city?.let(::normalise)?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+        val name = place.name.lowercase()
+        val head = name.substringBefore(',').substringBefore(':')
+        return head != name && normalise(head).trim().startsWith(city)
+    }
+
+    /** Si el nombre del lugar contiene alguna de estas raíces ("castill", "muse"). */
+    fun nameMentions(place: Place, stems: Set<String>): Boolean {
+        val name = normalise(place.name)
+        return stems.any { stem -> " $stem" in name }
+    }
+
     fun interestsOf(place: Place): Set<Interest> {
         val text = normalise("${place.name} ${place.summary.orEmpty().take(SUMMARY_CHARS)}")
         return KEYWORDS.filterValues { words -> words.any { it in text } }.keys
@@ -140,12 +158,14 @@ object ItineraryPlanner {
  *
  * @param minutes duración estimada de todo, conducción y comida incluidas.
  * @param mealAfter tras qué parada (índice) se para a comer, o `null` si no se para.
+ * @param from desde dónde se sale: con él se recalcula al quitar una parada.
  */
 data class ItineraryProposal(
     val stops: List<Place>,
     val minutes: Int,
     val mealAfter: Int?,
     val request: ItineraryRequest,
+    val from: Coordinates? = null,
 )
 
 /**
@@ -164,7 +184,6 @@ object ItineraryDesigner {
 
     /** La hora de comer: si el plan la cruza, se para. Minutos desde medianoche. */
     const val LUNCH_FROM = 13 * 60
-    const val LUNCH_TO = 14 * 60 + 30
 
     /** Sin decir cuánto: lo que dura una tarde corriente. */
     const val DEFAULT_MINUTES = 180
@@ -182,14 +201,16 @@ object ItineraryDesigner {
     ): ItineraryProposal {
         val wanted = request.withProfile(profile)
         val pace = wanted.pace ?: Pace.NORMAL
+        // "Esta tarde" pedida a las once empieza a las dos, no ahora.
+        val start = startOf(wanted, startMinute)
         val budget = budgetMinutes(wanted, startMinute)
-        val meal = wanted.meal ?: crossesLunch(startMinute, budget)
+        val meal = wanted.meal ?: crossesLunch(start, budget)
         val available = budget - if (meal) MEAL_MINUTES else 0
 
         val pool = candidates
             .distinctBy { it.id }
             // Lo que salió de una búsqueda —un bar, una gasolinera— no es una parada de tour.
-            .filter { it.kind == null && it.id !in profile.visited }
+            .filter { it.kind == null && it.id !in profile.visited && !PlaceKinds.isCityGuide(it) }
             .filter { place -> PlaceKinds.interestsOf(place).none(wanted.avoid::contains) }
         // Con intereses, solo lo que encaja; si encaja muy poco, se completa con
         // lo demás antes que proponer un itinerario de una parada.
@@ -202,7 +223,7 @@ object ItineraryDesigner {
         var minutes = 0
         while (remaining.isNotEmpty() && chosen.size < maxStops(pace)) {
             // La más cercana, pero la distancia pesa menos cuanto más vale el sitio.
-            val next = remaining.minBy { here.distanceTo(it.position) / weight(it, wanted.interests) }
+            val next = remaining.minBy { here.distanceTo(it.position) / weight(it, wanted) }
             remaining.remove(next)
             val cost = Phrasebook.drivingMinutes(here.distanceTo(next.position)) + stopMinutes(next, pace)
             if (minutes + cost > available) continue
@@ -211,25 +232,55 @@ object ItineraryDesigner {
             here = next.position
         }
 
-        val mealAfter = if (meal && chosen.isNotEmpty()) mealIndex(from, chosen, pace, startMinute) else null
-        return ItineraryProposal(chosen, minutes + if (mealAfter != null) MEAL_MINUTES else 0, mealAfter, wanted)
+        val mealAfter = if (meal && chosen.isNotEmpty()) mealIndex(from, chosen, pace, start) else null
+        return ItineraryProposal(chosen, minutes + if (mealAfter != null) MEAL_MINUTES else 0, mealAfter, wanted, from)
+    }
+
+    /** La misma propuesta sin una parada, con la duración rehecha (RF-8.4: "quita el museo"). */
+    fun without(proposal: ItineraryProposal, place: Place): ItineraryProposal {
+        val stops = proposal.stops - place
+        val mealAfter = proposal.mealAfter?.let { meal -> if (stops.isEmpty()) null else meal.coerceAtMost(stops.size - 1) }
+        val from = proposal.from ?: return proposal.copy(stops = stops, mealAfter = mealAfter)
+        val pace = proposal.request.pace ?: Pace.NORMAL
+        var here = from
+        var minutes = 0
+        stops.forEach { stop ->
+            minutes += Phrasebook.drivingMinutes(here.distanceTo(stop.position)) + stopMinutes(stop, pace)
+            here = stop.position
+        }
+        return proposal.copy(stops = stops, mealAfter = mealAfter, minutes = minutes + if (mealAfter != null) MEAL_MINUTES else 0)
     }
 
     /**
-     * Cuánto tiempo hay. Lo dicho manda; si no, la franja: "esta tarde" llega
-     * hasta las siete, "esta mañana" hasta la una. Nunca menos de hora y media:
-     * pedir una tarde a las seis y media no es pedir veinte minutos.
+     * Cuándo empieza: ahora, o el principio de la franja si aún no ha llegado.
+     * "Esta tarde" dicho a las once es a partir de las dos.
      */
-    fun budgetMinutes(request: ItineraryRequest, startMinute: Int): Int {
+    fun startOf(request: ItineraryRequest, nowMinute: Int): Int {
+        if (request.minutes != null) return nowMinute
+        val opens = when (request.dayPart) {
+            DayPart.MORNING, DayPart.FULL_DAY -> 9 * 60
+            DayPart.AFTERNOON -> 14 * 60
+            DayPart.EVENING -> 18 * 60
+            null -> nowMinute
+        }
+        return maxOf(nowMinute, opens)
+    }
+
+    /**
+     * Cuánto tiempo hay. Lo dicho manda; si no, la franja: la mañana hasta la
+     * una, la tarde de dos a siete, la noche tres horas. Nunca menos de hora y
+     * media: pedir una tarde a las seis y media no es pedir veinte minutos.
+     */
+    fun budgetMinutes(request: ItineraryRequest, nowMinute: Int): Int {
         request.minutes?.let { return it }
+        val start = startOf(request, nowMinute)
         val until = when (request.dayPart) {
             DayPart.MORNING -> 13 * 60
             DayPart.AFTERNOON, DayPart.FULL_DAY -> 19 * 60
-            DayPart.EVENING -> startMinute + DEFAULT_MINUTES
-            null -> startMinute + DEFAULT_MINUTES
+            DayPart.EVENING, null -> start + DEFAULT_MINUTES
         }
         val floor = if (request.dayPart == DayPart.FULL_DAY) 4 * 60 else 90
-        return (until - startMinute).coerceAtLeast(floor)
+        return (until - start).coerceAtLeast(floor)
     }
 
     /** Visita y narración de una parada, según qué es y el ritmo pedido. */
@@ -243,8 +294,9 @@ object ItineraryDesigner {
         return (visit * factor).toInt() + (place.narrationSeconds + 59) / 60
     }
 
+    /** Empezar a las dos ya es haber comido: hace falta empezar antes de la una y media. */
     private fun crossesLunch(startMinute: Int, budget: Int): Boolean =
-        budget >= 3 * 60 && startMinute < LUNCH_TO && startMinute + budget > LUNCH_FROM
+        budget >= 3 * 60 && startMinute < LUNCH_FROM + 30 && startMinute + budget > LUNCH_FROM
 
     /** Tras la parada en la que el reloj pasa de la una; si nunca pasa, a mitad. */
     private fun mealIndex(from: Coordinates, stops: List<Place>, pace: Pace, startMinute: Int): Int {
@@ -266,20 +318,24 @@ object ItineraryDesigner {
      * editorial vale el doble; lo que encaja con sus gustos, más; y en
      * Wikipedia un artículo largo suele ser un sitio importante.
      */
-    private fun weight(place: Place, interests: Set<Interest>): Double {
+    private fun weight(place: Place, request: ItineraryRequest): Double {
         val editorial = if (place.id.startsWith(WIKIPEDIA_PREFIX)) 0.0 else 1.0
-        val liked = PlaceKinds.interestsOf(place).count(interests::contains) * 0.5
+        val liked = PlaceKinds.interestsOf(place).count(request.interests::contains) * 0.5
         val depth = (place.summary?.length ?: 0) / 4000.0
-        return 1.0 + editorial + liked + depth.coerceAtMost(0.5)
+        // Lo que nombró: quien pide castillos quiere el castillo, no "algo de historia".
+        val named = if (request.mentions.isNotEmpty() && PlaceKinds.nameMentions(place, request.mentions)) 4.0 else 0.0
+        return 1.0 + editorial + liked + depth.coerceAtMost(0.5) + named
     }
 
     private fun maxStops(pace: Pace): Int = when (pace) {
         Pace.RELAXED -> 5
-        Pace.NORMAL -> ItineraryPlanner.MAX_STOPS
+        Pace.NORMAL -> NORMAL_STOPS
         Pace.PACKED -> 10
     }
 
     private const val MIN_MATCHING = 2
+    /** Más paradas no se recorren con gusto en una tarde, ni se recuerdan. */
+    private const val NORMAL_STOPS = 6
     private const val DEFAULT_VISIT = 20
     private const val WIKIPEDIA_PREFIX = "wiki:"
 

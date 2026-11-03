@@ -84,4 +84,11 @@ interface VoiceInput {
 
     /** Vuelve al silencio tras haber mostrado lo que se oyó o el fallo. */
     fun acknowledge()
+
+    /**
+     * Hace como si se hubiera oído [text], dirigido al asistente. **Solo para
+     * probar** la conversación sin micrófono —adb shell am start ... --es say
+     * "..."—: el resto del camino es el de una frase de verdad.
+     */
+    fun inject(text: String) {}
 }

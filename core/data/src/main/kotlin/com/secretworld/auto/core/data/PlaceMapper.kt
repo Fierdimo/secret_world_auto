@@ -96,8 +96,14 @@ object PlaceMapper {
                 break
             }
         }
+        // "Discover India Catalina" es la India Catalina: el reclamo sobra, y
+        // dicho en voz alta suena a anuncio.
+        LEADS.firstOrNull { name.startsWith(it, ignoreCase = true) && name.length > it.length + MIN_NAME }
+            ?.let { name = name.substring(it.length).trim() }
         return name.trimEnd(':', '-', '–', '|').trim()
     }
+
+    private val LEADS = listOf("Discover ", "Explore ", "Visit ", "Descubre ", "Descubra ", "Explora ", "Visita ", "Scopri ", "Esplora ")
 
     private fun String.stripMarkdown(): String = this
         .replace(Regex("!\\[[^\\]]*]\\([^)]*\\)"), "")

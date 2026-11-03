@@ -85,6 +85,16 @@ sealed interface VoiceCommand {
     data object Stop : VoiceCommand
 
     /**
+     * "Ármame un itinerario para esta tarde", "organizzami un giro a Roma" →
+     * propone un recorrido a la medida (SPEC §2.4, RF-8). Lo que no se dijo lo
+     * completa el perfil o una pregunta.
+     */
+    data class PlanItinerary(val request: ItineraryRequest) : VoiceCommand
+
+    /** "Olvida mis preferencias" → borra el perfil (SPEC RF-8.6). */
+    data object ForgetProfile : VoiceCommand
+
+    /**
      * Se entendió que pide algo, pero no a qué se refiere. La pregunta se le
      * dice al conductor y se abre el turno para que conteste.
      *
@@ -153,6 +163,10 @@ object VoiceGrammar {
         // palabras detrás, lo que cuenta es el resto.
         if (words.size <= 2 && words.hasAny(YES)) return VoiceCommand.Yes
         if (words.size <= 2 && words.hasAny(NO)) return VoiceCommand.No
+
+        if (words.hasAny(FORGET_PROFILE)) return VoiceCommand.ForgetProfile
+        // Antes que las búsquedas: "un itinerario con comida" no es buscar comida.
+        ItineraryRequests.parse(heard)?.let { return VoiceCommand.PlanItinerary(it) }
 
         // Recién enumerada una lista, un nombre de ella la elige, antes de buscar
         // nada: «Restaurante Sung Waa» —escrito «restaurantes son guas»— lanzaba
@@ -594,9 +608,9 @@ object VoiceGrammar {
         "zitto", "zitta", "stai zitto", "stai zitta", "taci", "silenzio", "fermati", "smettila",
     )
     private val SKIP = listOf(
-        "skip", "not now", "next one", "next place", "later",
+        "skip", "not now", "next one", "next place", "next stop", "later",
         "salta", "sáltalo", "saltalo", "siguiente", "ahora no", "pásalo", "pasalo",
-        "prossimo", "non ora", "non adesso", "più tardi", "passa oltre",
+        "prossimo", "prossima tappa", "non ora", "non adesso", "più tardi", "passa oltre",
     )
     /**
      * Incluye cómo lo oye Whisper: "new by", "newbie" y "near by" son "nearby"
@@ -702,6 +716,11 @@ object VoiceGrammar {
         "salir de la ruta", "salir de la navegación", "salir de la navegacion", "parar la ruta", "parar navegación", "parar navegacion",
     )
 
+    private val FORGET_PROFILE = listOf(
+        "olvida mis preferencias", "olvida mis gustos", "borra mis preferencias", "borra mis gustos",
+        "dimentica le mie preferenze", "dimentica i miei gusti", "cancella le mie preferenze",
+        "forget my preferences", "forget what i like", "delete my preferences", "clear my preferences",
+    )
     private val YES = listOf(
         "yes", "yeah", "sure", "okay", "ok", "please", "sí", "si", "vale", "claro", "dale", "bueno", "de acuerdo", "por favor",
         "certo", "va bene", "d'accordo", "perfetto", "volentieri", "per favore", "sì grazie",

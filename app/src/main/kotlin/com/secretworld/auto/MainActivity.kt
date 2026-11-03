@@ -81,6 +81,11 @@ import com.secretworld.auto.domain.DrivingMode
 import com.secretworld.auto.domain.GrammarIntentResolver
 import com.secretworld.auto.domain.IntentPrompt
 import com.secretworld.auto.domain.IntentResolver
+import com.secretworld.auto.domain.ItineraryConversation
+import com.secretworld.auto.domain.ItineraryDesigner
+import com.secretworld.auto.domain.ItineraryProposal
+import com.secretworld.auto.domain.ItineraryRequest
+import com.secretworld.auto.domain.Tour
 import com.secretworld.auto.domain.LayeredIntentResolver
 import com.secretworld.auto.domain.LlmIntentResolver
 import com.secretworld.auto.domain.Resolution
@@ -124,6 +129,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * La app entera vive sobre un solo lienzo: **el mapa siempre está**.
@@ -164,6 +171,21 @@ class MainActivity : ComponentActivity() {
 
     /** Un sitio que se ha ofrecido llevar; un "sí" lo confirma. */
     private var offered: Place? = null
+
+    /** La conversación para armar un itinerario: lo que se preguntó o propuso. */
+    private val itinerary = ItineraryConversation()
+    private val profiles by lazy { TravellerProfiles(this) }
+    /** El itinerario en curso. `null` si no se está haciendo ninguno. */
+    private val tour = MutableStateFlow<Tour?>(null)
+    /** Tras qué parada del itinerario en curso toca comer; se olvida al ofrecerlo. */
+    private var tourMealAfter: Int? = null
+    /** La parada a la que ya se llegó: la llegada se anuncia una sola vez. */
+    private var arrivedAt: String? = null
+    /** Al llegar se ofrece la historia de la parada; un "sí" la narra (SPEC §2.4). */
+    private var storyOffered: Place? = null
+    /** Se ofreció buscar dónde comer; un "sí" busca. */
+    private var lunchOffered = false
+    private var planJob: kotlinx.coroutines.Job? = null
 
     /** La ruta en curso y su guía. `null` cuando no se navega. */
     private val activeRoute = MutableStateFlow<Route?>(null)
@@ -301,6 +323,20 @@ class MainActivity : ComponentActivity() {
      */
     private val voiceReady = MutableStateFlow(false)
 
+    /**
+     * Probar la conversación sin micrófono, solo en builds depurables:
+     *
+     *     adb shell am start -n <paquete>/com.secretworld.auto.MainActivity -f 0x20000000 --es say "ármame un itinerario"
+     *
+     * En la de entrega no: otra app podría dictarle órdenes.
+     */
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        val debuggable = applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+        val text = intent.getStringExtra("say")
+        if (debuggable && text != null && ::voiceInput.isInitialized) voiceInput.inject(text)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // De borde a borde: el mapa llega hasta el filo de la pantalla. Cualquier
@@ -426,7 +462,11 @@ class MainActivity : ComponentActivity() {
                     val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
                     when {
                         progress.arrived -> {
-                            narration.say(Phrasebook.arrived(c, current.destination))
+                            // Si es una parada del itinerario, la llegada la anuncia
+                            // el itinerario, que además ofrece la historia.
+                            if (tour.value?.current?.id != current.destination.id) {
+                                narration.say(Phrasebook.arrived(c, current.destination))
+                            }
                             endNavigation()
                         }
                         progress.offRoute && vehicleState.speedMetersPerSecond > 1.0 -> reroute(current, vehicleState.position, c)
@@ -439,6 +479,11 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+
+                // Llegar a una parada del itinerario, se navegue con quien se navegue:
+                // con Google Maps al lado, la posición es lo único que se sabe.
+                val currentTour by tour.collectAsState()
+                LaunchedEffect(vehicleState, currentTour) { checkTourArrival(upcoming) }
 
                 LaunchedEffect(Unit) { narration.ensureVoice() }
                 // Las frases fijas del asistente se sintetizan antes de que hagan
@@ -527,6 +572,23 @@ class MainActivity : ComponentActivity() {
                     val readings = listOf(order) + said.alternatives
                     val understood = readings.map { grammar.resolve(it, upcoming, memory) }
                         .filter { it.command !is VoiceCommand.NotUnderstood }
+
+                    // Con una pregunta o una propuesta de itinerario pendiente, lo que
+                    // se dice se lee primero como respuesta: "tres horas, museos" no
+                    // es buscar museos, y no hace falta el modelo para entenderlo.
+                    if (itinerary.busy) {
+                        val grammarSays = understood.firstOrNull()?.command ?: VoiceCommand.NotUnderstood(order)
+                        val step = itinerary.hear(order, grammarSays, profiles.load())
+                        if (step != null) {
+                            val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
+                            val reply = itineraryStep(step, c)
+                            Log.i("SWVoice", "«$order» → itinerario ${step::class.simpleName} · dice: «$reply»")
+                            memory.remember(order, reply)
+                            answer = reply
+                            voiceInput.acknowledge()
+                            return@LaunchedEffect
+                        }
+                    }
                     // Qué lectura manda: primero la que elige un sitio de la lista
                     // recién leída —contestar "Sung Waa" no es buscar otra vez—;
                     // luego la que da una categoría concreta —«ficcería» no es
@@ -557,6 +619,7 @@ class MainActivity : ComponentActivity() {
                     } else {
                         obey(resolution, context) { place -> skipped = skipped + place.id }
                     }
+                    Log.i("SWVoice", "dice: «$reply»")
                     memory.remember(order, reply)
                     answer = reply
                     voiceInput.acknowledge()
@@ -911,6 +974,23 @@ class MainActivity : ComponentActivity() {
             }
 
             VoiceCommand.Yes -> {
+                // Lo último ofrecido manda: la historia de la parada a la que se
+                // acaba de llegar, buscar dónde comer, o llevar a un sitio.
+                storyOffered?.let { stop ->
+                    storyOffered = null
+                    val intro = Phrasebook.playing(c, stop)
+                    narration.say(intro) { narration.listen(stop) }
+                    memory.focusOn(stop)
+                    return intro
+                }
+                if (lunchOffered) {
+                    lunchOffered = false
+                    val query = language.say(en = "restaurant", es = "restaurante", it = "ristorante")
+                    val reply = Phrasebook.searching(c, query)
+                    narration.say(reply)
+                    findPlaces(query, VoiceGrammar.searchCategoryOf(query))
+                    return reply
+                }
                 val place = offered
                 offered = null
                 if (place == null) {
@@ -932,6 +1012,12 @@ class MainActivity : ComponentActivity() {
 
             VoiceCommand.No -> {
                 offered = null
+                // En un itinerario, decir que no a la historia o a comer es seguir.
+                if (tour.value != null && (storyOffered != null || lunchOffered)) {
+                    storyOffered = null
+                    lunchOffered = false
+                    return advanceTour(c)
+                }
                 val reply = said ?: Phrasebook.stopped(c)
                 narration.say(reply)
                 reply
@@ -970,6 +1056,11 @@ class MainActivity : ComponentActivity() {
             }
 
             VoiceCommand.Skip -> {
+                // En un itinerario, "siguiente parada" o "salta esta" es pasar a la siguiente.
+                if (tour.value != null) {
+                    narration.stop()
+                    return advanceTour(c)
+                }
                 val current = memory.focus ?: c.around.firstOrNull()
                 if (current == null) {
                     val reply = said ?: Phrasebook.nothingToSkip(c)
@@ -1004,6 +1095,13 @@ class MainActivity : ComponentActivity() {
 
             VoiceCommand.EndRoute -> {
                 narration.stop()
+                if (tour.value != null) {
+                    endTour()
+                    endNavigation()
+                    val reply = Phrasebook.itineraryEnded(c)
+                    narration.say(reply)
+                    return reply
+                }
                 if (activeRoute.value == null) {
                     val reply = Phrasebook.stopped(c)
                     narration.say(reply)
@@ -1019,6 +1117,15 @@ class MainActivity : ComponentActivity() {
             VoiceCommand.Stop -> {
                 narration.stop()
                 val reply = said ?: Phrasebook.stopped(c)
+                narration.say(reply)
+                reply
+            }
+
+            is VoiceCommand.PlanItinerary -> itineraryStep(itinerary.request(command.request, profiles.load()), c)
+
+            VoiceCommand.ForgetProfile -> {
+                profiles.clear()
+                val reply = Phrasebook.profileForgotten(c)
                 narration.say(reply)
                 reply
             }
@@ -1057,6 +1164,178 @@ class MainActivity : ComponentActivity() {
                 reply
             }
         }
+    }
+
+    // ------------------------------------------------------------------ itinerarios
+
+    /** Hace lo que pide la conversación del itinerario y devuelve lo que se dice. */
+    private fun itineraryStep(step: ItineraryConversation.Step, c: Phrasebook.Context): String = when (step) {
+        is ItineraryConversation.Step.Ask -> {
+            val reply = Phrasebook.askItinerary(c, step.missing)
+            narration.say(reply) { voiceInput.listenForAnswer() }
+            reply
+        }
+        is ItineraryConversation.Step.Plan -> {
+            val reply = Phrasebook.planningItinerary(c)
+            narration.say(reply)
+            planItinerary(step.request)
+            reply
+        }
+        is ItineraryConversation.Step.Repropose -> {
+            showItinerary(step.proposal)
+            val reply = Phrasebook.proposeItinerary(c, step.proposal)
+            narration.say(reply) { voiceInput.listenForAnswer() }
+            reply
+        }
+        is ItineraryConversation.Step.Start -> {
+            startTour(step.proposal)
+            val first = step.proposal.stops.first()
+            val reply = Phrasebook.itineraryStarted(c, first)
+            narration.say(reply)
+            navigateTo(first, announce = false)
+            reply
+        }
+        ItineraryConversation.Step.Discarded -> {
+            clearSearch()
+            val reply = Phrasebook.itineraryDiscarded(c)
+            narration.say(reply)
+            reply
+        }
+    }
+
+    /**
+     * Busca candidatos —alrededor del coche o en la zona pedida— y propone. La
+     * propuesta se dice con pregunta al final, y se queda esperando el sí.
+     */
+    private fun planItinerary(request: ItineraryRequest) {
+        planJob?.cancel()
+        planJob = lifecycleScope.launch {
+            val here = vehicle.state.value.position
+            val c = Phrasebook.Context(here, memory.listed, memory, language)
+            val area = request.area?.let { name ->
+                areas.locate(name, here, language) ?: run {
+                    itinerary.reset()
+                    narration.say(Phrasebook.itineraryAreaNotFound(c, name.replaceFirstChar { it.uppercase() })) { voiceInput.listenForAnswer() }
+                    return@launch
+                }
+            }
+            val from = area?.position ?: here
+            val candidates = catalogue.nearby(from, language = language).places
+            val now = java.time.LocalTime.now()
+            val proposal = ItineraryDesigner.plan(from, candidates, request, profiles.load(), now.hour * 60 + now.minute)
+            Log.i("SWItinerary", "${request} → ${proposal.stops.size} paradas, ${proposal.minutes} min, comida tras ${proposal.mealAfter}")
+            if (proposal.stops.isEmpty()) {
+                itinerary.reset()
+                narration.say(Phrasebook.noItinerary(c)) { voiceInput.listenForAnswer() }
+                return@launch
+            }
+            itinerary.proposed(proposal)
+            showItinerary(proposal)
+            val reply = Phrasebook.proposeItinerary(c, proposal)
+            Log.i("SWItinerary", "propone: «$reply»")
+            narration.say(reply) { voiceInput.listenForAnswer() }
+        }
+    }
+
+    /** La propuesta en la lista del panel y en el mapa, para verla con el coche detenido. */
+    private fun showItinerary(proposal: ItineraryProposal) {
+        searchResults.value = proposal.stops
+        searchQuery.value = getString(R.string.itinerary_title, proposal.stops.size)
+        memory.listed(proposal.stops)
+    }
+
+    private fun startTour(proposal: ItineraryProposal) {
+        // Lo dicho al pedir se aprende: la próxima vez no hace falta repetirlo.
+        profiles.update { it.learn(proposal.request) }
+        tour.value = Tour(proposal.stops)
+        tourMealAfter = proposal.mealAfter
+        arrivedAt = null
+        storyOffered = null
+        lunchOffered = false
+    }
+
+    private fun endTour() {
+        tour.value = null
+        tourMealAfter = null
+        arrivedAt = null
+        storyOffered = null
+        lunchOffered = false
+        clearSearch()
+    }
+
+    /**
+     * A la siguiente parada. Si tocaba comer tras esta, antes se ofrece buscar
+     * dónde, y se sigue con el sí o el no.
+     */
+    private fun advanceTour(c: Phrasebook.Context): String {
+        val current = tour.value ?: return Phrasebook.noMoreStops(c).also { narration.say(it) }
+        storyOffered = null
+        if (tourMealAfter == current.index) {
+            tourMealAfter = null
+            lunchOffered = true
+            val reply = Phrasebook.lunchTime(c)
+            narration.say(reply) { voiceInput.listenForAnswer() }
+            return reply
+        }
+        val next = current.advanced()
+        if (next == null) {
+            endTour()
+            endNavigation()
+            val reply = Phrasebook.itineraryFinished(c)
+            narration.say(reply)
+            return reply
+        }
+        tour.value = next
+        arrivedAt = null
+        val reply = Phrasebook.nextStop(c, next.current, next.isLast)
+        narration.say(reply)
+        navigateTo(next.current, announce = false)
+        return reply
+    }
+
+    /**
+     * Llegar a la parada en curso: se apunta como visitada y se **ofrece** su
+     * historia (SPEC §2.4). Sin historia que contar, se sigue.
+     */
+    private fun checkTourArrival(around: List<Place>) {
+        val current = tour.value ?: return
+        val stop = current.current
+        if (arrivedAt == stop.id) return
+        val here = vehicle.state.value.position
+        if (here.distanceTo(stop.position) > ARRIVAL_METERS) return
+        arrivedAt = stop.id
+        profiles.update { it.visited(listOf(stop)) }
+        val c = Phrasebook.Context(here, around, memory, language)
+        if (catalogue.textFor(stop, language).isNullOrBlank()) {
+            advanceTour(c)
+            return
+        }
+        storyOffered = stop
+        memory.focusOn(stop)
+        narration.say(Phrasebook.arrivedAtStop(c, stop)) { voiceInput.listenForAnswer() }
+    }
+
+    /**
+     * Entrega el destino al navegador que tenga el usuario: Google Maps o Waze
+     * (SPEC §2.4, RF-8.11). En pantalla dividida se abre en la otra mitad; a
+     * pantalla completa queda delante, y Secret World sigue al volver.
+     */
+    private fun hasExternalNavigation(): Boolean =
+        listOf(GOOGLE_MAPS, WAZE).any { packageManager.getLaunchIntentForPackage(it) != null }
+
+    private fun openExternalNavigation(place: Place): Boolean {
+        val (lat, lon) = place.position.latitude to place.position.longitude
+        val candidates = listOf(
+            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("google.navigation:q=$lat,$lon&mode=d"))
+                .setPackage(GOOGLE_MAPS),
+            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://waze.com/ul?ll=$lat,$lon&navigate=yes"))
+                .setPackage(WAZE),
+        )
+        val intent = candidates.firstOrNull { it.resolveActivity(packageManager) != null } ?: return false
+        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        // En la otra mitad de la pantalla, no encima de nosotros.
+        if (isInMultiWindowMode) intent.addFlags(android.content.Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT)
+        return runCatching { startActivity(intent) }.isSuccess
     }
 
     /** Narra un lugar y lo deja en foco: a partir de aquí, "eso" es esto. */
@@ -1208,12 +1487,28 @@ class MainActivity : ComponentActivity() {
      * sigue y las maniobras se anuncian. Es lo que en el vehículo hará NaviHelper
      * cuando Pleos lo publique; hasta entonces, Mapbox (docs/MAP-OPTIONS.md).
      */
+    /**
+     * Lleva a un sitio. **La navegación no es nuestra**: el destino se le pasa al
+     * navegador del usuario. La propia —Mapbox en el banco de pruebas— queda
+     * solo para cuando no hay ninguno instalado.
+     */
     private fun navigateTo(place: Place, announce: Boolean = true) {
         memory.focusOn(place)
         lifecycleScope.launch {
             val here = vehicle.state.value.position
             val c = Phrasebook.Context(here, memory.listed, memory, language)
             if (announce) narration.say(Phrasebook.routingTo(c, place))
+            if (hasExternalNavigation()) {
+                // Primero termina de hablar: a pantalla completa el navegador nos
+                // deja detrás, y al irnos la voz se corta a media frase.
+                // Lo que se acaba de pedir decir puede no haber empezado aún.
+                withTimeoutOrNull(SPEECH_START_MS) { narration.state.first { it !is NarrationController.State.Idle } }
+                withTimeoutOrNull(SPEECH_WAIT_MS) { narration.state.first { it is NarrationController.State.Idle } }
+                if (openExternalNavigation(place)) {
+                    endNavigation()
+                    return@launch
+                }
+            }
             val found = router.route(here, place)
             if (found == null) {
                 narration.say(Phrasebook.noRoute(c, place))
@@ -1405,6 +1700,13 @@ class MainActivity : ComponentActivity() {
         /** Cuánto se queda en pantalla una respuesta del asistente. */
         const val ANSWER_LINGER_MS = 8_000L
         const val REROUTE_EVERY_MS = 15_000L
+        /** A esta distancia de una parada del itinerario se está en ella. */
+        const val ARRIVAL_METERS = 150.0
+        const val GOOGLE_MAPS = "com.google.android.apps.maps"
+        const val WAZE = "com.waze"
+        /** Lo más que se espera a que termine una frase antes de abrir el navegador. */
+        const val SPEECH_WAIT_MS = 12_000L
+        const val SPEECH_START_MS = 1_500L
         /** Lo más que se enseña "elaboro" sin que la app llegue a contestar. */
         const val THINKING_MAX_MS = 10_000L
 

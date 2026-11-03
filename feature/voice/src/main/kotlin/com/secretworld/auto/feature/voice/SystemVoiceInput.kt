@@ -103,6 +103,10 @@ class SystemVoiceInput(private val context: Context) : VoiceInput {
         if (_state.value !is VoiceInput.State.Listening) _state.value = VoiceInput.State.Idle
     }
 
+    override fun inject(text: String) {
+        _state.value = VoiceInput.State.Heard(text, direct = true)
+    }
+
     private val listener = object : RecognitionListener {
         override fun onResults(results: Bundle?) {
             val heard = results

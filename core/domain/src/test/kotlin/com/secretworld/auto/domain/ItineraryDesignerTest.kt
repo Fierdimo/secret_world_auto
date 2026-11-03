@@ -93,6 +93,44 @@ class ItineraryDesignerTest {
     }
 
     @Test
+    fun `quitar una parada acorta la duracion`() {
+        val proposal = ItineraryDesigner.plan(here, all, ItineraryRequest(minutes = 600), TravellerProfile(), threePm)
+        val shorter = ItineraryDesigner.without(proposal, proposal.stops.last())
+        assertEquals(proposal.stops.dropLast(1), shorter.stops)
+        assertTrue(shorter.minutes < proposal.minutes)
+    }
+
+    @Test
+    fun `una guia de la ciudad no es una parada`() {
+        val guide = place("9", "Cartagena de Indias, the Jewel of the Caribbean", 0.0, 0.0).copy(city = "Cartagena")
+        val cathedral = place("10", "Cartagena Cathedral", 0.0, 0.0).copy(city = "Cartagena")
+        assertTrue(PlaceKinds.isCityGuide(guide))
+        assertTrue(!PlaceKinds.isCityGuide(cathedral))
+        val proposal = ItineraryDesigner.plan(here, all + guide, ItineraryRequest(minutes = 600), TravellerProfile(), threePm)
+        assertTrue(guide !in proposal.stops)
+    }
+
+    @Test
+    fun `nombrar castillos trae el castillo`() {
+        val request = requireNotNull(ItineraryRequests.parse("un itinerario esta tarde, me gustan los castillos"))
+        assertEquals(setOf("castill"), request.mentions)
+        val proposal = ItineraryDesigner.plan(here, all, request.copy(minutes = 60), TravellerProfile(), threePm)
+        assertEquals(castle, proposal.stops.first())
+    }
+
+    @Test
+    fun `lo que se evita no cuenta como mencion`() {
+        assertTrue(requireNotNull(ItineraryRequests.parse("un itinerario sin iglesias")).mentions.isEmpty())
+    }
+
+    @Test
+    fun `esta tarde pedida por la manana empieza a las dos y no come`() {
+        assertEquals(14 * 60, ItineraryDesigner.startOf(ItineraryRequest(dayPart = DayPart.AFTERNOON), tenAm))
+        assertEquals(5 * 60, ItineraryDesigner.budgetMinutes(ItineraryRequest(dayPart = DayPart.AFTERNOON), tenAm))
+        assertNull(ItineraryDesigner.plan(here, all, ItineraryRequest(dayPart = DayPart.AFTERNOON), TravellerProfile(), tenAm).mealAfter)
+    }
+
+    @Test
     fun `la tarde llega hasta las siete y nunca es un rato`() {
         assertEquals(4 * 60, ItineraryDesigner.budgetMinutes(ItineraryRequest(dayPart = DayPart.AFTERNOON), threePm))
         assertEquals(90, ItineraryDesigner.budgetMinutes(ItineraryRequest(dayPart = DayPart.AFTERNOON), 18 * 60 + 30))

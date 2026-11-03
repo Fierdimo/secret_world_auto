@@ -24,6 +24,11 @@ data class ItineraryRequest(
     val avoid: Set<Interest> = emptySet(),
     val pace: Pace? = null,
     val meal: Boolean? = null,
+    /**
+     * Las raíces concretas que nombró ("castill", "muse", "playa"), además del
+     * interés general. Sirven para preferir el sitio que se llama así.
+     */
+    val mentions: Set<String> = emptySet(),
 ) {
     /** Si dijo cuánto tiempo tiene, de una forma u otra. */
     val hasTime: Boolean get() = minutes != null || dayPart != null
@@ -47,6 +52,7 @@ data class ItineraryRequest(
         avoid = avoid + other.avoid - other.interests,
         pace = other.pace ?: pace,
         meal = other.meal ?: meal,
+        mentions = mentions + other.mentions,
     )
 
     /** Con el perfil: lo que no se dijo se toma de lo que se sabe del usuario. */
@@ -109,8 +115,25 @@ object ItineraryRequests {
      */
     fun details(heard: String): ItineraryRequest = details(words(heard))
 
+    /**
+     * Un "no" corto que no ajusta nada: "no, vale", "no gracias". "No
+     * iglesias" no lo es: dice qué quitar.
+     */
+    fun refuses(heard: String): Boolean = words(heard).let {
+        it.size <= 4 && it.any { word -> word in REFUSALS } && details(it) == ItineraryRequest()
+    }
+
+    /** "Quita el museo", "togli il castello", "remove the cathedral". */
+    fun removes(heard: String): Boolean = words(heard).any { it in REMOVE_VERBS }
+
+    /**
+     * Aceptar la propuesta con más que un "sí": "empecemos", "venga, vamos",
+     * "partiamo", "let's go". La gramática solo toma "sí" a secas.
+     */
+    fun accepts(heard: String): Boolean = words(heard).let { it.size <= 4 && it.hasAny(ACCEPT) && it.none { word -> word in REFUSALS } }
+
     private fun details(words: List<String>): ItineraryRequest {
-        val (liked, avoided) = interests(words)
+        val (liked, avoided, mentioned) = interests(words)
         return ItineraryRequest(
             minutes = minutesIn(words),
             dayPart = dayPartIn(words),
@@ -119,6 +142,7 @@ object ItineraryRequests {
             avoid = avoided,
             pace = paceIn(words),
             meal = if (words.hasAny(MEAL)) true else null,
+            mentions = mentioned,
         )
     }
 
@@ -170,18 +194,26 @@ object ItineraryRequests {
      * "niente chiese", "no churches", "menos museos") manda a la lista de evitar
      * lo que la sigue de cerca.
      */
-    private fun interests(words: List<String>): Pair<Set<Interest>, Set<Interest>> {
+    private fun interests(words: List<String>): Triple<Set<Interest>, Set<Interest>, Set<String>> {
         val liked = mutableSetOf<Interest>()
         val avoided = mutableSetOf<Interest>()
+        val mentioned = mutableSetOf<String>()
         words.forEachIndexed { i, word ->
             val interest = interestOf(word) ?: return@forEachIndexed
             // "No me gustan los museos": la negación puede ir cuatro palabras
             // antes. Un "pero" o un "sí" la cortan: "pero sí la historia".
             val before = (1..4).mapNotNull { back -> words.getOrNull(i - back) }.takeWhile { it !in CONTRAST }
-            val negated = before.any { it in NEGATIONS }
-            if (negated) avoided += interest else liked += interest
+            // "Quita la catedral" también: quitar es no querer.
+            val negated = before.any { it in NEGATIONS || it in REMOVE_VERBS }
+            if (negated) {
+                avoided += interest
+            } else {
+                liked += interest
+                // Lo concreto que le gusta, no lo que evita: "sin iglesias" no pide iglesias.
+                SPECIFIC_STEMS.firstOrNull(word::startsWith)?.let { mentioned += it }
+            }
         }
-        return (liked - avoided) to avoided
+        return Triple(liked - avoided, avoided, mentioned)
     }
 
     /**
@@ -234,6 +266,19 @@ object ItineraryRequests {
         "organiza el dia", "organizza la giornata", "aprovechar el dia", "sfruttare la giornata", "make the most of",
     )
 
+    private val REMOVE_VERBS = setOf(
+        "quita", "quitale", "quitar", "saca", "elimina", "borra", "fuera",
+        "togli", "togliere", "levare", "leva", "cancella",
+        "remove", "drop", "delete", "without",
+    )
+    /** "No, vale": la negación gana. */
+    private val REFUSALS = setOf("no", "nope", "non", "nah", "mejor", "meglio")
+    private val ACCEPT = listOf(
+        "si", "vale", "venga", "vamos", "empecemos", "empezamos", "empieza", "adelante", "perfecto", "dale", "listo",
+        "andiamo", "partiamo", "iniziamo", "comincia", "perfetto", "va bene", "certo", "dai",
+        "yes", "ok", "okay", "lets go", "let s go", "go ahead", "start", "perfect", "sounds good", "sure",
+    )
+
     private val HOUR_WORDS = setOf("hora", "horas", "ora", "ore", "hour", "hours", "h")
     private val MINUTE_WORDS = setOf("minuto", "minutos", "minuti", "minute", "minutes", "min")
     private val HALF_HOUR_WORDS = setOf("mezzora")
@@ -271,6 +316,18 @@ object ItineraryRequests {
         "comer", "almorzar", "almuerzo", "comida", "cenar",
         "mangiare", "pranzo", "pranzare", "cena",
         "lunch", "eat", "food", "dinner",
+    )
+
+    /**
+     * Las raíces que nombran un tipo de sitio concreto, no un interés general:
+     * "castillos" pide un castillo; "historia", no.
+     */
+    private val SPECIFIC_STEMS = listOf(
+        "castill", "castell", "castle", "fort", "murall", "palaci", "palazz", "palace", "ruin", "rovin",
+        "muse", "galeri", "galler", "teatr", "theat",
+        "iglesi", "chies", "church", "catedral", "cattedral", "cathedral", "basilic", "convent", "monaster",
+        "playa", "spiagg", "beach", "parque", "parco", "park", "jardin", "giardin", "garden", "mirador", "belvedere",
+        "plaza", "piazz", "square", "mercado", "mercat", "market",
     )
 
     /** Por raíz: "castillo", "castillos", "castello", "castle" caen todos. */

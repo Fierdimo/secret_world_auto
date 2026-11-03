@@ -479,6 +479,182 @@ object Phrasebook {
         }
     }
 
+    // ---- itinerarios (SPEC §2.4, RF-8)
+
+    /** Una sola pregunta con todo lo que falta (RF-8.3). */
+    fun askItinerary(c: Context, missing: Set<ItineraryRequest.Missing>): String {
+        val time = ItineraryRequest.Missing.TIME in missing
+        val interests = ItineraryRequest.Missing.INTERESTS in missing
+        return when {
+            time && interests -> c.say(
+                en = "Happy to. How much time do you have, and what do you fancy most: history, art, churches, nature or strolling the city?",
+                es = "Claro. ¿Cuánto tiempo tienes, y qué te apetece más: historia, arte, iglesias, naturaleza o pasear por la ciudad?",
+                it = "Volentieri. Quanto tempo hai, e cosa ti va di più: storia, arte, chiese, natura o passeggiare in città?",
+            )
+            time -> c.say(
+                en = "How much time do you have?",
+                es = "¿Cuánto tiempo tienes?",
+                it = "Quanto tempo hai?",
+            )
+            else -> c.say(
+                en = "What do you fancy most: history, art, churches, nature or strolling the city?",
+                es = "¿Qué te apetece más: historia, arte, iglesias, naturaleza o pasear por la ciudad?",
+                it = "Cosa ti va di più: storia, arte, chiese, natura o passeggiare in città?",
+            )
+        }
+    }
+
+    fun planningItinerary(c: Context): String = pick(
+        c,
+        c.say(
+            en = listOf("Let me put something together.", "Give me a moment to plan it."),
+            es = listOf("Déjame pensar algo.", "Dame un momento para armarlo."),
+            it = listOf("Fammi pensare a qualcosa.", "Dammi un momento per organizzarlo."),
+        ),
+    )
+
+    /**
+     * La propuesta, para confirmar (RF-8.4): cuántas paradas, cuánto tiempo y
+     * cuáles, con la comida en su sitio. Termina en pregunta.
+     */
+    fun proposeItinerary(c: Context, proposal: ItineraryProposal): String {
+        // De viva voz, como mucho tres nombres: la lista entera está en la pantalla.
+        val spoken = proposal.stops.take(SPOKEN_STOPS)
+        val names = spoken.mapIndexed { index, stop ->
+            val name = shortName(stop)
+            if (proposal.mealAfter == index && index < proposal.stops.lastIndex) {
+                name + c.say(en = ", then lunch", es = ", luego a comer", it = ", poi pranzo")
+            } else {
+                name
+            }
+        }
+        val rest = proposal.stops.size - spoken.size
+        val more = if (rest > 0) listOf(c.say(en = "$rest more", es = "$rest más", it = "altre $rest")) else emptyList()
+        val lunchLater = proposal.mealAfter != null && proposal.mealAfter >= SPOKEN_STOPS
+        val list = joined(c, names + more) +
+            if (lunchLater) c.say(en = ", with a lunch stop", es = ", con parada para comer", it = ", con sosta per il pranzo") else ""
+        val duration = spokenDuration(proposal.minutes * 60.0, c.language)
+        val count = proposal.stops.size
+        return if (count == 1) {
+            c.say(
+                en = "I'd suggest one stop, about $duration: $list. Shall we go?",
+                es = "Te propongo una parada, unas $duration: $list. ¿Vamos?",
+                it = "Ti propongo una tappa, circa $duration: $list. Andiamo?",
+            )
+        } else {
+            c.say(
+                en = "I'd suggest $count stops in about $duration: $list. Shall we start?",
+                es = "Te propongo $count paradas en unas $duration: $list. ¿Empezamos?",
+                it = "Ti propongo $count tappe in circa $duration: $list. Partiamo?",
+            )
+        }
+    }
+
+    private const val SPOKEN_STOPS = 3
+
+    fun noItinerary(c: Context): String = c.say(
+        en = "I can't find places that fit around here. Shall we try other interests, or another area?",
+        es = "No encuentro lugares que encajen por aquí. ¿Probamos con otros intereses, o en otra zona?",
+        it = "Non trovo posti adatti qui intorno. Proviamo con altri interessi, o in un'altra zona?",
+    )
+
+    fun itineraryAreaNotFound(c: Context, area: String): String = c.say(
+        en = "I can't find $area. Could you say it another way?",
+        es = "No encuentro $area. ¿Puedes decirlo de otra forma?",
+        it = "Non trovo $area. Puoi dirlo in un altro modo?",
+    )
+
+    fun itineraryDiscarded(c: Context): String = pick(
+        c,
+        c.say(
+            en = listOf("Fine, we'll leave it.", "No problem, another time."),
+            es = listOf("Vale, lo dejamos.", "Sin problema, en otro momento."),
+            it = listOf("Va bene, lasciamo stare.", "Nessun problema, un'altra volta."),
+        ),
+    )
+
+    /** Al arrancar: la primera parada y cuánto queda para llegar. */
+    fun itineraryStarted(c: Context, first: Place): String {
+        val minutes = drivingMinutes(c.here.distanceTo(first.position))
+        val name = shortName(first)
+        return c.say(
+            en = "Great. First stop: $name, $minutes minutes away.",
+            es = "Perfecto. Primera parada: $name, a $minutes minutos.",
+            it = "Perfetto. Prima tappa: $name, a $minutes minuti.",
+        )
+    }
+
+    fun nextStop(c: Context, place: Place, isLast: Boolean): String {
+        val minutes = drivingMinutes(c.here.distanceTo(place.position))
+        val name = shortName(place)
+        return if (isLast) {
+            c.say(
+                en = "Last stop: $name, $minutes minutes away.",
+                es = "Última parada: $name, a $minutes minutos.",
+                it = "Ultima tappa: $name, a $minutes minuti.",
+            )
+        } else {
+            c.say(
+                en = "Next stop: $name, $minutes minutes away.",
+                es = "Siguiente parada: $name, a $minutes minutos.",
+                it = "Prossima tappa: $name, a $minutes minuti.",
+            )
+        }
+    }
+
+    /**
+     * Al llegar a una parada se **ofrece** la narración y se espera el sí
+     * (SPEC §2.4): no se narra sin pedirlo.
+     */
+    fun arrivedAtStop(c: Context, place: Place): String {
+        val name = shortName(place)
+        return pick(
+            c,
+            c.say(
+                en = listOf("We're at $name. Shall I tell you its story?", "Here's $name. Want to hear about it?"),
+                es = listOf("Hemos llegado a $name. ¿Te cuento su historia?", "Ya estamos en $name. ¿Quieres que te la cuente?"),
+                it = listOf("Siamo arrivati a $name. Ti racconto la sua storia?", "Eccoci a $name. Vuoi che te la racconti?"),
+            ),
+        )
+    }
+
+    /** Tras la narración de una parada: cómo seguir. */
+    fun whenReadyForNext(c: Context): String = c.say(
+        en = "When you're ready, say \"next stop\".",
+        es = "Cuando quieras, di «siguiente parada».",
+        it = "Quando vuoi, di «prossima tappa».",
+    )
+
+    fun lunchTime(c: Context): String = c.say(
+        en = "It's a good time for lunch. Shall I look for somewhere to eat nearby?",
+        es = "Es buen momento para comer. ¿Busco dónde por aquí?",
+        it = "È un buon momento per pranzare. Cerco dove mangiare qui vicino?",
+    )
+
+    fun itineraryFinished(c: Context): String = c.say(
+        en = "That's the end of the itinerary. I hope you enjoyed it.",
+        es = "Hasta aquí el itinerario. Espero que lo hayas disfrutado.",
+        it = "Fine dell'itinerario. Spero ti sia piaciuto.",
+    )
+
+    fun itineraryEnded(c: Context): String = c.say(
+        en = "Itinerary finished.",
+        es = "Itinerario terminado.",
+        it = "Itinerario terminato.",
+    )
+
+    fun profileForgotten(c: Context): String = c.say(
+        en = "Done, I've forgotten your preferences.",
+        es = "Hecho, he olvidado tus preferencias.",
+        it = "Fatto, ho dimenticato le tue preferenze.",
+    )
+
+    fun noMoreStops(c: Context): String = c.say(
+        en = "There are no more stops.",
+        es = "No quedan más paradas.",
+        it = "Non ci sono altre tappe.",
+    )
+
     fun noNavigation(c: Context): String {
         val focus = c.memory.focus?.let(::shortName)
         return when (c.language) {
