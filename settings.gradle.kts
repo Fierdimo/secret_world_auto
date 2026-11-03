@@ -42,3 +42,7 @@ include(":core:designsystem")
 include(":feature:voice")
 include(":feature:discover")
 include(":feature:parked")
+
+// Banco de modelos de lenguaje: compara Gemma 3 1B (MediaPipe) con Qwen3 0.6B
+// (LiteRT-LM) sobre el prompt real. No es parte del producto.
+include(":spikes:llm-bench")
