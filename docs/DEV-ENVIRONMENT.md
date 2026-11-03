@@ -135,3 +135,97 @@ Reglas que hacen el día usable, aunque no cómodo:
   el trabajo diario; el perfil ancho, solo para revisar layout.
 - Reiniciar el emulador en frío en cuanto la síntesis deje de completarse: es la
   señal de que el invitado se ha degradado.
+
+## Qué se puede desarrollar con el emulador
+
+Revisado el 2026‑11‑03, después de probar contra el emulador la sonda con
+llamadas reales a los servicios de Pleos. El detalle técnico está en
+[PLEOS-SDK-SURFACE.md](PLEOS-SDK-SURFACE.md); aquí solo va **qué se puede hacer,
+dónde y con qué coste**.
+
+### Imágenes que tenemos
+
+| Imagen | Arquitectura | ¿Arranca en este Mac? | Qué aporta |
+|---|---|---|---|
+| `Pleos_Connect_v2.1.5` (perfil W), **instalada** | arm64 | **Sí**, lenta | La de trabajo. caas 2.2.7.1, con el proveedor de modelos on-device |
+| `crp-v2.1.5-arm64-s` | arm64 | Sí | Lo mismo con el perfil Connect‑S (2560×1440). Solo sirve para revisar layout |
+| `crp-v2.1.5-x86_64-w` / `-s` | x86_64 | No | Lo mismo que las arm64, para un PC Intel/AMD |
+| `POIP_EMULATOR_33_2685…260810` (Connect‑W, KOR, agosto 2026) | x86_64 | **No** | caas 4.2.9 y NaviHelper dentro. **Sin proveedor de modelos** |
+| `HMGCP14_260423…connect-lite` (en `emulator/`) | x86_64 | No | Imagen antigua; no aporta nada frente a la v2.1.5 |
+
+El emulador de Android en Apple Silicon **solo arranca imágenes arm64**. Las
+x86_64 necesitan un PC Intel/AMD con virtualización por hardware (KVM en Linux;
+WHPX o AEHD en Windows).
+
+### En este Mac (Apple A18 Pro, 8 GB), con la v2.1.5
+
+| Tarea | ¿Se puede? | Notas |
+|---|---|---|
+| Instalar el sabor `vehicle` y comprobar que arranca | **Sí** | `--user 10`, siempre |
+| Estado del vehículo (`android.car`): velocidad, marcha, batería | **Sí** | 40 propiedades; el odómetro no |
+| Foco de audio y reproducción | **Sí** | Verificado con `AudioTrack` |
+| Ubicación (`fused`, `gps`) | **Sí** | |
+| Vincularse a los servicios de Pleos (navegación, STT, TTS, LLM) | **Sí** | Con las acciones correctas; ver PLEOS-SDK-SURFACE |
+| LLM on-device de Pleos | Sí, pero **no sirve** | 0,5B: no sigue el italiano y se inventa datos. Unos 250 tokens en 5,7 min |
+| TTS on-device de Pleos | **Solo coreano** | it, en y es devuelven `Unsupported locale` |
+| STT con micrófono | No | El emulador va sin entrada de audio |
+| Revisar layout a 3840×1440 | Sí, a duras penas | Render por software; mejor capturas que la ventana |
+| Medir rendimiento (RTF de la voz, latencias) | **No** | Un emulador sobre un portátil saturado no mide nada útil |
+| Compilar con el emulador encendido | **No** | Se pelean por la RAM; `./gradlew --stop` antes |
+| Trabajo diario de UI y lógica | **No** | Demasiado lento para iterar |
+
+Conclusión práctica: aquí el emulador sirve para **sesiones cortas de
+verificación**, no para desarrollar sobre él.
+
+### Lo que necesita otro equipo
+
+- **La imagen de agosto (caas 4.2.9 y NaviHelper)**: un PC x86_64. Para nuestro
+  producto aporta poco: no trae modelos on-device, y lo de servidor necesita
+  credenciales de Pleos igualmente.
+- **Trabajar a diario contra el emulador**: cualquier máquina con 16 GB o más.
+  Un PC Windows Intel/AMD sirve con las imágenes x86_64 de la v2.1.5. Si es un
+  Mac Apple Silicon de 16 GB o más, sirve la arm64 que ya tenemos.
+- **Medir rendimiento**: ni emulador ni portátil. Hace falta una tablet ARM real
+  (con el sabor `bench`) o, mejor, el coche.
+
+### Cómo trabajar mientras tanto
+
+1. **Desarrollar sobre el sabor `bench`** en un móvil o tablet Android. La voz, el
+   `TourQueue`, la narración, la caché y la UI se validan ahí, más rápido y con
+   altavoces de verdad. Ver [§ Lo que sí funciona en una tablet](#lo-que-sí-funciona-en-una-tablet-o-un-móvil-nuestra-app).
+2. **Ir al emulador solo para lo que es del coche**: que el APK `vehicle`
+   instala y arranca, que lee el vehículo, que el audio convive con el sistema y
+   que el layout aguanta el perfil ancho. Juntar esas comprobaciones en una sola
+   sesión.
+3. **Usar la sonda como prueba de humo** de la plataforma
+   ([../spikes/probe/](../spikes/probe/)): un comando y unos minutos.
+
+Una sesión de emulador típica:
+
+```bash
+./gradlew --stop                                   # nunca compilar a la vez
+~/Library/Android/sdk/emulator/emulator -avd Pleos_Connect_v2.1.5 -no-window -no-audio &
+adb wait-for-device; until [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; do sleep 5; done
+adb install -r --user 10 app/build/outputs/apk/vehicle/debug/app-vehicle-debug.apk
+adb shell am start -S --user 10 -n com.secretworld.auto/.MainActivity
+adb logcat | grep --line-buffered -aE 'SWPROBE|secretworld'   # filtrar en vivo
+adb emu kill
+```
+
+Dos trampas del log:
+
+- **Con el sistema en `es-ES`, logcat se inunda**: el asistente del coche repite
+  `initializeWakeUpWordDetector error Unsupported locale: es-ES` sin parar, y el
+  búfer de 2 MB se recicla en segundos. Hay que filtrar en vivo, no con
+  `logcat -d` a posteriori.
+- La caas escribe texto en coreano: para que `grep` no se salte líneas, usar
+  `grep -a` (o `LC_ALL=C`).
+
+### Lo que desbloquearía más
+
+| Qué | A quién | Para qué |
+|---|---|---|
+| Un equipo con 16 GB o más (PC Intel/AMD o Mac) | Interno | Usar el emulador a diario |
+| Credenciales de `registerApp` (`clientId`, `clientSecret`) | Pleos | Probar STT, TTS y LLM de servidor, y ver si tienen italiano |
+| Librerías NaviHelper ≥ 2.0.2, `sdk.tts` y `sdk.stt` ≥ 2.1.5 | Pleos | Integrar navegación sin un cliente reconstruido |
+| La imagen de agosto en arm64 | Pleos | Probarla en este Mac |

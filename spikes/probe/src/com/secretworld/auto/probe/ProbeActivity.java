@@ -361,7 +361,7 @@ public class ProbeActivity extends Activity {
                         try {
                             line(pad("  motor por defecto") + tts.getDefaultEngine());
                             line(pad("  voces") + (tts.getVoices() == null ? "null" : tts.getVoices().size()));
-                            Locale[] ls = {new Locale("es", "ES"), Locale.ENGLISH, Locale.KOREAN};
+                            Locale[] ls = {new Locale("es", "ES"), Locale.ITALIAN, Locale.ENGLISH, Locale.KOREAN};
                             for (Locale l : ls) {
                                 line(pad("  idioma " + l) + tts.isLanguageAvailable(l));
                             }
@@ -531,11 +531,45 @@ public class ProbeActivity extends Activity {
                 "ai.pleos.playground.caas.intent.action.LLM_START");
         bindProbe("NaviService", "ai.pleos.playground.service.navi",
                 "ai.pleos.playground.intent.action.NAVI_START");
+
+        // SPEECH_START y LLM_START son las acciones del intent-filter, pero onBind
+        // (caas 4.2.9) no las reconoce y devuelve null. Despacha por estas otras,
+        // que no estan en el filtro: hay que nombrar el componente.
+        line("--- vinculacion por las acciones que despacha onBind ---");
+        String caas = "ai.pleos.playground.caas";
+        String speech = caas + ".service.speech.SpeechService";
+        String llm = caas + ".service.llm.LLMService";
+        String act = caas + ".intent.action.";
+        bindProbe("STT servidor", caas, speech, act + "SPEECH_SERVER_START");
+        bindProbe("STT on-device", caas, speech, act + "SPEECH_ON_DEVICE_START");
+        bindProbe("TTS stream servidor", caas, speech, act + "TTS_STREAM_SERVER_START");
+        bindProbe("TTS stream on-device", caas, speech, act + "TTS_STREAM_ON_DEVICE_START");
+        bindProbe("LLM servidor", caas, llm, act + "LLM_SERVER_START");
+        bindProbe("LLM on-device", caas, llm, act + "LLM_ON_DEVICE_START");
+
+        line("--- proveedor de modelos on-device ---");
+        // La autoridad cambia entre versiones; el paquete es el mismo.
+        boolean authority = getPackageManager()
+                .resolveContentProvider("ai.umos.gleo.provider", 0) != null;
+        line("  autoridad ai.umos.gleo.provider: " + (authority ? "presente" : "ausente"));
+        boolean pkgPresent;
+        try {
+            getPackageManager().getPackageInfo("ai.pleos.gleoai.model.provider", 0);
+            pkgPresent = true;
+        } catch (PackageManager.NameNotFoundException e) {
+            pkgPresent = false;
+        }
+        line("  paquete ai.pleos.gleoai.model.provider: "
+                + (pkgPresent ? "instalado" : "AUSENTE (sin modelos on-device)"));
     }
 
     private void bindProbe(final String label, String pkg, String action) {
+        bindProbe(label, pkg, null, action);
+    }
+
+    private void bindProbe(final String label, String pkg, String cls, String action) {
         Intent it = new Intent(action);
-        it.setPackage(pkg);
+        if (cls != null) it.setClassName(pkg, cls); else it.setPackage(pkg);
         ServiceConnection conn = new ServiceConnection() {
             @Override
             public void onServiceConnected(ComponentName name, IBinder service) {
@@ -550,6 +584,7 @@ public class ProbeActivity extends Activity {
                 line("      interfaz   : " + desc);
                 line("      binder vivo: " + service.pingBinder());
                 view.setText(out.toString());
+                onLive(label, service);
             }
             @Override public void onServiceDisconnected(ComponentName name) {
                 line("  " + label + " => desconectado");
@@ -570,6 +605,148 @@ public class ProbeActivity extends Activity {
             line("  " + label + ": EXCEPCION " + t.getClass().getSimpleName()
                     + ": " + t.getMessage());
         }
+    }
+
+    // ------------------------------------------- llamadas reales a la caas
+
+    // Contrato leido del bytecode de la caas 2.2.7.1: descriptores, codigos de
+    // transaccion y orden de argumentos. Sirve para medir, no para el producto.
+    private static final String LLM_ON_DEVICE = "ai.pleos.playground.caas.data.llm.aidl.IOnDeviceLLM";
+    private static final String LLM_CALLBACK = "ai.pleos.playground.caas.data.llm.aidl.ILLMCallback";
+    private static final String TTS_ON_DEVICE = "ai.pleos.playground.caas.service.speech.aidl.ITtsOnDeviceStream";
+    private static final String TTS_CALLBACK = "ai.pleos.playground.caas.service.speech.aidl.ITtsCallback";
+
+    private final java.util.Set<String> called = new java.util.HashSet<>();
+    private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    // Los callbacks se guardan para que el GC no se lleve el binder local.
+    private final java.util.List<android.os.Binder> callbacks = new java.util.ArrayList<>();
+
+    private void onLive(String label, IBinder service) {
+        if (!called.add(label)) return;
+        if (label.equals("LLM on-device")) callLlmOnDevice(service);
+        if (label.equals("TTS stream on-device")) callTtsOnDevice(service);
+    }
+
+    private void callLlmOnDevice(final IBinder llm) {
+        final String app = getPackageName();
+        line("--- LLM on-device: llamada real ---");
+        transact("LLM registerCallback", llm, LLM_ON_DEVICE, 1, callback("LLM", LLM_CALLBACK, 3), app);
+        transact("LLM initialize", llm, LLM_ON_DEVICE, 3, app);
+        // La carga del modelo es asincrona: se pregunta mas tarde, en dos idiomas.
+        // Despues de las pruebas de TTS, para no competir por la CPU con la sintesis.
+        main.postDelayed(new Runnable() {
+            @Override public void run() {
+                transact("LLM generateContentStream it", llm, LLM_ON_DEVICE, 5, app, "req-it",
+                        "Descrivi il Colosseo di Roma in due frasi, come una guida turistica.");
+            }
+        }, 75000);
+    }
+
+    private void callTtsOnDevice(final IBinder tts) {
+        final String app = getPackageName();
+        line("--- TTS on-device: llamada real ---");
+        transact("TTS registerCallback", tts, TTS_ON_DEVICE, 1, callback("TTS", TTS_CALLBACK, 2), app);
+        final AudioAttributes attrs = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build();
+        String[][] cases = {
+                {"ko-KR", "콜로세움에 오신 것을 환영합니다."},
+                {"it-IT", "Benvenuti al Colosseo, il piu grande anfiteatro del mondo romano."},
+                {"en-US", "Welcome to the Colosseum, the largest amphitheatre of the Roman world."},
+                {"es-ES", "Bienvenidos al Coliseo, el mayor anfiteatro del mundo romano."},
+        };
+        // El idioma se guarda por app y speak es asincrono: uno cada vez, con margen.
+        for (int i = 0; i < cases.length; i++) {
+            final String[] c = cases[i];
+            main.postDelayed(new Runnable() {
+                @Override public void run() {
+                    transact("TTS setLocale " + c[0], tts, TTS_ON_DEVICE, 6, c[0], app);
+                    transact("TTS speak " + c[0], tts, TTS_ON_DEVICE, 4, c[1], true, app, attrs);
+                }
+            }, i * 15000L);
+        }
+    }
+
+    private final java.util.Map<String, StringBuilder> streams = new java.util.HashMap<>();
+
+    /**
+     * Binder local que hace de callback AIDL; onResponse es el codigo 1, con
+     * {@code strings} argumentos. Los trozos de un stream se juntan y se
+     * escriben al cerrarse, para no desbordar logcat.
+     */
+    private android.os.Binder callback(final String label, final String descriptor, final int strings) {
+        android.os.Binder cb = new android.os.Binder() {
+            @Override
+            protected boolean onTransact(int code, android.os.Parcel data, android.os.Parcel reply, int flags)
+                    throws android.os.RemoteException {
+                if (code == INTERFACE_TRANSACTION) {
+                    reply.writeString(descriptor);
+                    return true;
+                }
+                if (code == FIRST_CALL_TRANSACTION) {
+                    data.enforceInterface(descriptor);
+                    String cmd = data.readString();
+                    String id = data.readString();
+                    String payload = strings > 2 ? data.readString() : "";
+                    if (cmd != null && cmd.contains("Partial")) {
+                        synchronized (streams) {
+                            StringBuilder sb = streams.get(id);
+                            if (sb == null) {
+                                streams.put(id, sb = new StringBuilder());
+                                line("  " + label + " <= primer trozo de " + id);
+                            }
+                            sb.append(payload);
+                        }
+                    } else {
+                        StringBuilder sb;
+                        synchronized (streams) { sb = streams.remove(id); }
+                        if (sb != null) line("  " + label + " <= texto de " + id + ": " + sb);
+                        line("  " + label + " <= " + cmd + " | " + id + " | " + payload);
+                    }
+                    if (reply != null) reply.writeNoException();
+                    refresh();
+                    return true;
+                }
+                return super.onTransact(code, data, reply, flags);
+            }
+        };
+        cb.attachInterface(null, descriptor);
+        callbacks.add(cb);
+        return cb;
+    }
+
+    private void transact(String label, IBinder target, String descriptor, int code, Object... args) {
+        android.os.Parcel data = android.os.Parcel.obtain();
+        android.os.Parcel reply = android.os.Parcel.obtain();
+        try {
+            data.writeInterfaceToken(descriptor);
+            for (Object a : args) {
+                if (a instanceof String) data.writeString((String) a);
+                else if (a instanceof Boolean) data.writeInt((Boolean) a ? 1 : 0);
+                else if (a instanceof IBinder) data.writeStrongBinder((IBinder) a);
+                else if (a instanceof android.os.Parcelable) {
+                    // Parcelable propio de la caas: marca de no nulo y su AudioAttributes dentro.
+                    data.writeInt(1);
+                    data.writeParcelable((android.os.Parcelable) a, 0);
+                }
+            }
+            target.transact(code, data, reply, 0);
+            reply.readException();
+            line("  " + label + " -> ok");
+        } catch (Throwable t) {
+            line("  " + label + " -> FALLO " + t);
+        } finally {
+            data.recycle();
+            reply.recycle();
+            refresh();
+        }
+    }
+
+    private void refresh() {
+        main.post(new Runnable() {
+            @Override public void run() { view.setText(out.toString()); }
+        });
     }
 
     // -------------------------------------------------------------- utiles
@@ -632,7 +809,7 @@ public class ProbeActivity extends Activity {
         line("=== " + title + " ===");
     }
 
-    private void line(String s) {
+    private synchronized void line(String s) {
         out.append(s).append('\n');
         Log.i(TAG, s);
     }

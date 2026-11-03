@@ -19,6 +19,21 @@ prueba una ausencia en producto. Lo que sí es firme es lo que **sí** está.
 | 4 · Navegación | **Ámbar** | El servicio **vincula y responde** (`ai.pleos.playground.navi.INaviService`). Solo falta la librería cliente |
 | 5 · Audio | **Verde** | Foco concedido y reproducción PCM verificada de extremo a extremo |
 
+> **Revisado el 2026‑11‑03.** El `onNullBinding` de Speech y LLM probablemente lo
+> provocó la propia sonda, que vinculaba con `SPEECH_START`/`LLM_START`. En la
+> imagen Connect‑W de agosto, `onBind` solo responde a otras acciones
+> (`SPEECH_SERVER_START`, `TTS_STREAM_SERVER_START`, `LLM_SERVER_START`…).
+>
+> **Confirmado el mismo día en esta v2.1.5 (caas 2.2.7.1).** Con esas acciones y
+> el componente explícito, los seis binders responden: `IStt`, `IOnDeviceStt`,
+> `ITtsStream`, `ITtsOnDeviceStream`, `IServerLLM` e `IOnDeviceLLM`. El log de la
+> caas lo dice sin rodeos: `onBind:: invalid intent(...LLM_START)`. Es decir,
+> **STT, TTS y LLM ya estaban implementados en septiembre**; el null era culpa de
+> la acción. El proveedor de modelos `ai.pleos.gleoai.model.provider` v0.0.5
+> está instalado en esta imagen. Que contesten a una llamada real (con red,
+> credenciales o modelo) sigue sin probar. Detalle en
+> [../../docs/PLEOS-SDK-SURFACE.md](../../docs/PLEOS-SDK-SURFACE.md#imagen-connectw-de-agosto-lo-que-cambia).
+
 **Cómo distinguir lo publicado de lo anunciado**: vincularse al servicio.
 `NaviService` devuelve binder vivo; `SpeechService` y `LLMService` devuelven
 `onNullBinding`. Detalle en
