@@ -17,4 +17,8 @@
     <string name="permission_enable">Enable</string>
     <string name="search_similar">Similar to %1$s</string>
     <string name="itinerary_summary">%1$d stops · %2$s</string>
+    <plurals name="itinerary_stops">
+        <item quantity="one">%d stop</item>
+        <item quantity="other">%d stops</item>
+    </plurals>
 </resources>

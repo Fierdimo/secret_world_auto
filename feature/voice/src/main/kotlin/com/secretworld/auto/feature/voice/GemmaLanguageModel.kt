@@ -206,9 +206,12 @@ class GemmaLanguageModel(
         session.generateResponseAsync { partial, done ->
             text.append(partial)
             val soFar = text.toString()
-            val cut = soFar.indexOf('\n', startIndex = soFar.indexOfFirst { !it.isWhitespace() }.coerceAtLeast(0))
+            // El salto que cuenta es el que sigue al texto: si la respuesta empieza
+            // con uno ("Reply:" y luego "\nsave"), cortar ahí la dejaba vacía.
+            val begin = soFar.indexOfFirst { !it.isWhitespace() }
+            val cut = if (begin < 0) -1 else soFar.indexOf('\n', startIndex = begin)
             if (cut >= 0 && !line.isCompleted) {
-                line.complete(soFar.substring(0, cut))
+                line.complete(soFar.substring(begin, cut))
                 runCatching { session.cancelGenerateResponseAsync() }
             }
             if (done) {

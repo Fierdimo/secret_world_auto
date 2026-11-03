@@ -74,6 +74,27 @@ class ItineraryDesignerTest {
     }
 
     @Test
+    fun `cada tipo de parada tiene su estancia`() {
+        assertEquals(StopKind.FORTRESS, StopKind.of(castle))
+        assertEquals(StopKind.MUSEUM, StopKind.of(museum))
+        assertEquals(StopKind.CHURCH, StopKind.of(cathedral))
+        assertEquals(StopKind.SQUARE, StopKind.of(square))
+        assertEquals(StopKind.MONUMENT, StopKind.of(place("7", "India Catalina", 0.0, 0.0)))
+        // Un castillo es una visita; una estatua, una parada de unos minutos.
+        assertTrue(ItineraryDesigner.stopMinutes(castle, Pace.NORMAL) >= 60)
+        assertTrue(ItineraryDesigner.stopMinutes(place("7", "India Catalina", 0.0, 0.0), Pace.NORMAL) <= 15)
+    }
+
+    @Test
+    fun `la propuesta trae la estancia de cada parada y se dice entera`() {
+        val proposal = ItineraryDesigner.plan(here, all, ItineraryRequest(minutes = 600), TravellerProfile(), threePm)
+        assertEquals(proposal.stops.size, proposal.stays.size)
+        val said = Phrasebook.proposeItinerary(Phrasebook.Context(here, emptyList(), ConversationMemory(), VoiceLanguage.SPANISH), proposal)
+        proposal.stops.forEach { assertTrue(it.name in said, "falta ${it.name} en «$said»") }
+        assertTrue("más" !in said)
+    }
+
+    @Test
     fun `un museo dura mas que una plaza`() {
         assertTrue(ItineraryDesigner.stopMinutes(museum, Pace.NORMAL) > ItineraryDesigner.stopMinutes(square, Pace.NORMAL))
     }
@@ -124,7 +145,7 @@ class ItineraryDesignerTest {
     fun `nombrar castillos trae el castillo`() {
         val request = requireNotNull(ItineraryRequests.parse("un itinerario esta tarde, me gustan los castillos"))
         assertEquals(setOf("castill"), request.mentions)
-        val proposal = ItineraryDesigner.plan(here, all, request.copy(minutes = 60), TravellerProfile(), threePm)
+        val proposal = ItineraryDesigner.plan(here, all, request.copy(minutes = 120), TravellerProfile(), threePm)
         assertEquals(castle, proposal.stops.first())
     }
 

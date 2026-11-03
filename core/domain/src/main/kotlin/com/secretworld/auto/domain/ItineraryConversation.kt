@@ -15,6 +15,11 @@ class ItineraryConversation {
         data class Asking(val request: ItineraryRequest) : State
         /** Se propuso un itinerario y se espera el sí, el no o un ajuste. */
         data class Proposed(val proposal: ItineraryProposal) : State
+        /**
+         * Se confirmó y quedó guardado; se preguntó si empezar ya. Confirmar no
+         * es arrancar: se puede armar el itinerario en el hotel y salir después.
+         */
+        data class Saved(val proposal: ItineraryProposal) : State
     }
 
     /** Lo que hay que hacer a continuación. */
@@ -23,10 +28,18 @@ class ItineraryConversation {
         data class Ask(val request: ItineraryRequest, val missing: Set<ItineraryRequest.Missing>) : Step
         /** Buscar candidatos y planificar; al terminar, [proposed]. */
         data class Plan(val request: ItineraryRequest) : Step
-        /** Proponer de nuevo, sin replanificar: se quitó una parada. */
-        data class Repropose(val proposal: ItineraryProposal) : Step
-        /** El conductor dijo que sí: empezar. */
+        /** Proponer de nuevo, sin replanificar: se cambió [change], y basta con decir eso. */
+        data class Repropose(val proposal: ItineraryProposal, val change: ItineraryEdit) : Step
+        /** Dijo que sí a la propuesta: guardarla y preguntar si empezar ya. */
+        data class Save(val proposal: ItineraryProposal) : Step
+        /**
+         * Dijo que empezar: arrancar el recorrido y abrir el navegador. Puede
+         * llegar sin pasar por [Save] —"inicia el itinerario" a la propuesta—, así
+         * que quien lo haga también lo guarda.
+         */
         data class Start(val proposal: ItineraryProposal) : Step
+        /** Guardado —también si aún no lo estaba—, pero ahora no: se queda para después. */
+        data class Shelved(val proposal: ItineraryProposal) : Step
         data object Discarded : Step
     }
 
@@ -49,6 +62,11 @@ class ItineraryConversation {
     /** El planificador terminó y se va a proponer esto. */
     fun proposed(proposal: ItineraryProposal) {
         state = State.Proposed(proposal)
+    }
+
+    /** Se retoma un itinerario guardado: se pregunta si empezar. */
+    fun resumed(proposal: ItineraryProposal) {
+        state = State.Saved(proposal)
     }
 
     fun reset() {
@@ -91,22 +109,27 @@ class ItineraryConversation {
 
             is State.Proposed -> {
                 val proposal = current.proposal
-                if (command.isRefusal() || ItineraryRequests.refuses(heard)) return discard()
+                // "Mejor guárdalo para luego" contesta; "mejor no", no.
+                val reply = ItineraryRequests.reply(heard)
+                if (reply == null && (command.isRefusal() || ItineraryRequests.refuses(heard))) return discard()
+                // Cambiar el orden, la estancia o añadir un sitio: se rehace sin replanificar.
+                // Va antes que la respuesta: "empieza por el castillo" no es empezar.
+                ItineraryRequests.edit(heard, proposal.stops, command.namedPlace())?.let { return reproposed(proposal, it) }
                 if (command.isCommanding()) {
                     state = State.Idle
                     return null
                 }
-                if (command == VoiceCommand.Yes || ItineraryRequests.accepts(heard)) {
-                    state = State.Idle
-                    return Step.Start(proposal)
+                val answered = reply ?: when (command) {
+                    VoiceCommand.StartItinerary -> ItineraryReply.START
+                    VoiceCommand.Yes -> ItineraryReply.SAVE
+                    else -> null
                 }
+                answered?.let { return answer(it) }
                 // "Quita el museo": fuera esa parada, sin replanificar el resto.
                 if (ItineraryRequests.removes(heard)) {
                     VoiceGrammar.resolve(heard, proposal.stops)?.let { place ->
                         if (proposal.stops.size == 1) return discard()
-                        val shorter = ItineraryDesigner.without(proposal, place)
-                        state = State.Proposed(shorter)
-                        return Step.Repropose(shorter)
+                        return reproposed(proposal, ItineraryEdit.Remove(place))
                     }
                 }
                 val asked = (command as? VoiceCommand.PlanItinerary)?.request ?: ItineraryRequests.details(heard)
@@ -118,7 +141,80 @@ class ItineraryConversation {
                 state = State.Idle
                 return Step.Plan(adjusted)
             }
+
+            is State.Saved -> {
+                val proposal = current.proposal
+                val reply = ItineraryRequests.reply(heard)
+                // Un cambio a lo guardado vuelve a ser una propuesta que confirmar.
+                ItineraryRequests.edit(heard, proposal.stops, command.namedPlace())?.let { return reproposed(proposal, it) }
+                if (command == VoiceCommand.Yes || command == VoiceCommand.StartItinerary) return answer(ItineraryReply.START)
+                reply?.let { return answer(it) }
+                // Que no empiece ahora no es tirarlo: queda guardado.
+                if (command.isRefusal() || ItineraryRequests.refuses(heard)) return answer(ItineraryReply.LATER)
+                state = State.Idle
+                return null
+            }
         }
+    }
+
+    /**
+     * Una respuesta a lo pendiente, se haya entendido con la gramática o con el
+     * modelo. `null` si no hay nada pendiente que contestar.
+     *
+     * Ya guardado, "guárdalo" es dejarlo para después; y aprobarlo otra vez
+     * ("sí", "me gusta") contesta al "¿empezamos?".
+     */
+    fun answer(reply: ItineraryReply): Step? {
+        val proposal = when (val current = state) {
+            is State.Proposed -> current.proposal
+            is State.Saved -> current.proposal
+            else -> return null
+        }
+        val saved = state is State.Saved
+        return when (reply) {
+            ItineraryReply.START -> Step.Start(proposal).also { state = State.Idle }
+            ItineraryReply.LATER -> Step.Shelved(proposal).also { state = State.Idle }
+            ItineraryReply.SAVE -> if (saved) {
+                Step.Start(proposal).also { state = State.Idle }
+            } else {
+                Step.Save(proposal).also { state = State.Saved(proposal) }
+            }
+        }
+    }
+
+    /**
+     * Para contestar con el modelo lo que la gramática no entendió: lo
+     * pendiente vuelve a estar pendiente aunque [hear] lo diera por olvidado.
+     */
+    fun restore(pending: State) {
+        state = pending
+    }
+
+    private fun reproposed(proposal: ItineraryProposal, edit: ItineraryEdit): Step {
+        val changed = applied(proposal, edit)
+        state = State.Proposed(changed)
+        return Step.Repropose(changed, edit)
+    }
+
+    private fun applied(proposal: ItineraryProposal, edit: ItineraryEdit): ItineraryProposal = when (edit) {
+        is ItineraryEdit.Move -> ItineraryDesigner.moved(proposal, edit.place, if (edit.first) 0 else proposal.stops.lastIndex)
+        is ItineraryEdit.Relative -> {
+            val without = proposal.stops - edit.place
+            val anchorAt = without.indexOf(edit.anchor)
+            ItineraryDesigner.moved(proposal, edit.place, if (edit.before) anchorAt else anchorAt + 1)
+        }
+        is ItineraryEdit.Add -> ItineraryDesigner.added(proposal, edit.place)
+        is ItineraryEdit.Stay -> ItineraryDesigner.restayed(proposal, edit.place, if (edit.longer) LONGER_FACTOR else SHORTER_FACTOR)
+        is ItineraryEdit.Remove -> ItineraryDesigner.without(proposal, edit.place)
+    }
+
+    /** El lugar que la gramática encontró en la frase, si encontró uno. */
+    private fun VoiceCommand.namedPlace(): Place? = when (this) {
+        is VoiceCommand.TellMeAbout -> place
+        is VoiceCommand.ChooseAction -> place
+        is VoiceCommand.TakeMeThere -> place
+        is VoiceCommand.WhichOne -> places.firstOrNull()
+        else -> null
     }
 
     private fun discard(): Step {
@@ -134,6 +230,11 @@ class ItineraryConversation {
     private fun VoiceCommand.isCommanding(): Boolean =
         this is VoiceCommand.TakeMeThere || this is VoiceCommand.NavigateToNamed || this == VoiceCommand.WhatIsNearby ||
             this is VoiceCommand.SwitchLanguage || this == VoiceCommand.ForgetProfile
+
+    private companion object {
+        const val LONGER_FACTOR = 1.5
+        const val SHORTER_FACTOR = 0.6
+    }
 
     private fun VoiceCommand.isRefusal(): Boolean =
         this == VoiceCommand.No || this == VoiceCommand.Stop || this == VoiceCommand.EndRoute

@@ -19,4 +19,5 @@
     <string name="catalogue_poi">lugares reales · %1$d, sin historias</string>
     <string name="catalogue_loading">cargando</string>
     <string name="listen_minutes">%1$d min de relato</string>
+    <string name="testing">Pruebas</string>
 </resources>

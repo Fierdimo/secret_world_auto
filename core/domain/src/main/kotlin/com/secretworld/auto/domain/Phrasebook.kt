@@ -518,39 +518,97 @@ object Phrasebook {
      * cuáles, con la comida en su sitio. Termina en pregunta.
      */
     fun proposeItinerary(c: Context, proposal: ItineraryProposal): String {
-        // De viva voz, como mucho tres nombres: la lista entera está en la pantalla.
-        val spoken = proposal.stops.take(SPOKEN_STOPS)
-        val names = spoken.mapIndexed { index, stop ->
-            val name = shortName(stop)
-            if (proposal.mealAfter == index && index < proposal.stops.lastIndex) {
-                name + c.say(en = ", then lunch", es = ", luego a comer", it = ", poi pranzo")
+        // Todas las paradas, cada una con lo que se queda uno: un itinerario no es
+        // pasar por delante. La comida, en su sitio.
+        val names = proposal.stops.mapIndexed { index, stop ->
+            val stay = proposal.stays.getOrNull(index)?.let { ", " + spokenDuration(it * 60.0, c.language) }.orEmpty()
+            val lunch = if (proposal.mealAfter == index && index < proposal.stops.lastIndex) {
+                c.say(en = ", then lunch", es = ", luego a comer", it = ", poi pranzo")
             } else {
-                name
+                ""
             }
+            shortName(stop) + stay + lunch
         }
-        val rest = proposal.stops.size - spoken.size
-        val more = if (rest > 0) listOf(c.say(en = "$rest more", es = "$rest más", it = "altre $rest")) else emptyList()
-        val lunchLater = proposal.mealAfter != null && proposal.mealAfter >= SPOKEN_STOPS
-        val list = joined(c, names + more) +
-            if (lunchLater) c.say(en = ", with a lunch stop", es = ", con parada para comer", it = ", con sosta per il pranzo") else ""
+        val list = joined(c, names)
         val duration = spokenDuration(proposal.minutes * 60.0, c.language)
         val count = proposal.stops.size
         return if (count == 1) {
             c.say(
-                en = "I'd suggest one stop, about $duration: $list. Shall we go?",
-                es = "Te propongo una parada, unas $duration: $list. ¿Vamos?",
-                it = "Ti propongo una tappa, circa $duration: $list. Andiamo?",
+                en = "I'd suggest one stop, about $duration in all: $list. Shall I save it, or start now?",
+                es = "Te propongo una parada, unas $duration en total: $list. ¿Lo guardo o empezamos ya?",
+                it = "Ti propongo una tappa, circa $duration in tutto: $list. Lo salvo o partiamo subito?",
             )
         } else {
             c.say(
-                en = "I'd suggest $count stops in about $duration: $list. Shall we start?",
-                es = "Te propongo $count paradas en unas $duration: $list. ¿Empezamos?",
-                it = "Ti propongo $count tappe in circa $duration: $list. Partiamo?",
+                en = "I'd suggest $count stops in about $duration: $list. Shall I save it, or start now?",
+                es = "Te propongo $count paradas en unas $duration: $list. ¿Lo guardo o empezamos ya?",
+                it = "Ti propongo $count tappe in circa $duration: $list. Lo salvo o partiamo subito?",
             )
         }
     }
 
-    private const val SPOKEN_STOPS = 3
+    /**
+     * Tras un cambio, solo el cambio y el total nuevo: el itinerario entero ya
+     * se oyó y se ve en el mapa.
+     */
+    fun itineraryChanged(c: Context, proposal: ItineraryProposal, change: ItineraryEdit): String {
+        val what = when (change) {
+            is ItineraryEdit.Move -> shortName(change.place).let { name ->
+                if (change.first) {
+                    c.say(en = "Done, we start at $name.", es = "Hecho, empezamos por $name.", it = "Fatto, si parte da $name.")
+                } else {
+                    c.say(en = "Done, $name goes last.", es = "Hecho, $name queda al final.", it = "Fatto, $name va per ultimo.")
+                }
+            }
+            is ItineraryEdit.Relative -> {
+                val name = shortName(change.place)
+                val anchor = shortName(change.anchor)
+                if (change.before) {
+                    c.say(en = "Done, $name before $anchor.", es = "Hecho, $name antes de $anchor.", it = "Fatto, $name prima di $anchor.")
+                } else {
+                    c.say(en = "Done, $name after $anchor.", es = "Hecho, $name después de $anchor.", it = "Fatto, $name dopo $anchor.")
+                }
+            }
+            is ItineraryEdit.Add -> shortName(change.place).let { name ->
+                c.say(en = "Added $name.", es = "Añadido $name.", it = "Aggiunto $name.")
+            }
+            is ItineraryEdit.Remove -> shortName(change.place).let { name ->
+                c.say(en = "$name is out.", es = "Fuera $name.", it = "Tolto $name.")
+            }
+            is ItineraryEdit.Stay -> {
+                val name = shortName(change.place)
+                val stay = proposal.stops.indexOfFirst { it.id == change.place.id }
+                    .let { proposal.stays.getOrNull(it) }
+                    ?.let { spokenDuration(it * 60.0, c.language) }
+                if (stay == null) {
+                    c.say(en = "Done.", es = "Hecho.", it = "Fatto.")
+                } else {
+                    c.say(en = "Done, $stay at $name.", es = "Hecho, $stay en $name.", it = "Fatto, $stay a $name.")
+                }
+            }
+        }
+        val duration = spokenDuration(proposal.minutes * 60.0, c.language)
+        return what + " " + c.say(en = "Now about $duration.", es = "Ahora son unas $duration.", it = "Ora circa $duration.")
+    }
+
+    /** Confirmada la propuesta: guardada, y la pregunta de si empezar ya. */
+    fun itinerarySaved(c: Context): String = c.say(
+        en = "Saved. Shall we start now?",
+        es = "Guardado. ¿Empezamos ahora?",
+        it = "Salvato. Partiamo adesso?",
+    )
+
+    fun itineraryShelved(c: Context): String = c.say(
+        en = "I'll keep it. Whenever you want, say \"start my itinerary\".",
+        es = "Lo dejo guardado. Cuando quieras, di «empieza mi itinerario».",
+        it = "Lo tengo salvato. Quando vuoi, di «inizia il mio itinerario».",
+    )
+
+    fun noSavedItinerary(c: Context): String = c.say(
+        en = "There's no saved itinerary yet. Ask me to plan one.",
+        es = "Todavía no hay ningún itinerario guardado. Pídeme que te arme uno.",
+        it = "Non c'è ancora nessun itinerario salvato. Chiedimi di organizzarne uno.",
+    )
 
     fun noItinerary(c: Context): String = c.say(
         en = "I can't find places that fit around here. Shall we try other interests, or another area?",
@@ -606,17 +664,48 @@ object Phrasebook {
      * Al llegar a una parada se **ofrece** la narración y se espera el sí
      * (SPEC §2.4): no se narra sin pedirlo.
      */
-    fun arrivedAtStop(c: Context, place: Place): String {
+    fun arrivedAtStop(c: Context, place: Place, stayMinutes: Int? = null): String {
         val name = shortName(place)
+        val stay = stayMinutes?.let { spokenDuration(it * 60.0, c.language) }
+        val time = stay?.let { c.say(en = " You have about $it here.", es = " Tienes unas $it aquí.", it = " Hai circa $it qui.") }.orEmpty()
         return pick(
             c,
             c.say(
-                en = listOf("We're at $name. Shall I tell you its story?", "Here's $name. Want to hear about it?"),
-                es = listOf("Hemos llegado a $name. ¿Te cuento su historia?", "Ya estamos en $name. ¿Quieres que te la cuente?"),
-                it = listOf("Siamo arrivati a $name. Ti racconto la sua storia?", "Eccoci a $name. Vuoi che te la racconti?"),
+                en = listOf("We're at $name.$time Shall I tell you its story?", "Here's $name.$time Want to hear about it?"),
+                es = listOf("Hemos llegado a $name.$time ¿Te cuento su historia?", "Ya estamos en $name.$time ¿Quieres que te la cuente?"),
+                it = listOf("Siamo arrivati a $name.$time Ti racconto la sua storia?", "Eccoci a $name.$time Vuoi che te la racconti?"),
             ),
         )
     }
+
+    /**
+     * Se cumplió el tiempo previsto en una parada: se **propone** seguir y se
+     * espera el sí. No se va solo: quien está a gusto se queda.
+     */
+    fun timeToMoveOn(c: Context, here: Place, next: Place?): String {
+        val name = shortName(here)
+        if (next == null) {
+            return c.say(
+                en = "That's the time we planned at $name, the last stop. Shall we finish the itinerary?",
+                es = "Se cumple el tiempo previsto en $name, la última parada. ¿Terminamos el itinerario?",
+                it = "È passato il tempo previsto a $name, l'ultima tappa. Chiudiamo l'itinerario?",
+            )
+        }
+        val minutes = drivingMinutes(here.position.distanceTo(next.position))
+        val nextName = shortName(next)
+        return c.say(
+            en = "That's the time we planned at $name. Shall we move on to $nextName, $minutes minutes away?",
+            es = "Se cumple el tiempo previsto en $name. ¿Seguimos hacia $nextName, a $minutes minutos?",
+            it = "È passato il tempo previsto a $name. Andiamo a $nextName, a $minutes minuti?",
+        )
+    }
+
+    /** Dijo que no a seguir: sin prisa. */
+    fun stayLonger(c: Context): String = c.say(
+        en = "No rush. Say \"next stop\" whenever you want.",
+        es = "Sin prisa. Di «siguiente parada» cuando quieras.",
+        it = "Nessuna fretta. Di «prossima tappa» quando vuoi.",
+    )
 
     /** Tras la narración de una parada: cómo seguir. */
     fun whenReadyForNext(c: Context): String = c.say(

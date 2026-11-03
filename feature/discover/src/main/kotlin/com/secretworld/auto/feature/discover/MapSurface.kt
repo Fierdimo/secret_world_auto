@@ -53,3 +53,25 @@ fun CanvasMap(state: MapState, modifier: Modifier = Modifier) {
         panelCoverFraction = state.panelCoverFraction,
     )
 }
+
+/**
+ * La presentación de un itinerario recién propuesto: la cámara vuela la ruta
+ * entera, parada a parada, sobre un mapa simplificado. La dibuja cada sabor
+ * (`TourFlyover`); aquí solo lo que necesita saber.
+ *
+ * @param path el trazado por calles de principio a fin, o las paradas unidas en
+ *   línea recta si no se pudo calcular.
+ * @param legEnds dónde acaba cada tramo dentro de [path]: el trazado se revela
+ *   tramo a tramo, al ritmo de la cámara.
+ */
+data class FlyoverState(
+    val start: Coordinates,
+    val stops: List<Place>,
+    val times: List<String>,
+    val path: List<Coordinates>,
+    val legEnds: List<Int>,
+    /** "4 paradas · 2 horas y 35". */
+    val summary: String,
+    /** Si toca la presentación; después la vista se queda, sin repetirla. */
+    val intro: Boolean = true,
+)

@@ -19,4 +19,5 @@
     <string name="catalogue_poi">places around · %1$d, no stories</string>
     <string name="catalogue_loading">loading</string>
     <string name="listen_minutes">%1$d min to listen</string>
+    <string name="testing">Testing</string>
 </resources>

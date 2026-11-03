@@ -87,6 +87,56 @@ object PlaceKinds {
 }
 
 /**
+ * Qué tipo de parada es, para saber **cuánto se queda uno**. Un itinerario no es
+ * un paseo en coche: en un castillo se está una hora larga y en una estatua
+ * diez minutos. Los intereses ([Interest]) dicen qué le gusta; esto, cuánto dura.
+ *
+ * @param minutes la estancia típica, con ritmo normal.
+ */
+enum class StopKind(val minutes: Int) {
+    FORTRESS(75), MUSEUM(75), BEACH(90), PALACE(45), PARK(45), MARKET(45),
+    VIEWPOINT(40), NEIGHBOURHOOD(45), CHURCH(25), SQUARE(20), MONUMENT(10), OTHER(30);
+
+    companion object {
+        /**
+         * El nombre manda —"Castillo San Felipe" es un castillo aunque su ficha
+         * hable de iglesias—; si no dice nada, el principio de la ficha.
+         */
+        fun of(place: Place): StopKind {
+            val name = normalise(place.name)
+            KEYWORDS.firstOrNull { (_, words) -> words.any { it in name } }?.let { return it.first }
+            val summary = normalise(place.summary.orEmpty().take(SUMMARY_CHARS))
+            return KEYWORDS.firstOrNull { (_, words) -> words.any { it in summary } }?.first ?: OTHER
+        }
+
+        private fun normalise(text: String): String =
+            " " + text.lowercase().map { ACCENTS[it] ?: it }.map { if (it.isLetterOrDigit()) it else ' ' }.joinToString("") + " "
+
+        private const val SUMMARY_CHARS = 200
+
+        /** En orden: lo más específico primero ("museo del castillo" es museo). */
+        private val KEYWORDS: List<Pair<StopKind, List<String>>> = listOf(
+            MUSEUM to listOf(" museo", " museum", " musei", " galeria", " gallery", " galleria", " pinacoteca"),
+            FORTRESS to listOf(" castillo", " castello", " castle", " fuerte ", " forte ", " fort ", " fortaleza", " fortezza", " fortress", " ciudadela", " murallas", " mura "),
+            BEACH to listOf(" playa", " spiaggia", " beach", " isla ", " isola ", " island"),
+            PALACE to listOf(" palacio", " palazzo", " palace", " villa ", " teatro", " theatre", " theater"),
+            CHURCH to listOf(" iglesia", " chiesa", " church", " catedral", " cattedrale", " cathedral", " basilica", " capilla", " cappella", " chapel", " convento", " convent", " monasterio", " monastero", " santuario", " duomo"),
+            PARK to listOf(" parque", " parco", " park", " jardin", " giardino", " garden", " cienaga", " lago", " lake", " reserva"),
+            MARKET to listOf(" mercado", " mercato", " market", " bazar"),
+            VIEWPOINT to listOf(" mirador", " belvedere", " viewpoint", " cerro", " collina", " hill", " torre ", " tower"),
+            NEIGHBOURHOOD to listOf(" barrio", " quartiere", " neighbourhood", " neighborhood", " centro historico", " centro storico", " old town", " ciudad amurallada"),
+            SQUARE to listOf(" plaza", " piazza", " square", " plazuela", " calle ", " via ", " street"),
+            MONUMENT to listOf(" estatua", " statua", " statue", " monumento", " monument", " busto", " fuente", " fontana", " fountain", " obelisco", " india catalina", " zapatos viejos"),
+        )
+
+        private val ACCENTS = mapOf(
+            'á' to 'a', 'é' to 'e', 'í' to 'i', 'ó' to 'o', 'ú' to 'u', 'ü' to 'u', 'ñ' to 'n',
+            'à' to 'a', 'è' to 'e', 'ì' to 'i', 'ò' to 'o', 'ù' to 'u',
+        )
+    }
+}
+
+/**
  * Arma itinerarios: en qué orden ir, cuánto se tarda y, si se pide, qué
  * paradas elegir.
  */
@@ -161,6 +211,7 @@ object ItineraryPlanner {
  * @param from desde dónde se sale: con él se recalcula al quitar una parada.
  * @param startMinute a qué hora se empieza, en minutos desde medianoche.
  * @param arrivals a qué hora se llega a cada parada, en el mismo orden que [stops].
+ * @param stays cuántos minutos se queda uno en cada parada: visitarla y oírla.
  */
 data class ItineraryProposal(
     val stops: List<Place>,
@@ -170,6 +221,7 @@ data class ItineraryProposal(
     val from: Coordinates? = null,
     val startMinute: Int = 0,
     val arrivals: List<Int> = emptyList(),
+    val stays: List<Int> = emptyList(),
 )
 
 /**
@@ -245,6 +297,7 @@ object ItineraryDesigner {
             from = from,
             startMinute = start,
             arrivals = arrivals(from, chosen, pace, start, mealAfter),
+            stays = chosen.map { stopMinutes(it, pace) },
         )
     }
 
@@ -266,22 +319,82 @@ object ItineraryDesigner {
 
     /** La misma propuesta sin una parada, con la duración rehecha (RF-8.4: "quita el museo"). */
     fun without(proposal: ItineraryProposal, place: Place): ItineraryProposal {
-        val stops = proposal.stops - place
-        val mealAfter = proposal.mealAfter?.let { meal -> if (stops.isEmpty()) null else meal.coerceAtMost(stops.size - 1) }
-        val from = proposal.from ?: return proposal.copy(stops = stops, mealAfter = mealAfter)
+        val index = proposal.stops.indexOf(place)
+        if (index < 0) return proposal
+        return rebuild(proposal, proposal.stops - place, staysOf(proposal).filterIndexed { i, _ -> i != index })
+    }
+
+    /** Una parada pasa a otro puesto del orden: "empieza por el castillo", "la catedral al final". */
+    fun moved(proposal: ItineraryProposal, place: Place, to: Int): ItineraryProposal {
+        val from = proposal.stops.indexOf(place)
+        if (from < 0) return proposal
+        val stays = staysOf(proposal).toMutableList()
+        val stops = proposal.stops.toMutableList()
+        val stay = stays.removeAt(from)
+        stops.removeAt(from)
+        val target = to.coerceIn(0, stops.size)
+        stops.add(target, place)
+        stays.add(target, stay)
+        return rebuild(proposal, stops, stays)
+    }
+
+    /**
+     * Una parada más, donde menos rodeo suponga: se prueba en cada hueco y se
+     * queda el que deja el recorrido más corto.
+     */
+    fun added(proposal: ItineraryProposal, place: Place): ItineraryProposal {
+        if (proposal.stops.any { it.id == place.id }) return proposal
         val pace = proposal.request.pace ?: Pace.NORMAL
+        val stays = staysOf(proposal)
+        return (0..proposal.stops.size)
+            .map { slot ->
+                rebuild(
+                    proposal,
+                    proposal.stops.toMutableList().apply { add(slot, place) },
+                    stays.toMutableList().apply { add(slot, stopMinutes(place, pace)) },
+                )
+            }
+            .minBy { it.minutes }
+    }
+
+    /** Más o menos tiempo en una parada: "más tiempo en el castillo". */
+    fun restayed(proposal: ItineraryProposal, place: Place, factor: Double): ItineraryProposal {
+        val index = proposal.stops.indexOf(place)
+        if (index < 0) return proposal
+        val stays = staysOf(proposal).toMutableList()
+        stays[index] = (stays[index] * factor).toInt().coerceAtLeast(MIN_STAY)
+        return rebuild(proposal, proposal.stops, stays)
+    }
+
+    /**
+     * Rehace horas y duración con estas paradas y estancias, en este orden. La
+     * comida se queda tras la misma posición, si sigue habiendo paradas.
+     */
+    fun rebuild(proposal: ItineraryProposal, stops: List<Place>, stays: List<Int>): ItineraryProposal {
+        val mealAfter = proposal.mealAfter?.let { meal -> if (stops.isEmpty()) null else meal.coerceAtMost(stops.size - 1) }
+        val from = proposal.from ?: return proposal.copy(stops = stops, stays = stays, mealAfter = mealAfter)
+        var clock = proposal.startMinute
         var here = from
-        var minutes = 0
-        stops.forEach { stop ->
-            minutes += Phrasebook.drivingMinutes(here.distanceTo(stop.position)) + stopMinutes(stop, pace)
+        val arrivals = stops.mapIndexed { index, stop ->
+            clock += Phrasebook.drivingMinutes(here.distanceTo(stop.position))
+            val arrival = clock
+            clock += stays.getOrElse(index) { DEFAULT_STAY } + if (index == mealAfter) MEAL_MINUTES else 0
             here = stop.position
+            arrival
         }
         return proposal.copy(
             stops = stops,
+            stays = stays,
             mealAfter = mealAfter,
-            minutes = minutes + if (mealAfter != null) MEAL_MINUTES else 0,
-            arrivals = arrivals(from, stops, pace, proposal.startMinute, mealAfter),
+            arrivals = arrivals,
+            minutes = clock - proposal.startMinute,
         )
+    }
+
+    /** Las estancias de la propuesta; si es antigua y no las trae, las de siempre. */
+    private fun staysOf(proposal: ItineraryProposal): List<Int> {
+        val pace = proposal.request.pace ?: Pace.NORMAL
+        return proposal.stops.mapIndexed { index, stop -> proposal.stays.getOrNull(index) ?: stopMinutes(stop, pace) }
     }
 
     /**
@@ -318,7 +431,7 @@ object ItineraryDesigner {
 
     /** Visita y narración de una parada, según qué es y el ritmo pedido. */
     fun stopMinutes(place: Place, pace: Pace): Int {
-        val visit = PlaceKinds.interestsOf(place).maxOfOrNull { VISIT_BY_KIND.getValue(it) } ?: DEFAULT_VISIT
+        val visit = StopKind.of(place).minutes
         val factor = when (pace) {
             Pace.RELAXED -> 1.4
             Pace.NORMAL -> 1.0
@@ -367,19 +480,13 @@ object ItineraryDesigner {
     }
 
     private const val MIN_MATCHING = 2
+    /** Por muy poco tiempo que se pida, una parada no baja de esto. */
+    private const val MIN_STAY = 5
+    private const val DEFAULT_STAY = 30
     /** Más paradas no se recorren con gusto en una tarde, ni se recuerdan. */
     private const val NORMAL_STOPS = 6
-    private const val DEFAULT_VISIT = 20
     private const val WIKIPEDIA_PREFIX = "wiki:"
 
-    /** Lo que se queda uno, orientativo: un museo se recorre, una plaza se cruza. */
-    private val VISIT_BY_KIND = mapOf(
-        Interest.ART to 60,
-        Interest.HISTORY to 30,
-        Interest.NATURE to 30,
-        Interest.RELIGION to 20,
-        Interest.CITY to 15,
-    )
 }
 
 /**

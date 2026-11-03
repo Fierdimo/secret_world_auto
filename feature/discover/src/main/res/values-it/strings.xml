@@ -29,8 +29,10 @@
     <string name="tour_next">Prossima</string>
     <string name="tour_proposed">Itinerario proposto</string>
     <string name="tour_active">Il tuo itinerario</string>
-    <string name="tour_say_yes">Di «sì» per partire, o cambialo</string>
+    <string name="tour_say_yes">Di «salvalo» o «partiamo», o cambialo</string>
     <string name="tour_lunch">Pranzo</string>
     <string name="split_hint">Metti Secret World a schermo diviso con il navigatore: io ti guido, lui ti porta.</string>
     <string name="assistant_hint">Di «%1$s» e chiedimi quello che vuoi del posto in cui sei</string>
+    <string name="tour_edit_hint">«Salvalo», «partiamo», «inizia da…», «più tempo a…»</string>
+    <string name="close_view">Chiudi</string>
 </resources>

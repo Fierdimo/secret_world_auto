@@ -14,4 +14,8 @@
     <string name="permission_enable">Attiva</string>
     <string name="search_similar">Simili a %1$s</string>
     <string name="itinerary_summary">%1$d tappe · %2$s</string>
+    <plurals name="itinerary_stops">
+        <item quantity="one">%d tappa</item>
+        <item quantity="other">%d tappe</item>
+    </plurals>
 </resources>

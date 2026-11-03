@@ -88,6 +88,7 @@ import com.secretworld.auto.domain.ItineraryRequest
 import com.secretworld.auto.domain.Tour
 import com.secretworld.auto.domain.PlaceKinds
 import com.secretworld.auto.domain.LayeredIntentResolver
+import com.secretworld.auto.domain.ItineraryReplyPrompt
 import com.secretworld.auto.domain.LlmIntentResolver
 import com.secretworld.auto.domain.Resolution
 import com.secretworld.auto.domain.Phrasebook
@@ -102,6 +103,11 @@ import com.secretworld.auto.feature.discover.NowPlaying
 import com.secretworld.auto.feature.discover.PermissionNotice
 import com.secretworld.auto.feature.discover.RoutePanel
 import com.secretworld.auto.feature.discover.AssistantScreen
+import com.secretworld.auto.feature.discover.ItineraryOverlay
+import com.secretworld.auto.feature.discover.FlyoverState
+import com.secretworld.auto.feature.discover.SettingsButton
+import com.secretworld.auto.feature.parked.SettingAction
+import com.secretworld.auto.map.TourFlyover
 import com.secretworld.auto.feature.discover.TourStopUi
 import com.secretworld.auto.feature.discover.TourUi
 import com.secretworld.auto.feature.discover.SearchShortcut
@@ -177,6 +183,7 @@ class MainActivity : ComponentActivity() {
     /** La conversación para armar un itinerario: lo que se preguntó o propuso. */
     private val itinerary = ItineraryConversation()
     private val profiles by lazy { TravellerProfiles(this) }
+    private val savedItineraries by lazy { SavedItineraries(this) }
     /** El itinerario en curso. `null` si no se está haciendo ninguno. */
     private val tour = MutableStateFlow<Tour?>(null)
     /** Tras qué parada del itinerario en curso toca comer; se olvida al ofrecerlo. */
@@ -187,11 +194,16 @@ class MainActivity : ComponentActivity() {
     private var storyOffered: Place? = null
     /** Se ofreció buscar dónde comer; un "sí" busca. */
     private var lunchOffered = false
+    /** Se cumplió el tiempo en la parada y se propuso seguir; un "sí" sigue. */
+    private var moveOnOffered = false
+    private var moveOnJob: kotlinx.coroutines.Job? = null
     private var planJob: kotlinx.coroutines.Job? = null
     /** El itinerario que se enseña: propuesto, o el que está en curso. */
     private val shownPlan = MutableStateFlow<ItineraryProposal?>(null)
     /** Lo que se dice fuera del turno de una orden —la propuesta, al terminar de planificar—, para los subtítulos. */
     private val lateReply = MutableStateFlow<String?>(null)
+    /** La presentación cinemática del itinerario recién propuesto. */
+    private val flyover = MutableStateFlow<FlyoverState?>(null)
 
     /** Si comparte pantalla: entonces la app es compacta y el navegador está al lado. */
     private val multiWindow = MutableStateFlow(false)
@@ -272,6 +284,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var resolver: IntentResolver
     private val voiceInstaller by lazy { VoiceInstaller(this) }
     private val areas = NominatimAreas()
+    private val whereAmI by lazy { WhereAmI(this) }
     private val grammar by lazy { GrammarIntentResolver(language) }
 
     /** Lo que el asistente recuerda de la conversación: foco, lo enumerado, las últimas frases. */
@@ -441,6 +454,11 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(positionKey) {
                     catalogueResult = catalogue.nearby(vehicleState.position, language = language)
                 }
+                // Dónde está el usuario de verdad, no la "ciudad" del lugar más cercano.
+                var where by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(positionKey) {
+                    where = whereAmI.describe(vehicleState.position, java.util.Locale.forLanguageTag(language.code))
+                }
 
                 // Una guía de la ciudad entera no es un sitio al que ir ni que enumerar.
                 val places = catalogueResult?.places.orEmpty().filterNot(PlaceKinds::isCityGuide)
@@ -599,7 +617,13 @@ class MainActivity : ComponentActivity() {
                     // es buscar museos, y no hace falta el modelo para entenderlo.
                     if (itinerary.busy) {
                         val grammarSays = understood.firstOrNull()?.command ?: VoiceCommand.NotUnderstood(order)
+                        val pending = itinerary.state
                         val step = itinerary.hear(order, grammarSays, profiles.load())
+                        Log.d("SWItinerary", "«$order» con ${pending::class.simpleName}: gramática ${grammarSays::class.simpleName}, paso ${step?.let { it::class.simpleName }}")
+                        if (step == null && understood.isEmpty() && askModel(order, pending)) {
+                            voiceInput.acknowledge()
+                            return@LaunchedEffect
+                        }
                         // Pasó a otra cosa: la propuesta deja de enseñarse.
                         if (step == null && tour.value == null) shownPlan.value = null
                         if (step != null) {
@@ -683,7 +707,9 @@ class MainActivity : ComponentActivity() {
                 val split by multiWindow.collectAsState()
                 val compact = split || metrics.widthDp < COMPACT_WIDTH
                 val plan by shownPlan.collectAsState()
-                val shownPlanUi = plan?.takeIf { currentTour != null || itinerary.state is ItineraryConversation.State.Proposed }
+                val shownPlanUi = plan?.takeIf {
+                    currentTour != null || itinerary.state is ItineraryConversation.State.Proposed || itinerary.state is ItineraryConversation.State.Saved
+                }
                 val tourUi = shownPlanUi?.let { tourUiOf(it, currentTour) }
                 val searchShown = searchQuery.collectAsState().value
                 val results = searchResults.collectAsState().value
@@ -693,10 +719,8 @@ class MainActivity : ComponentActivity() {
                     if (panel is Panel.Home || inPip) {
                         AssistantScreen(
                             mini = inPip,
-                            // La barra del banco de pruebas va al pie: se le deja su hueco.
-                            modifier = if (compact) Modifier else Modifier.padding(bottom = CarTheme.dimens.utilityBarHeight),
                             compact = compact,
-                            city = upcoming.firstOrNull()?.city,
+                            city = where ?: upcoming.firstOrNull()?.city,
                             offline = catalogueResult?.source == CatalogueRepository.Source.FALLBACK,
                             mode = mode,
                             voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
@@ -722,9 +746,10 @@ class MainActivity : ComponentActivity() {
                             nearby = upcoming,
                             origin = vehicleState.position,
                             navigation = navigationUi,
-                            // A pantalla completa se planea; al iniciar la ruta se pasa a
-                            // la ventana flotante. No hace falta pedir nada más.
-                            showSplitHint = false,
+                            // Tocar una sugerencia es decirla: pasa por el mismo camino que la voz.
+                            suggestions = suggestionsFor(language).map { text ->
+                                SearchShortcut(label = text) { voiceInput.inject(text) }
+                            },
                             shortcuts = SHORTCUTS.map { (category, label) ->
                                 val text = label(language)
                                 SearchShortcut(label = text.replaceFirstChar { it.uppercase() }) { findPlaces(text, category, announce = true) }
@@ -751,18 +776,36 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // La barra del banco de pruebas —vehículo simulado, ajustes—
-                    // solo con sitio: en compacto, la pantalla es del asistente.
-                    if (!compact && !inPip) {
-                        DeveloperBar(
-                            mode = mode,
-                            speedKmh = vehicleState.speedMetersPerSecond * 3.6,
-                            onPanel = { panel = it },
-                            enabled = mode == DrivingMode.PARKED,
+                    // Un solo botón discreto para los ajustes —simulador y silencio
+                    // incluidos—, en vez de una barra fija que estorbaba.
+                    if (panel is Panel.Home && !inPip) {
+                        SettingsButton(
+                            onClick = { panel = Panel.Settings },
                             modifier = Modifier
-                                .align(Alignment.BottomEnd)
+                                .align(Alignment.TopEnd)
                                 .safeDrawingPadding()
                                 .padding(CarTheme.dimens.spaceS),
+                        )
+                    }
+
+                    // La presentación del itinerario recién propuesto, por encima de todo.
+                    val fly by flyover.collectAsState()
+                    fly?.takeIf { !compact && !inPip }?.let { state ->
+                        TourFlyover(
+                            state = state,
+                            mapboxToken = mapboxToken,
+                            onIntroDone = { flyover.value = flyover.value?.copy(intro = false) },
+                            overlay = {
+                                tourUi?.let { ui ->
+                                    ItineraryOverlay(
+                                        tour = ui,
+                                        voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
+                                        speaking = narrationState is NarrationController.State.Speaking && !(narrationState as NarrationController.State.Speaking).preparing ||
+                                            narrationState is NarrationController.State.Playing,
+                                        onClose = { flyover.value = null },
+                                    )
+                                }
+                            },
                         )
                     }
                 }
@@ -864,6 +907,9 @@ class MainActivity : ComponentActivity() {
                 },
                 onRemoveVoice = { },
                 onClose = { onPanel(Panel.Home) },
+                testingStatus = "${stringResource(if (mode == DrivingMode.PARKED) R.string.mode_parked else R.string.mode_driving)} · %.0f km/h"
+                    .format(vehicle.state.collectAsState().value.speedMetersPerSecond * 3.6),
+                testing = testingActions(),
             )
         }
     }
@@ -989,6 +1035,10 @@ class MainActivity : ComponentActivity() {
                     memory.focusOn(stop)
                     return intro
                 }
+                if (moveOnOffered) {
+                    moveOnOffered = false
+                    return advanceTour(c)
+                }
                 if (lunchOffered) {
                     lunchOffered = false
                     val query = language.say(en = "restaurant", es = "restaurante", it = "ristorante")
@@ -1018,6 +1068,13 @@ class MainActivity : ComponentActivity() {
 
             VoiceCommand.No -> {
                 offered = null
+                // No a seguir: sin prisa, se queda.
+                if (moveOnOffered) {
+                    moveOnOffered = false
+                    val reply = Phrasebook.stayLonger(c)
+                    narration.say(reply)
+                    return reply
+                }
                 // En un itinerario, decir que no a la historia o a comer es seguir.
                 if (tour.value != null && (storyOffered != null || lunchOffered)) {
                     storyOffered = null
@@ -1130,6 +1187,18 @@ class MainActivity : ComponentActivity() {
 
             is VoiceCommand.PlanItinerary -> itineraryStep(itinerary.request(command.request, profiles.load()), c)
 
+            VoiceCommand.StartItinerary -> {
+                val now = java.time.LocalTime.now()
+                val saved = savedItineraries.load(vehicle.state.value.position, now.hour * 60 + now.minute)
+                if (saved == null) {
+                    val reply = Phrasebook.noSavedItinerary(c)
+                    narration.say(reply)
+                    reply
+                } else {
+                    itineraryStep(ItineraryConversation.Step.Start(saved), c)
+                }
+            }
+
             VoiceCommand.ForgetProfile -> {
                 profiles.clear()
                 val reply = Phrasebook.profileForgotten(c)
@@ -1190,11 +1259,27 @@ class MainActivity : ComponentActivity() {
         }
         is ItineraryConversation.Step.Repropose -> {
             showItinerary(step.proposal)
-            val reply = Phrasebook.proposeItinerary(c, step.proposal)
+            // El cambio se ve en el mismo mapa con los marcadores renumerados, sin
+            // recorrido: ese se traza cuando se acepta. Se dice solo lo que cambió.
+            refreshItineraryMap(step.proposal, route = false)
+            val reply = Phrasebook.itineraryChanged(c, step.proposal, step.change)
+            narration.say(reply) { voiceInput.listenForAnswer() }
+            reply
+        }
+        is ItineraryConversation.Step.Save -> {
+            // Confirmado no es arrancado: se guarda y se pregunta si empezar ya.
+            savedItineraries.save(step.proposal)
+            shownPlan.value = step.proposal
+            // Aceptado: ahora sí, el recorrido por calles.
+            refreshItineraryMap(step.proposal, route = true)
+            val reply = Phrasebook.itinerarySaved(c)
             narration.say(reply) { voiceInput.listenForAnswer() }
             reply
         }
         is ItineraryConversation.Step.Start -> {
+            // "Inicia el itinerario" a la propuesta: se guarda también.
+            savedItineraries.save(step.proposal)
+            flyover.value = null
             startTour(step.proposal)
             val first = step.proposal.stops.first()
             val reply = Phrasebook.itineraryStarted(c, first)
@@ -1202,12 +1287,52 @@ class MainActivity : ComponentActivity() {
             navigateTo(first, announce = false)
             reply
         }
+        is ItineraryConversation.Step.Shelved -> {
+            savedItineraries.save(step.proposal)
+            flyover.value = null
+            shownPlan.value = null
+            val reply = Phrasebook.itineraryShelved(c)
+            narration.say(reply)
+            reply
+        }
         ItineraryConversation.Step.Discarded -> {
+            flyover.value = null
             shownPlan.value = null
             val reply = Phrasebook.itineraryDiscarded(c)
             narration.say(reply)
             reply
         }
+    }
+
+    /**
+     * Lo que la gramática no entendió con una propuesta delante, se le pregunta
+     * al modelo: "venga, en marcha" o "lo hacemos otro rato". Fuera del efecto
+     * de la voz, que se cancela en cuanto el micrófono vuelve a escuchar, y el
+     * modelo tarda segundos. Si no lo ve claro, la propuesta sigue pendiente y
+     * se pide que lo repita. `false` si no hay a quién preguntar.
+     */
+    private fun askModel(heard: String, pending: ItineraryConversation.State): Boolean {
+        if (pending !is ItineraryConversation.State.Proposed && pending !is ItineraryConversation.State.Saved) return false
+        val model = gemma?.takeIf { it.ready } ?: return false
+        itinerary.restore(pending)
+        lifecycleScope.launch {
+            val reply = try {
+                ItineraryReplyPrompt.parse(model.complete(ItineraryReplyPrompt.PREFIX, ItineraryReplyPrompt.request(heard)))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("SWItinerary", "el LLM no contestó", e)
+                null
+            }
+            Log.i("SWItinerary", "«$heard» → modelo: $reply")
+            // Mientras pensaba pudo pasar a otra cosa.
+            if (itinerary.state != pending) return@launch
+            val c = Phrasebook.Context(vehicle.state.value.position, memory.listed, memory, language)
+            val said = reply?.let { itinerary.answer(it) }?.let { itineraryStep(it, c) }
+                ?: notCaught(language).also { narration.say(it) { voiceInput.listenForAnswer() } }
+            memory.remember(heard, said)
+        }
+        return true
     }
 
     /**
@@ -1237,12 +1362,59 @@ class MainActivity : ComponentActivity() {
                 return@launch
             }
             itinerary.proposed(proposal)
+            // La presentación primero —con la ruta por calles, tramo a tramo— y la
+            // propuesta hablada a la vez: se oye mientras la cámara vuela.
+            flyover.value = flyoverOf(proposal)
             showItinerary(proposal)
             val reply = Phrasebook.proposeItinerary(c, proposal)
             Log.i("SWItinerary", "propone: «$reply»")
             lateReply.value = reply
             narration.say(reply) { voiceInput.listenForAnswer() }
         }
+    }
+
+    /**
+     * Lo que necesita la presentación: la ruta por calles de parada en parada. Si
+     * un tramo no se puede calcular —sin red—, ese tramo va en línea recta.
+     */
+    private suspend fun flyoverOf(proposal: ItineraryProposal, intro: Boolean = true, route: Boolean = true): FlyoverState {
+        // Desde la primera parada, no desde donde esté el coche: el itinerario es
+        // el recorrido entre las paradas; llegar a la primera es cosa del navegador.
+        val legs = if (!route) emptyList() else coroutineScope {
+            proposal.stops.mapIndexed { index, stop ->
+                if (index == 0) {
+                    async { listOf(stop.position) }
+                } else {
+                    val origin = proposal.stops[index - 1].position
+                    async { router.route(origin, stop)?.points?.takeIf { it.size >= 2 } ?: listOf(origin, stop.position) }
+                }
+            }.awaitAll()
+        }
+        val path = ArrayList<Coordinates>()
+        val ends = ArrayList<Int>()
+        legs.forEach { leg ->
+            path += if (path.isEmpty()) leg else leg.drop(1)
+            ends += path.size
+        }
+        val ui = tourUiOf(proposal, null)
+        return FlyoverState(
+            start = proposal.stops.first().position,
+            stops = proposal.stops,
+            times = ui.stops.map { stop -> listOf("${stop.time} – ${stop.until}", stop.stay).filter { it.isNotBlank() && it != " – " }.joinToString(" · ") },
+            path = path,
+            legEnds = ends,
+            summary = ui.summary,
+            intro = intro,
+        )
+    }
+
+    /**
+     * Tras un cambio, la misma vista sin repetir la presentación: con [route],
+     * el recorrido rehecho; sin él, solo las paradas, a falta de aceptarlo.
+     */
+    private fun refreshItineraryMap(proposal: ItineraryProposal, route: Boolean) {
+        if (flyover.value == null) return
+        lifecycleScope.launch { flyover.value = flyoverOf(proposal, intro = false, route = route) }
     }
 
     /** La propuesta en la lista del panel y en el mapa, para verla con el coche detenido. */
@@ -1252,18 +1424,34 @@ class MainActivity : ComponentActivity() {
         memory.listed(proposal.stops)
     }
 
+    private fun clock(minute: Int) = "%d:%02d".format((minute / 60) % 24, minute % 60)
+
+    /** Lo que se le puede pedir, para tocarlo en la pantalla. */
+    private fun suggestionsFor(language: VoiceLanguage): List<String> = language.say(
+        en = listOf("Plan me an itinerary", "What's nearby?", "Where can I eat?"),
+        es = listOf("Ármame un itinerario", "¿Qué hay cerca?", "¿Dónde puedo comer?"),
+        it = listOf("Organizzami un itinerario", "Cosa c'è qui vicino?", "Dove posso mangiare?"),
+    )
+
     /** El itinerario como lo enseña la pantalla: cada parada con su hora. */
     private fun tourUiOf(plan: ItineraryProposal, current: Tour?) = TourUi(
         stops = plan.stops.mapIndexed { index, place ->
+            val arrival = plan.arrivals.getOrNull(index)
+            val stay = plan.stays.getOrNull(index)
             TourStopUi(
                 place = place,
-                time = plan.arrivals.getOrNull(index)?.let { "%d:%02d".format((it / 60) % 24, it % 60) }.orEmpty(),
+                time = arrival?.let(::clock).orEmpty(),
                 lunchAfter = plan.mealAfter == index && index < plan.stops.lastIndex,
+                until = if (arrival != null && stay != null) clock(arrival + stay) else "",
+                stay = stay?.let { Phrasebook.spokenDuration(it * 60.0, language) }.orEmpty(),
             )
         },
         proposed = current == null,
+        saved = current == null && itinerary.state is ItineraryConversation.State.Saved,
         current = current?.index ?: -1,
         summary = getString(R.string.itinerary_summary, plan.stops.size, Phrasebook.spokenDuration(plan.minutes * 60.0, language)),
+        title = resources.getQuantityString(R.plurals.itinerary_stops, plan.stops.size, plan.stops.size),
+        duration = Phrasebook.spokenDuration(plan.minutes * 60.0, language),
     )
 
     private fun startTour(proposal: ItineraryProposal) {
@@ -1278,6 +1466,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun endTour() {
+        moveOnJob?.cancel()
+        moveOnOffered = false
         tour.value = null
         shownPlan.value = null
         leavePip()
@@ -1295,6 +1485,8 @@ class MainActivity : ComponentActivity() {
     private fun advanceTour(c: Phrasebook.Context): String {
         val current = tour.value ?: return Phrasebook.noMoreStops(c).also { narration.say(it) }
         storyOffered = null
+        moveOnOffered = false
+        moveOnJob?.cancel()
         if (tourMealAfter == current.index) {
             tourMealAfter = null
             lunchOffered = true
@@ -1338,7 +1530,29 @@ class MainActivity : ComponentActivity() {
         }
         storyOffered = stop
         memory.focusOn(stop)
-        narration.say(Phrasebook.arrivedAtStop(c, stop)) { voiceInput.listenForAnswer() }
+        val stay = shownPlan.value?.let { plan -> plan.stays.getOrNull(plan.stops.indexOfFirst { it.id == stop.id }) }
+        narration.say(Phrasebook.arrivedAtStop(c, stop, stay)) { voiceInput.listenForAnswer() }
+        scheduleMoveOn(current, stay)
+    }
+
+    /**
+     * Cuando se cumple el tiempo previsto en la parada, se **propone** seguir y
+     * se espera el sí. Si el conductor ya pasó a la siguiente, no se dice nada.
+     */
+    private fun scheduleMoveOn(at: Tour, stayMinutes: Int?) {
+        moveOnJob?.cancel()
+        val minutes = stayMinutes ?: return
+        moveOnJob = lifecycleScope.launch {
+            delay(minutes * 60_000L)
+            val now = tour.value ?: return@launch
+            if (now.index != at.index) return@launch
+            moveOnOffered = true
+            storyOffered = null
+            val c = Phrasebook.Context(vehicle.state.value.position, memory.listed, memory, language)
+            val reply = Phrasebook.timeToMoveOn(c, now.current, now.next)
+            lateReply.value = reply
+            narration.say(reply) { voiceInput.listenForAnswer() }
+        }
     }
 
     /**
@@ -1652,6 +1866,23 @@ class MainActivity : ComponentActivity() {
             failed.forEach { Log.e("SWVoice", "no se pudo instalar ${it.id} desde el APK") }
         }
         modelsPercent.value = null
+    }
+
+    /** El simulador y el silencio, dentro de los ajustes. No forman parte del producto. */
+    @Composable
+    private fun testingActions(): List<SettingAction> {
+        val simulating = source.collectAsState().value === simulated
+        return buildList {
+            if (simulating) {
+                add(SettingAction(stringResource(R.string.bar_park)) { simulated.park() })
+                add(SettingAction(stringResource(R.string.bar_drive)) { simulated.drive() })
+                add(SettingAction("+1 km") { simulated.advance(40.0) })
+                if (device?.hasPermission == true) add(SettingAction("GPS") { useDeviceLocation() })
+            } else {
+                add(SettingAction("Sim") { source.value = simulated })
+            }
+            add(SettingAction(stringResource(R.string.bar_quiet)) { narration.stop() })
+        }
     }
 
     /** Controles del simulador. No forman parte del producto. */

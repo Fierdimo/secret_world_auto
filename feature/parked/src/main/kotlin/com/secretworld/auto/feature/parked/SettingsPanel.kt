@@ -1,6 +1,9 @@
 package com.secretworld.auto.feature.parked
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,6 +33,9 @@ import com.secretworld.auto.core.designsystem.panelInsetsPadding
  * existe. Una pantalla de ajustes llena de conmutadores falsos es la forma más
  * rápida de que una demostración pierda credibilidad.
  */
+/** Un botón de la sección de pruebas: el vehículo simulado, el silencio. */
+data class SettingAction(val label: String, val onClick: () -> Unit)
+
 /** Un idioma que se puede elegir, con su nombre en ese idioma. */
 data class LanguageOption(val code: String, val label: String, val selected: Boolean)
 
@@ -43,6 +49,10 @@ fun SettingsPanel(
     onRemoveVoice: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    /** "aparcado · 0 km/h": el vehículo, simulado o real. */
+    testingStatus: String? = null,
+    /** Lo que antes iba en una barra fija sobre la pantalla: simulador y silencio. */
+    testing: List<SettingAction> = emptyList(),
 ) {
     val d = CarTheme.dimens
     Column(
@@ -50,6 +60,7 @@ fun SettingsPanel(
             .fillMaxHeight()
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.93f))
             .panelInsetsPadding()
+            .verticalScroll(rememberScrollState())
             .padding(d.spaceM),
     ) {
         Row(
@@ -96,6 +107,18 @@ fun SettingsPanel(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        if (testing.isNotEmpty() || testingStatus != null) {
+            Spacer(Modifier.height(d.spaceL))
+            Text(stringResource(R.string.testing), style = MaterialTheme.typography.bodyLarge)
+            testingStatus?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.height(d.spaceXs))
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(d.spaceXs)) {
+                testing.forEach { CarSecondaryButton(label = it.label, onClick = it.onClick, dense = true) }
+            }
+        }
     }
 }
 

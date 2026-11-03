@@ -94,6 +94,9 @@ sealed interface VoiceCommand {
     /** "Olvida mis preferencias" → borra el perfil (SPEC RF-8.6). */
     data object ForgetProfile : VoiceCommand
 
+    /** "Empieza mi itinerario" → arranca el itinerario guardado. */
+    data object StartItinerary : VoiceCommand
+
     /**
      * Se entendió que pide algo, pero no a qué se refiere. La pregunta se le
      * dice al conductor y se abre el turno para que conteste.
@@ -165,6 +168,7 @@ object VoiceGrammar {
         if (words.size <= 2 && words.hasAny(NO)) return VoiceCommand.No
 
         if (words.hasAny(FORGET_PROFILE)) return VoiceCommand.ForgetProfile
+        if (words.hasAny(START_ITINERARY)) return VoiceCommand.StartItinerary
         // Antes que las búsquedas: "un itinerario con comida" no es buscar comida.
         ItineraryRequests.parse(heard)?.let { return VoiceCommand.PlanItinerary(it) }
 
@@ -716,6 +720,11 @@ object VoiceGrammar {
         "salir de la ruta", "salir de la navegación", "salir de la navegacion", "parar la ruta", "parar navegación", "parar navegacion",
     )
 
+    private val START_ITINERARY = listOf(
+        "empieza mi itinerario", "empieza el itinerario", "empezar el itinerario", "empecemos el itinerario", "arranca el itinerario",
+        "inizia il mio itinerario", "inizia l itinerario", "iniziamo l itinerario", "parti con l itinerario",
+        "start my itinerary", "start the itinerary", "begin my itinerary",
+    )
     private val FORGET_PROFILE = listOf(
         "olvida mis preferencias", "olvida mis gustos", "borra mis preferencias", "borra mis gustos",
         "dimentica le mie preferenze", "dimentica i miei gusti", "cancella le mie preferenze",

@@ -96,12 +96,150 @@ class ItineraryConversationTest {
     }
 
     @Test
-    fun `si empieza y no descarta`() {
-        assertIs<ItineraryConversation.Step.Start>(hear(proposed(), "sí"))
-        assertIs<ItineraryConversation.Step.Start>(hear(proposed(), "partiamo"))
-        assertIs<ItineraryConversation.Step.Start>(hear(proposed(), "venga, vamos"))
+    fun `guardar se dice de muchas formas`() {
+        listOf("sí", "guarda ese itinerario", "guárdalo", "me gusta", "perfecto", "está bien", "salvalo", "save it", "no, guárdalo")
+            .forEach { assertIs<ItineraryConversation.Step.Save>(hear(proposed(), it), "«$it»") }
         assertEquals(ItineraryConversation.Step.Discarded, hear(proposed(), "no"))
         assertEquals(ItineraryConversation.Step.Discarded, hear(proposed(), "no, vale"))
+    }
+
+    @Test
+    fun `empezar a la propuesta la guarda y arranca`() {
+        listOf("inicia el itinerario", "empecemos", "venga, vamos", "vámonos ya", "dale", "partiamo", "iniziamo", "let's go", "start it now")
+            .forEach { heard ->
+                val conversation = proposed()
+                assertIs<ItineraryConversation.Step.Start>(hear(conversation, heard), "«$heard»")
+                assertEquals(ItineraryConversation.State.Idle, conversation.state)
+            }
+    }
+
+    @Test
+    fun `dejarlo para luego lo guarda sin arrancar`() {
+        listOf("guárdalo para luego", "mejor guárdalo para más tarde", "empezamos mañana", "ahora no, después", "later", "lo salvo per dopo")
+            .forEach { assertIs<ItineraryConversation.Step.Shelved>(hear(proposed(), it), "«$it»") }
+    }
+
+    @Test
+    fun `una negacion delante no arranca`() {
+        assertIs<ItineraryConversation.Step.Discarded>(hear(proposed(), "no empecemos"))
+        assertNull(ItineraryRequests.reply("don't start"))
+        assertNull(ItineraryRequests.reply("non partiamo"))
+    }
+
+    @Test
+    fun `empezar por una parada es un cambio, no empezar`() {
+        val step = hear(proposed(), "empieza por la plaza de los coches")
+        assertIs<ItineraryConversation.Step.Repropose>(step)
+        assertEquals(ItineraryEdit.Move(square, first = true), step.change)
+    }
+
+    @Test
+    fun `vamos con un ajuste es un ajuste`() {
+        assertNull(ItineraryRequests.reply("vamos a ver más museos"))
+        assertIs<ItineraryConversation.Step.Plan>(hear(proposed(), "venga, pero con más museos"))
+    }
+
+    @Test
+    fun `la respuesta del modelo contesta a lo pendiente`() {
+        val conversation = proposed()
+        val pending = conversation.state
+        assertNull(hear(conversation, "eso suena interesante"))
+        conversation.restore(pending)
+        assertIs<ItineraryConversation.Step.Start>(conversation.answer(ItineraryReply.START))
+        assertEquals(ItineraryReply.SAVE, ItineraryReplyPrompt.parse(" save\n"))
+        assertEquals(ItineraryReply.LATER, ItineraryReplyPrompt.parse("later."))
+        assertNull(ItineraryReplyPrompt.parse("none"))
+        assertEquals(ItineraryReply.START, ItineraryReplyPrompt.parse("\"nos ponemos en camino\" -> start"))
+        assertEquals(ItineraryReply.START, ItineraryReplyPrompt.parse("Reply: start"))
+        assertNull(ItineraryReplyPrompt.parse("\"start later\" none"))
+    }
+
+    @Test
+    fun `tras un cambio solo se dice el cambio`() {
+        val c = Phrasebook.Context(Coordinates(10.4, -75.5), emptyList(), ConversationMemory(), VoiceLanguage.SPANISH)
+        val step = hear(proposed(), "quita el museo del oro")
+        assertIs<ItineraryConversation.Step.Repropose>(step)
+        val said = Phrasebook.itineraryChanged(c, step.proposal, step.change)
+        assertTrue(said.startsWith("Fuera Museo del Oro."), said)
+        assertTrue("propongo" !in said && "Castillo" !in said, said)
+    }
+
+    @Test
+    fun `guardado, el segundo si empieza y el no lo deja para despues`() {
+        val conversation = proposed()
+        assertIs<ItineraryConversation.Step.Save>(hear(conversation, "sí"))
+        assertIs<ItineraryConversation.Step.Start>(hear(conversation, "sí, empecemos"))
+        assertIs<ItineraryConversation.Step.Start>(hear(proposed().also { hear(it, "guárdalo") }, "inicia el itinerario"))
+        assertIs<ItineraryConversation.Step.Shelved>(hear(proposed().also { hear(it, "guárdalo") }, "más tarde"))
+
+        val later = proposed().also { hear(it, "sí") }
+        assertIs<ItineraryConversation.Step.Shelved>(hear(later, "no"))
+        assertEquals(ItineraryConversation.State.Idle, later.state)
+    }
+
+    @Test
+    fun `cambiar lo guardado vuelve a pedir confirmacion`() {
+        val conversation = proposed().also { hear(it, "sí") }
+        assertIs<ItineraryConversation.Step.Repropose>(hear(conversation, "deja el castillo para el final"))
+        assertIs<ItineraryConversation.State.Proposed>(conversation.state)
+    }
+
+    @Test
+    fun `empezar el itinerario guardado`() {
+        assertEquals(VoiceCommand.StartItinerary, VoiceGrammar.parse("empieza mi itinerario", emptyList()))
+        assertEquals(VoiceCommand.StartItinerary, VoiceGrammar.parse("inizia il mio itinerario", emptyList()))
+        assertIs<VoiceCommand.PlanItinerary>(VoiceGrammar.parse("hazme mi itinerario para esta tarde", emptyList()))
+    }
+
+    private fun reordered(heard: String, command: VoiceCommand? = null): List<Place> {
+        val conversation = proposed()
+        val step = conversation.hear(heard, command ?: VoiceGrammar.parse(heard, emptyList()), empty)
+        assertIs<ItineraryConversation.Step.Repropose>(step, "«$heard»")
+        return step.proposal.stops
+    }
+
+    @Test
+    fun `empezar por una parada la pone la primera`() {
+        assertEquals(listOf(square, castle, museum), reordered("empieza por la plaza de los coches"))
+        assertEquals(listOf(museum, castle, square), reordered("primero el museo del oro"))
+    }
+
+    @Test
+    fun `dejar una parada para el final`() {
+        assertEquals(listOf(museum, square, castle), reordered("deja el castillo para el final"))
+        assertEquals(listOf(castle, square, museum), reordered("il museo alla fine"))
+    }
+
+    @Test
+    fun `una parada antes o despues de otra`() {
+        assertEquals(listOf(castle, square, museum), reordered("la plaza antes que el museo"))
+        assertEquals(listOf(museum, castle, square), reordered("el castillo después del museo"))
+    }
+
+    @Test
+    fun `mas o menos tiempo en una parada`() {
+        val base = proposal()
+        val longer = proposed().hear("más tiempo en el castillo", VoiceCommand.NotUnderstood(""), empty)
+        assertIs<ItineraryConversation.Step.Repropose>(longer)
+        assertTrue(longer.proposal.stays[0] > ItineraryDesigner.stopMinutes(castle, Pace.NORMAL))
+        val shorter = proposed().hear("menos tiempo en la plaza", VoiceCommand.NotUnderstood(""), empty)
+        assertIs<ItineraryConversation.Step.Repropose>(shorter)
+        assertTrue(shorter.proposal.stays[2] < ItineraryDesigner.stopMinutes(square, Pace.NORMAL))
+        assertEquals(base.stops, shorter.proposal.stops)
+    }
+
+    @Test
+    fun `anadir un sitio que no estaba`() {
+        val hill = place("9", "Cerro de La Popa")
+        val stops = reordered("añade el cerro de la popa", VoiceCommand.ChooseAction(hill))
+        assertEquals(4, stops.size)
+        assertTrue(hill in stops)
+    }
+
+    @Test
+    fun `anadir donde comer sigue siendo pedir comida`() {
+        val step = hear(proposed(), "añade dónde comer")
+        assertIs<ItineraryConversation.Step.Plan>(step)
     }
 
     @Test

@@ -695,7 +695,7 @@ internal fun PermissionCard(notice: PermissionNotice) {
  * lo que suena.
  */
 @Composable
-internal fun VoiceStatusChip(status: VoiceStatus) {
+internal fun VoiceStatusChip(status: VoiceStatus, labelled: Boolean = true) {
     if (status == VoiceStatus.OFF) return
     val d = CarTheme.dimens
     val active = status != VoiceStatus.WAITING
@@ -722,7 +722,7 @@ internal fun VoiceStatusChip(status: VoiceStatus) {
     Row(
         Modifier
             .clip(RoundedCornerShape(d.cardCorner))
-            .background(if (active) color.copy(alpha = 0.12f) else Color.Transparent)
+            .background(if (active && labelled) color.copy(alpha = 0.12f) else Color.Transparent)
             .padding(horizontal = d.spaceS, vertical = d.spaceXs / 2),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -732,13 +732,15 @@ internal fun VoiceStatusChip(status: VoiceStatus) {
         } else {
             Box(Modifier.size(dot).alpha(alpha).clip(CircleShape).background(color))
         }
-        Spacer(Modifier.width(d.spaceXs))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodySmall,
-            color = if (active) color else MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-        )
+        if (labelled) {
+            Spacer(Modifier.width(d.spaceXs))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (active) color else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
     }
 }
 

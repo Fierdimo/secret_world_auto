@@ -89,6 +89,31 @@ data class TravellerProfile(
     val isEmpty: Boolean get() = likes.isEmpty() && dislikes.isEmpty() && visited.isEmpty()
 }
 
+/** Un cambio sobre una propuesta ya hecha: el orden, una parada más, el tiempo en una. */
+sealed interface ItineraryEdit {
+    /** "Empieza por el castillo" ([first]) o "deja la catedral para el final". */
+    data class Move(val place: Place, val first: Boolean) : ItineraryEdit
+
+    /** "La India Catalina antes que el castillo" ([before]) o "después de". */
+    data class Relative(val place: Place, val anchor: Place, val before: Boolean) : ItineraryEdit
+
+    /** "Añade el Cerro de la Popa". */
+    data class Add(val place: Place) : ItineraryEdit
+
+    /** "Más tiempo en el castillo" ([longer]) o "menos tiempo en la plaza". */
+    data class Stay(val place: Place, val longer: Boolean) : ItineraryEdit
+
+    /** "Quita el museo". */
+    data class Remove(val place: Place) : ItineraryEdit
+}
+
+/**
+ * Qué se contesta a una propuesta, dicho como se diga: "guarda ese itinerario"
+ * y "me gusta" la guardan; "inicia el itinerario" y "vamos" la guardan y
+ * arrancan; "guárdalo para luego" la guarda y cierra la vista.
+ */
+enum class ItineraryReply { SAVE, START, LATER }
+
 /**
  * Entiende una petición de itinerario dicha de viva voz, en los tres idiomas.
  *
@@ -123,14 +148,75 @@ object ItineraryRequests {
         it.size <= 4 && it.any { word -> word in REFUSALS } && details(it) == ItineraryRequest()
     }
 
+    /**
+     * Un cambio de orden, de estancia o una parada más, sobre la propuesta.
+     *
+     * @param stops las paradas propuestas, entre las que se buscan los nombres.
+     * @param named el lugar que la gramática encontró en la frase, para
+     *   "añade el Cerro de la Popa": no está entre las paradas, sino cerca.
+     */
+    fun edit(heard: String, stops: List<Place>, named: Place?): ItineraryEdit? {
+        val words = words(heard)
+        if (words.hasAny(LONGER) || words.hasAny(SHORTER)) {
+            val place = VoiceGrammar.resolve(heard, stops) ?: return null
+            return ItineraryEdit.Stay(place, longer = words.hasAny(LONGER))
+        }
+        // "X antes que Y": lo de la izquierda y lo de la derecha, por separado.
+        listOf(true to BEFORE, false to AFTER).forEach { (before, markers) ->
+            markers.forEach { marker ->
+                val needle = marker.split(' ')
+                val at = words.indices.firstOrNull { i -> i + needle.size <= words.size && words.subList(i, i + needle.size) == needle }
+                    ?: return@forEach
+                val place = VoiceGrammar.resolve(words.take(at).joinToString(" "), stops)
+                val anchor = VoiceGrammar.resolve(words.drop(at + needle.size).joinToString(" "), stops)
+                if (place != null && anchor != null && place != anchor) return ItineraryEdit.Relative(place, anchor, before)
+            }
+        }
+        if (words.hasAny(FIRST)) VoiceGrammar.resolve(heard, stops)?.let { return ItineraryEdit.Move(it, first = true) }
+        if (words.hasAny(LAST)) VoiceGrammar.resolve(heard, stops)?.let { return ItineraryEdit.Move(it, first = false) }
+        // Añadir comida es otro ajuste ("añade dónde comer"): aquí, un sitio.
+        if (words.any { it in ADD_VERBS } && !words.hasAny(MEAL)) {
+            val place = named?.takeIf { candidate -> stops.none { it.id == candidate.id } } ?: return null
+            return ItineraryEdit.Add(place)
+        }
+        return null
+    }
+
     /** "Quita el museo", "togli il castello", "remove the cathedral". */
     fun removes(heard: String): Boolean = words(heard).any { it in REMOVE_VERBS }
 
     /**
-     * Aceptar la propuesta con más que un "sí": "empecemos", "venga, vamos",
-     * "partiamo", "let's go". La gramática solo toma "sí" a secas.
+     * Lo que contesta a la propuesta, o `null` si no contesta: un ajuste
+     * ("vamos a ver museos") no es una respuesta. Dejarlo para luego gana a
+     * empezar ("empezamos mañana"), y empezar a guardar ("guárdalo y vamos").
+     * Aprobar sin verbo —"sí", "me gusta"— solo en frases cortas, que en una
+     * larga puede ser otra cosa.
      */
-    fun accepts(heard: String): Boolean = words(heard).let { it.size <= 4 && it.hasAny(ACCEPT) && it.none { word -> word in REFUSALS } }
+    fun reply(heard: String): ItineraryReply? {
+        val words = words(heard)
+        if (words.size > MAX_REPLY_WORDS) return null
+        if (words.hasAffirmed(LATER)) return ItineraryReply.LATER
+        if (details(words) != ItineraryRequest()) return null
+        return when {
+            words.hasAffirmed(START_VERBS) -> ItineraryReply.START
+            words.hasAffirmed(SAVE_VERBS) -> ItineraryReply.SAVE
+            words.size <= 4 && words.hasAffirmed(APPROVE) && words.none { it in REFUSALS } -> ItineraryReply.SAVE
+            else -> null
+        }
+    }
+
+    /**
+     * Como [hasAny], pero sin una negación justo delante: "no empecemos
+     * todavía", "don't start", "non partiamo". "No, guárdalo" sí guarda: el
+     * imperativo con el pronombre pegado solo es afirmativo.
+     */
+    private fun List<String>.hasAffirmed(phrases: List<String>): Boolean = phrases.any { phrase ->
+        val needle = phrase.split(' ')
+        indices.any { i ->
+            i + needle.size <= size && subList(i, i + needle.size) == needle &&
+                (needle.first() in ENCLITIC || (1..2).none { back -> getOrNull(i - back) in REPLY_NEGATIONS })
+        }
+    }
 
     private fun details(words: List<String>): ItineraryRequest {
         val (liked, avoided, mentioned) = interests(words)
@@ -266,6 +352,33 @@ object ItineraryRequests {
         "organiza el dia", "organizza la giornata", "aprovechar el dia", "sfruttare la giornata", "make the most of",
     )
 
+    private val LONGER = listOf(
+        "mas tiempo", "mas rato", "quedarme mas", "quedarnos mas", "estar mas",
+        "piu tempo", "fermarmi di piu", "fermarci di piu", "restare di piu",
+        "more time", "longer", "stay more",
+    )
+    private val SHORTER = listOf(
+        "menos tiempo", "poco tiempo", "menos rato", "rapido en", "rapidito",
+        "meno tempo", "poco tempo", "veloce",
+        "less time", "short visit", "quick",
+    )
+    private val BEFORE = listOf("antes de", "antes que", "antes del", "prima di", "prima del", "prima della", "before")
+    private val AFTER = listOf("despues de", "despues del", "luego de", "dopo", "dopo il", "dopo la", "after")
+    private val FIRST = listOf(
+        "primero", "primera", "empieza por", "empezar por", "empecemos por", "empezamos por", "comienza por",
+        "prima il", "prima la", "per primo", "per prima", "inizia da", "iniziamo da", "comincia da",
+        "first", "start with", "begin with",
+    )
+    private val LAST = listOf(
+        "al final", "para el final", "de ultimo", "de ultima", "por ultimo", "el ultimo", "la ultima",
+        "alla fine", "per ultimo", "per ultima", "per la fine",
+        "last", "at the end", "for the end",
+    )
+    private val ADD_VERBS = setOf(
+        "anade", "anadele", "agrega", "agregale", "incluye", "mete", "suma", "pon",
+        "aggiungi", "includi", "metti",
+        "add", "include", "put",
+    )
     private val REMOVE_VERBS = setOf(
         "quita", "quitale", "quitar", "saca", "elimina", "borra", "fuera",
         "togli", "togliere", "levare", "leva", "cancella",
@@ -273,11 +386,36 @@ object ItineraryRequests {
     )
     /** "No, vale": la negación gana. */
     private val REFUSALS = setOf("no", "nope", "non", "nah", "mejor", "meglio")
-    private val ACCEPT = listOf(
-        "si", "vale", "venga", "vamos", "empecemos", "empezamos", "empieza", "adelante", "perfecto", "dale", "listo",
-        "andiamo", "partiamo", "iniziamo", "comincia", "perfetto", "va bene", "certo", "dai",
-        "yes", "ok", "okay", "lets go", "let s go", "go ahead", "start", "perfect", "sounds good", "sure",
+    private const val MAX_REPLY_WORDS = 8
+    private val SAVE_VERBS = listOf(
+        "guarda", "guardalo", "guardala", "guardar", "guardame", "salva", "salvalo", "salvala", "apunta", "apuntalo",
+        "memoriza", "memorizalo", "conserva", "conservalo", "quedate con", "me lo quedo",
+        "salvare", "memorizza", "memorizzalo", "tienilo", "tienila",
+        "save", "keep", "store", "remember it",
     )
+    private val START_VERBS = listOf(
+        "inicia", "inicialo", "iniciar", "iniciemos", "iniciamos", "empieza", "empiezalo", "empezar", "empecemos",
+        "empezamos", "comienza", "comienzalo", "comencemos", "comenzamos", "arranca", "arrancalo", "arrancamos",
+        "arranquemos", "vamos", "vamonos", "dale", "adelante", "en marcha", "a por ello",
+        "inizia", "inizialo", "iniziamo", "comincia", "cominciamo", "partiamo", "parti", "andiamo", "avvia",
+        "start", "begin", "lets go", "let s go", "go ahead", "go now", "let s start", "lets start",
+    )
+    private val LATER = listOf(
+        "luego", "despues", "mas tarde", "otro dia", "otro rato", "otro momento", "manana", "en otro momento", "ahora no",
+        "dopo", "piu tardi", "domani", "un altro giorno", "adesso no", "non ora",
+        "later", "tomorrow", "another day", "not now",
+    )
+    private val APPROVE = listOf(
+        "si", "vale", "venga", "perfecto", "listo", "me gusta", "me encanta", "esta bien", "de acuerdo", "genial", "bien",
+        "perfetto", "va bene", "certo", "dai", "mi piace", "ottimo", "benissimo",
+        "yes", "ok", "okay", "perfect", "sounds good", "sure", "great", "fine", "i like it", "love it",
+    )
+    /** Imperativos con el pronombre pegado: no hay forma negativa que se les parezca. */
+    private val ENCLITIC = setOf(
+        "guardalo", "guardala", "guardame", "salvalo", "salvala", "apuntalo", "memorizalo", "conservalo",
+        "inicialo", "empiezalo", "comienzalo", "arrancalo", "inizialo", "memorizzalo", "tienilo", "tienila",
+    )
+    private val REPLY_NEGATIONS = setOf("no", "non", "dont", "don", "not", "never", "nunca", "mai")
 
     private val HOUR_WORDS = setOf("hora", "horas", "ora", "ore", "hour", "hours", "h")
     private val MINUTE_WORDS = setOf("minuto", "minutos", "minuti", "minute", "minutes", "min")
@@ -357,4 +495,53 @@ object ItineraryRequests {
         'á' to 'a', 'é' to 'e', 'í' to 'i', 'ó' to 'o', 'ú' to 'u', 'ü' to 'u', 'ñ' to 'n',
         'à' to 'a', 'è' to 'e', 'ì' to 'i', 'ò' to 'o', 'ù' to 'u',
     )
+}
+
+/**
+ * Para lo que la gramática no entendió con una propuesta delante: el modelo
+ * solo elige entre guardar, empezar, dejarlo para luego o nada. Una palabra, que
+ * en un modelo de 1B es lo rápido, y cualquier otra cosa es "nada": ante la
+ * duda no se guarda ni se arranca.
+ */
+object ItineraryReplyPrompt {
+
+    val PREFIX: String = """
+        |A driver was just offered a sightseeing itinerary and asked "shall I save it, or start now?". Classify the driver's answer with ONE word:
+        |save — keep the itinerary for later or approve it ("save that itinerary", "I like it", "me lo apuntas", "tienilo da parte")
+        |start — begin it now ("start the itinerary", "let's hit the road", "nos vamos ya", "dai, partiamo")
+        |later — keep it but not now ("maybe tomorrow", "lo dejamos para otro rato", "magari stasera")
+        |none — anything else: a change, a question, talking to someone else
+        |
+        |Driver: "perfecto, guárdamelo"
+        |Reply: save
+        |Driver: "venga, en marcha"
+        |Reply: start
+        |Driver: "lo hacemos otro rato"
+        |Reply: later
+        |Driver: "¿cuánto se tarda en llegar?"
+        |Reply: none
+        |Driver: "dai, partiamo"
+        |Reply: start
+        |Driver: "magari stasera"
+        |Reply: later
+        |
+    """.trimMargin()
+
+    fun request(heard: String): String = "Driver: \"${heard.replace('"', ' ')}\"\nReply:"
+
+    /**
+     * La primera de las cuatro palabras en lo que conteste, fuera de comillas:
+     * a veces repite la frase del conductor antes de clasificarla.
+     */
+    fun parse(reply: String): ItineraryReply? {
+        val words = reply.replace(Regex("\"[^\"]*\""), " ").lowercase().split(Regex("[^a-z]+"))
+        return when (words.firstOrNull { it in CLASSES }) {
+            "save" -> ItineraryReply.SAVE
+            "start" -> ItineraryReply.START
+            "later" -> ItineraryReply.LATER
+            else -> null
+        }
+    }
+
+    private val CLASSES = setOf("save", "start", "later", "none")
 }

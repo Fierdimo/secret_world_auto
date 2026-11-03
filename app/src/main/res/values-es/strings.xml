@@ -14,4 +14,8 @@
     <string name="permission_enable">Activar</string>
     <string name="search_similar">Parecidos a %1$s</string>
     <string name="itinerary_summary">%1$d paradas · %2$s</string>
+    <plurals name="itinerary_stops">
+        <item quantity="one">%d parada</item>
+        <item quantity="other">%d paradas</item>
+    </plurals>
 </resources>
