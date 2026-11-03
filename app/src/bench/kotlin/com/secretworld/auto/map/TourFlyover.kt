@@ -170,6 +170,32 @@ fun TourFlyover(
         onIntroDone()
     }
 
+    // Contar un sitio con la vista del itinerario delante: la cámara se acerca a
+    // él girando un poco, como al presentar cada parada; al acabar, de vuelta al
+    // conjunto. El sitio queda a la derecha del panel, no debajo.
+    LaunchedEffect(state.focus?.id, state.intro) {
+        if (state.intro) return@LaunchedEffect
+        val target = state.focus
+        if (target == null) {
+            focus = null
+            // El encuadre de conjunto ya tiene en cuenta el panel; el margen que
+            // dejó el acercamiento lo desplazaría otra vez hacia la izquierda.
+            finale?.let { viewport.fly(it.toBuilder().padding(com.mapbox.maps.EdgeInsets(0.0, 0.0, 0.0, 0.0)).build(), UNFOCUS_MS) }
+            return@LaunchedEffect
+        }
+        focus = state.stops.indexOfFirst { it.id == target.id }.takeIf { it >= 0 }
+        viewport.fly(
+            CameraOptions.Builder()
+                .center(target.position.point())
+                .zoom(FOCUS_ZOOM)
+                .pitch(STOP_PITCH)
+                .bearing((viewport.cameraState?.bearing ?: FINAL_BEARING) + FOCUS_TURN)
+                .padding(viewPadding)
+                .build(),
+            FOCUS_MS,
+        )
+    }
+
     Box(
         modifier
             .fillMaxSize()
@@ -243,6 +269,19 @@ fun TourFlyover(
                     }
                 }
             }
+            // Lo que se cuenta y no es una parada: su marcador, solo mientras se cuenta.
+            state.focus?.takeIf { target -> state.stops.none { it.id == target.id } }?.let { target ->
+                androidx.compose.runtime.key(target.id) {
+                    ViewAnnotation(
+                        options = viewAnnotationOptions {
+                            geometry(target.position.point())
+                            allowOverlap(true)
+                        },
+                    ) {
+                        StopMarker(number = null, place = target, highlighted = true)
+                    }
+                }
+            }
         }
 
         // Viñeta: los bordes oscuros llevan la mirada al centro, como en cine.
@@ -300,7 +339,7 @@ fun TourFlyover(
 
 /** El marcador de una parada: su foto en un círculo, con el número, entrando con un rebote. */
 @Composable
-private fun StopMarker(number: Int, place: Place, highlighted: Boolean) {
+private fun StopMarker(number: Int?, place: Place, highlighted: Boolean) {
     val accent = MaterialTheme.colorScheme.primary
     val pop = remember { Animatable(0f) }
     LaunchedEffect(Unit) { pop.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)) }
@@ -319,11 +358,13 @@ private fun StopMarker(number: Int, place: Place, highlighted: Boolean) {
                 AsyncImage(model = place.imageUrl, contentDescription = place.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             }
         }
-        Box(
-            Modifier.size(24.dp).clip(CircleShape).background(accent),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(number.toString(), color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+        if (number != null) {
+            Box(
+                Modifier.size(24.dp).clip(CircleShape).background(accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(number.toString(), color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -384,6 +425,10 @@ private const val FINAL_BEARING = 30.0
 private const val FIRST_BEARING = 20.0
 private const val FIRST_LEG_MS = 3_000L
 private const val REFRAME_MS = 1_200L
+private const val FOCUS_MS = 2_400L
+private const val UNFOCUS_MS = 2_000L
+private const val FOCUS_ZOOM = 17.0
+private const val FOCUS_TURN = 35.0
 /** Lo que ocupa la capa de la izquierda —línea de tiempo y asistente—: el encuadre la esquiva. */
 private const val OVERLAY_SHARE = 0.40f
 private val FRAME_TOP = 170.dp

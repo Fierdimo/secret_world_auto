@@ -74,4 +74,9 @@ data class FlyoverState(
     val summary: String,
     /** Si toca la presentación; después la vista se queda, sin repetirla. */
     val intro: Boolean = true,
+    /**
+     * El sitio que se está contando: la cámara se acerca a él y, al quitarlo,
+     * vuelve a la vista del itinerario. Puede no ser una de las paradas.
+     */
+    val focus: Place? = null,
 )

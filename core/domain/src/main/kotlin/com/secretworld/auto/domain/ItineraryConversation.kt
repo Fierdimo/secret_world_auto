@@ -109,6 +109,9 @@ class ItineraryConversation {
 
             is State.Proposed -> {
                 val proposal = current.proposal
+                // Callar no es contestar: "para" corta lo que se esté diciendo y la
+                // propuesta sigue ahí.
+                if (command == VoiceCommand.Stop) return null
                 // "Mejor guárdalo para luego" contesta; "mejor no", no.
                 val reply = ItineraryRequests.reply(heard)
                 if (reply == null && (command.isRefusal() || ItineraryRequests.refuses(heard))) return discard()
@@ -119,6 +122,9 @@ class ItineraryConversation {
                     state = State.Idle
                     return null
                 }
+                // "Cuéntame del castillo", siendo una parada: es querer oírlo, no
+                // pedir más castillos.
+                if (command == VoiceCommand.TellMeMore || (command is VoiceCommand.TellMeAbout && proposal.stops.any { it.id == command.place.id })) return null
                 val answered = reply ?: when (command) {
                     VoiceCommand.StartItinerary -> ItineraryReply.START
                     VoiceCommand.Yes -> ItineraryReply.SAVE
@@ -135,7 +141,10 @@ class ItineraryConversation {
                 val asked = (command as? VoiceCommand.PlanItinerary)?.request ?: ItineraryRequests.details(heard)
                 val adjusted = proposal.request.plus(asked)
                 if (adjusted == proposal.request) {
-                    state = State.Idle
+                    // Que le cuenten un sitio, o algo que no se entendió —ruido, otra
+                    // conversación en el coche—, no es pasar a otra cosa: la
+                    // propuesta sigue esperando.
+                    if (!command.keepsPending()) state = State.Idle
                     return null
                 }
                 state = State.Idle
@@ -144,6 +153,7 @@ class ItineraryConversation {
 
             is State.Saved -> {
                 val proposal = current.proposal
+                if (command == VoiceCommand.Stop || command.isAside()) return null
                 val reply = ItineraryRequests.reply(heard)
                 // Un cambio a lo guardado vuelve a ser una propuesta que confirmar.
                 ItineraryRequests.edit(heard, proposal.stops, command.namedPlace())?.let { return reproposed(proposal, it) }
@@ -151,7 +161,7 @@ class ItineraryConversation {
                 reply?.let { return answer(it) }
                 // Que no empiece ahora no es tirarlo: queda guardado.
                 if (command.isRefusal() || ItineraryRequests.refuses(heard)) return answer(ItineraryReply.LATER)
-                state = State.Idle
+                if (!command.keepsPending()) state = State.Idle
                 return null
             }
         }
@@ -235,6 +245,16 @@ class ItineraryConversation {
         const val LONGER_FACTOR = 1.5
         const val SHORTER_FACTOR = 0.6
     }
+
+    /**
+     * Lo que no aparta del itinerario a la vista: un inciso, callar, o lo que no
+     * se entendió. Cualquier otra orden sí: el conductor pasó a otra cosa.
+     */
+    private fun VoiceCommand.keepsPending(): Boolean =
+        isAside() || this == VoiceCommand.Stop || this is VoiceCommand.NotUnderstood
+
+    /** Contar un sitio, o más de él: un inciso que no cambia lo pendiente. */
+    private fun VoiceCommand.isAside(): Boolean = this is VoiceCommand.TellMeAbout || this == VoiceCommand.TellMeMore
 
     private fun VoiceCommand.isRefusal(): Boolean =
         this == VoiceCommand.No || this == VoiceCommand.Stop || this == VoiceCommand.EndRoute

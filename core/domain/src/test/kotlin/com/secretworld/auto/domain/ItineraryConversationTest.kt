@@ -165,6 +165,32 @@ class ItineraryConversationTest {
     }
 
     @Test
+    fun `contar un sitio o callar no pierde la propuesta`() {
+        val conversation = proposed()
+        assertNull(conversation.hear("cuéntame del castillo", VoiceCommand.TellMeAbout(castle), empty))
+        assertIs<ItineraryConversation.State.Proposed>(conversation.state)
+        assertEquals(VoiceCommand.Stop, VoiceGrammar.parse("para", emptyList()))
+        assertNull(hear(conversation, "para"))
+        assertIs<ItineraryConversation.State.Proposed>(conversation.state)
+        assertIs<ItineraryConversation.Step.Save>(hear(conversation, "guárdalo"))
+        assertNull(conversation.hear("cuéntame del museo", VoiceCommand.TellMeAbout(museum), empty))
+        assertIs<ItineraryConversation.State.Saved>(conversation.state)
+    }
+
+    @Test
+    fun `lo que no se entiende no aparta del itinerario, otra orden si`() {
+        val conversation = proposed()
+        assertNull(hear(conversation, "y entonces le dije que tal"))
+        assertIs<ItineraryConversation.State.Proposed>(conversation.state)
+        assertNull(conversation.hear("qué hay cerca", VoiceCommand.WhatIsNearby, empty))
+        assertEquals(ItineraryConversation.State.Idle, conversation.state)
+
+        val saved = proposed().also { hear(it, "guárdalo") }
+        assertNull(hear(saved, "y entonces le dije que tal"))
+        assertIs<ItineraryConversation.State.Saved>(saved.state)
+    }
+
+    @Test
     fun `guardado, el segundo si empieza y el no lo deja para despues`() {
         val conversation = proposed()
         assertIs<ItineraryConversation.Step.Save>(hear(conversation, "sí"))

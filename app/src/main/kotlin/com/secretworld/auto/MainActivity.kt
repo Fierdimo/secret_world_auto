@@ -89,6 +89,7 @@ import com.secretworld.auto.domain.Tour
 import com.secretworld.auto.domain.PlaceKinds
 import com.secretworld.auto.domain.LayeredIntentResolver
 import com.secretworld.auto.domain.ItineraryLibrary
+import com.secretworld.auto.domain.ItineraryReply
 import com.secretworld.auto.domain.ItineraryReplyPrompt
 import com.secretworld.auto.domain.ItineraryRequests
 import com.secretworld.auto.domain.SavedItinerary
@@ -209,6 +210,9 @@ class MainActivity : ComponentActivity() {
     private val lateReply = MutableStateFlow<String?>(null)
     /** La presentación cinemática del itinerario recién propuesto. */
     private val flyover = MutableStateFlow<FlyoverState?>(null)
+
+    /** Lo que devuelve la cámara al itinerario cuando se acaba de contar un sitio. */
+    private var focusJob: kotlinx.coroutines.Job? = null
 
     /** La ventana de los itinerarios guardados, abierta con estos; `null`, cerrada. */
     private val library = MutableStateFlow<List<SavedItinerary>?>(null)
@@ -626,7 +630,10 @@ class MainActivity : ComponentActivity() {
                     // limpia y la original—, que es instantánea; el modelo, que
                     // tarda segundos, solo si ninguna se entiende.
                     val readings = listOf(order) + said.alternatives
-                    val understood = readings.map { grammar.resolve(it, upcoming, memory) }
+                    // Con un itinerario a la vista, sus paradas también se pueden
+                    // nombrar, aunque no estén cerca: "cuéntame del Teatro Heredia".
+                    val nameable = (upcoming + shownPlan.value?.stops.orEmpty()).distinctBy { it.id }
+                    val understood = readings.map { grammar.resolve(it, nameable, memory) }
                         .filter { it.command !is VoiceCommand.NotUnderstood }
 
                     // Con una pregunta o una propuesta de itinerario pendiente, lo que
@@ -670,7 +677,11 @@ class MainActivity : ComponentActivity() {
                             return@LaunchedEffect
                         }
                         // Pasó a otra cosa: la propuesta deja de enseñarse.
-                        if (step == null && tour.value == null) shownPlan.value = null
+                        // El mapa se va con él: si no, quedaba el mapa sin el panel.
+                        if (step == null && !itinerary.busy && tour.value == null) {
+                            shownPlan.value = null
+                            flyover.value = null
+                        }
                         if (step != null) {
                             val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
                             val reply = itineraryStep(step, c)
@@ -697,7 +708,7 @@ class MainActivity : ComponentActivity() {
                         ?: understood.firstOrNull { it.command is VoiceCommand.NavigateToNamed || it.command is VoiceCommand.TakeMeThere }
                         ?: understood.firstOrNull { (it.command as? VoiceCommand.FindPlaces)?.let { find -> VoiceGrammar.searchCategoryOf(find.query) != null } ?: false }
                         ?: understood.firstOrNull()
-                        ?: resolver.resolve(order, upcoming, memory)
+                        ?: resolver.resolve(order, nameable, memory)
                     Log.i("SWVoice", "«$order» → ${resolution.command::class.simpleName} en ${(System.nanoTime() - resolvedAt) / 1_000_000} ms" +
                         " (LLM ${gemma?.let { when { it.ready -> "listo"; it.failed -> "no disponible"; else -> "cargando" } } ?: "ausente"})" +
                         (resolution.reply?.let { " · dice: «$it»" } ?: ""))
@@ -1069,6 +1080,7 @@ class MainActivity : ComponentActivity() {
                 // introducción, narrar sin más es la respuesta, como antes.
                 val intro = said ?: if (narration.isPrepared(command.place)) Phrasebook.playing(c, command.place) else Phrasebook.preparing(c, command.place)
                 narration.say(intro) { narration.listen(command.place) }
+                focusMapOn(command.place)
                 intro
             }
 
@@ -1370,6 +1382,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Con la vista del itinerario delante, la cámara se acerca a lo que se
+     * cuenta; cuando la narración acaba —o se corta—, vuelve al itinerario. La
+     * introducción y la narración van seguidas con un instante en silencio
+     * entre ellas: solo cuenta como final un silencio que dura.
+     */
+    private fun focusMapOn(place: Place) {
+        if (flyover.value?.intro != false) return
+        flyover.value = flyover.value?.copy(focus = place)
+        focusJob?.cancel()
+        focusJob = lifecycleScope.launch {
+            withTimeoutOrNull(SPEECH_START_MS) { narration.state.first { it !is NarrationController.State.Idle } }
+            while (true) {
+                narration.state.first { it is NarrationController.State.Idle || it is NarrationController.State.Failed }
+                delay(FOCUS_SETTLE_MS)
+                val now = narration.state.value
+                if (now is NarrationController.State.Idle || now is NarrationController.State.Failed) break
+            }
+            flyover.value = flyover.value?.copy(focus = null)
+        }
+    }
+
     // ------------------------------------------------------------------ guardados
 
     private fun nowMinute(): Int = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
@@ -1459,11 +1493,15 @@ class MainActivity : ComponentActivity() {
      * se pide que lo repita. `false` si no hay a quién preguntar.
      */
     private fun askModel(heard: String, pending: ItineraryConversation.State): Boolean {
-        if (pending !is ItineraryConversation.State.Proposed && pending !is ItineraryConversation.State.Saved) return false
+        // Solo con una propuesta: lo único que puede decidir es guardarla.
+        if (pending !is ItineraryConversation.State.Proposed) return false
+        // Una palabra suelta no se le pregunta: "para" llegó a leerse como
+        // "guárdalo" y, ya guardado, arrancó la ruta.
+        if (heard.trim().split(Regex("\\s+")).size < MODEL_MIN_WORDS) return false
         val model = gemma?.takeIf { it.ready } ?: return false
         itinerary.restore(pending)
         lifecycleScope.launch {
-            val reply = try {
+            val heardAs = try {
                 ItineraryReplyPrompt.parse(model.complete(ItineraryReplyPrompt.PREFIX, ItineraryReplyPrompt.request(heard)))
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -1471,12 +1509,18 @@ class MainActivity : ComponentActivity() {
                 Log.e("SWItinerary", "el LLM no contestó", e)
                 null
             }
-            Log.i("SWItinerary", "«$heard» → modelo: $reply")
+            Log.i("SWItinerary", "«$heard» → modelo: $heardAs")
+            // El modelo solo puede guardar una propuesta: la vista sigue abierta y
+            // no se pierde nada. Empezar —abre el navegador— o dejarlo para luego
+            // —cierra la vista— no se deciden con él: a "y entonces le dije que
+            // tal" contestó "later" y el itinerario se fue de la pantalla.
+            val reply = heardAs.takeIf { it == ItineraryReply.SAVE && pending is ItineraryConversation.State.Proposed }
             // Mientras pensaba pudo pasar a otra cosa.
             if (itinerary.state != pending) return@launch
             val c = Phrasebook.Context(vehicle.state.value.position, memory.listed, memory, language)
             val said = reply?.let { itinerary.answer(it) }?.let { itineraryStep(it, c) }
-                ?: notCaught(language).also { narration.say(it) { voiceInput.listenForAnswer() } }
+                // Sin abrir otra vez el micrófono: si era ruido, volvería a oírlo.
+                ?: notCaught(language).also { narration.say(it) }
             memory.remember(heard, said)
         }
         return true
@@ -2187,6 +2231,9 @@ class MainActivity : ComponentActivity() {
         /** Lo más que se espera a que termine una frase antes de abrir el navegador. */
         const val SPEECH_WAIT_MS = 12_000L
         const val SPEECH_START_MS = 1_500L
+        /** Silencio que cuenta como final de una narración, no como la pausa tras la introducción. */
+        const val FOCUS_SETTLE_MS = 1_500L
+        const val MODEL_MIN_WORDS = 2
         /** Lo más que se enseña "elaboro" sin que la app llegue a contestar. */
         const val THINKING_MAX_MS = 10_000L
 

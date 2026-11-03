@@ -161,6 +161,8 @@ object VoiceGrammar {
         // Terminar la ruta va antes que callar: "stop navigation" lleva "stop".
         if (words.hasAny(END_ROUTE) || words.any(::endsRoute)) return VoiceCommand.EndRoute
         if (words.hasAny(STOP)) return VoiceCommand.Stop
+        // "Para" a secas es callar; con más palabras suele ser la preposición.
+        if (words.size == 1 && words.first() in STOP_ALONE) return VoiceCommand.Stop
         // Antes que las búsquedas: "parla italiano" no es buscar comida italiana.
         languageSwitchIn(words)?.let { return VoiceCommand.SwitchLanguage(it) }
         if (words.hasAny(SKIP)) return VoiceCommand.Skip
@@ -623,9 +625,10 @@ object VoiceGrammar {
     /** Órdenes de corte. Se comprueban las primeras, a propósito. */
     private val STOP = listOf(
         "stop", "quiet", "silence", "be quiet", "shut up", "enough",
-        "para ya", "cállate", "callate", "silencio", "basta", "detente", "alto", "ya está", "ya esta",
+        "para ya", "para de hablar", "deja de hablar", "cállate", "callate", "silencio", "basta", "detente", "alto", "ya está", "ya esta",
         "zitto", "zitta", "stai zitto", "stai zitta", "taci", "silenzio", "fermati", "smettila",
     )
+    private val STOP_ALONE = setOf("para", "parar", "pare", "ferma", "stop")
     private val SKIP = listOf(
         "skip", "not now", "next one", "next place", "next stop", "later",
         "salta", "sáltalo", "saltalo", "siguiente", "ahora no", "pásalo", "pasalo",
