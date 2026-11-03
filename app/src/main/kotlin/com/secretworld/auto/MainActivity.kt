@@ -1282,8 +1282,9 @@ class MainActivity : ComponentActivity() {
             flyover.value = null
             startTour(step.proposal)
             val first = step.proposal.stops.first()
+            // En silencio: el navegador ya habla al arrancar la ruta, y dos voces a
+            // la vez no se entienden. La frase queda solo en pantalla.
             val reply = Phrasebook.itineraryStarted(c, first)
-            narration.say(reply)
             navigateTo(first, announce = false)
             reply
         }
@@ -1505,8 +1506,8 @@ class MainActivity : ComponentActivity() {
         }
         tour.value = next
         arrivedAt = null
+        // Como al empezar: la ruta nueva la anuncia el navegador.
         val reply = Phrasebook.nextStop(c, next.current, next.isLast)
-        narration.say(reply)
         navigateTo(next.current, announce = false)
         return reply
     }
