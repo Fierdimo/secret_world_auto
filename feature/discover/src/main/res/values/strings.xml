@@ -25,4 +25,12 @@
     <string name="stop_narration">Stop</string>
     <string name="search_clear">Back</string>
     <string name="search_nearby">%1$s nearby</string>
+    <string name="tour_now">Now</string>
+    <string name="tour_next">Next</string>
+    <string name="tour_proposed">Proposed itinerary</string>
+    <string name="tour_active">Your itinerary</string>
+    <string name="tour_say_yes">Say “yes” to start, or change it</string>
+    <string name="tour_lunch">Lunch</string>
+    <string name="split_hint">Put Secret World side by side with your navigation app: I guide, it drives.</string>
+    <string name="assistant_hint">Say “%1$s” and ask me anything about where you are</string>
 </resources>

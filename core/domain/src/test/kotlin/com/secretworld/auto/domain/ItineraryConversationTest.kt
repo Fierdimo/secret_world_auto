@@ -33,6 +33,15 @@ class ItineraryConversationTest {
     }
 
     @Test
+    fun `terminar el itinerario no se confunde con una terminal`() {
+        assertEquals(VoiceCommand.EndRoute, VoiceGrammar.parse("termina el itinerario", emptyList()))
+        assertEquals(VoiceCommand.EndRoute, VoiceGrammar.parse("terminamos el tour", emptyList()))
+        val terminal = place("9", "Terminal de Transportes")
+        assertEquals(VoiceCommand.TakeMeThere(terminal), VoiceGrammar.parse("llévame a la terminal de transportes", listOf(terminal)))
+        assertTrue(VoiceGrammar.parse("cuéntame de la terminal de transportes", listOf(terminal)) != VoiceCommand.EndRoute)
+    }
+
+    @Test
     fun `un itinerario con comida no es buscar comida`() {
         assertIs<VoiceCommand.PlanItinerary>(VoiceGrammar.parse("un itinerario de dos horas con comida", emptyList()))
     }

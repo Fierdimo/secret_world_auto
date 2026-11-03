@@ -31,7 +31,12 @@ interface VoiceInput {
          *   prueban antes de rendirse.
          */
         data class Heard(val text: String, val direct: Boolean, val alternatives: List<String> = emptyList()) : State
-        data class Failed(val reason: String) : State
+        /**
+         * @param quiet si no es noticia: vigilando la palabra de activación, que
+         *   el reconocedor no oiga nada es lo normal, y enseñarlo en cada vuelta
+         *   llenaba la pantalla de "no te he oído".
+         */
+        data class Failed(val reason: String, val quiet: Boolean = false) : State
     }
 
     val state: StateFlow<State>

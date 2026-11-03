@@ -9,6 +9,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
+import com.secretworld.auto.domain.VoiceLanguage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,13 +34,26 @@ import kotlinx.coroutines.flow.asStateFlow
  *
  * **Todo se llama desde el hilo principal**: `SpeechRecognizer` lo exige.
  */
-class SystemVoiceInput(private val context: Context) : VoiceInput {
+class SystemVoiceInput(
+    private val context: Context,
+    /** En qué idioma se explican los fallos: es lo que se enseña al conductor. */
+    private val language: VoiceLanguage = VoiceLanguage.ENGLISH,
+) : VoiceInput {
 
     private val _state = MutableStateFlow<VoiceInput.State>(VoiceInput.State.Idle)
     override val state: StateFlow<VoiceInput.State> = _state.asStateFlow()
 
     private var recognizer: SpeechRecognizer? = null
     private var direct: Boolean = true
+
+    /**
+     * La app acaba de preguntar algo y espera la respuesta, sin palabra de
+     * activación. Dura hasta que se oye algo o se agota la espera. Sin esto, el
+     * bucle de [HandsFree] reabría el reconocedor en modo "esperar la palabra"
+     * justo después de la pregunta, y la respuesta —"unas 4 horas"— se
+     * descartaba por no llevar "Sícret".
+     */
+    private var answerTurn = false
 
     override val available: Boolean get() = SpeechRecognizer.isRecognitionAvailable(context)
 
@@ -52,14 +66,18 @@ class SystemVoiceInput(private val context: Context) : VoiceInput {
 
     /** Abre el micrófono. Vuelve a [VoiceInput.State.Idle] solo, pase lo que pase. */
     override fun listen(direct: Boolean) {
-        val language = "en-US"
-        this.direct = direct
+        if (direct) answerTurn = true
+        // Vigilar la palabra no interrumpe un turno de respuesta en curso.
+        if (!direct && answerTurn && _state.value is VoiceInput.State.Listening) return
+        this.direct = direct || answerTurn
         if (!available) {
-            _state.value = VoiceInput.State.Failed("this device has no speech recognition")
+            _state.value = VoiceInput.State.Failed(
+                language.say(en = "This device has no speech recognition", es = "Este dispositivo no tiene reconocimiento de voz", it = "Questo dispositivo non ha il riconoscimento vocale"),
+            )
             return
         }
         if (!hasPermission) {
-            _state.value = VoiceInput.State.Failed("microphone permission not granted")
+            _state.value = VoiceInput.State.Failed(reasonOf(SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS))
             return
         }
 
@@ -74,7 +92,9 @@ class SystemVoiceInput(private val context: Context) : VoiceInput {
                 RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
             )
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+            // El idioma de la app, no uno fijo: con "en-US" fijo, "termina el
+            // itinerario" llegaba como «terminal 18 area».
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, recognitionTag())
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             // En marcha no hay tiempo para frases largas, y una escucha que no se
             // cierra sola deja el micrófono abierto sin que nadie se entere.
@@ -113,9 +133,10 @@ class SystemVoiceInput(private val context: Context) : VoiceInput {
                 ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 ?.firstOrNull()
                 .orEmpty()
-            Log.i(TAG, "oido: «$heard»")
+            Log.i(TAG, "oido: «$heard»${if (direct) " (respuesta)" else ""}")
+            answerTurn = false
             _state.value = if (heard.isBlank()) {
-                VoiceInput.State.Failed("I didn't catch that")
+                VoiceInput.State.Failed(reasonOf(SpeechRecognizer.ERROR_NO_MATCH), quiet = !direct)
             } else {
                 VoiceInput.State.Heard(heard, direct)
             }
@@ -123,7 +144,10 @@ class SystemVoiceInput(private val context: Context) : VoiceInput {
 
         override fun onError(error: Int) {
             Log.w(TAG, "error de reconocimiento: $error")
-            _state.value = VoiceInput.State.Failed(reasonOf(error))
+            val nothingHeard = error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+            // Un fallo por estar ocupado —se reabrió encima— no agota el turno.
+            if (error != SpeechRecognizer.ERROR_RECOGNIZER_BUSY && error != SpeechRecognizer.ERROR_CLIENT) answerTurn = false
+            _state.value = VoiceInput.State.Failed(reasonOf(error), quiet = nothingHeard && !direct)
         }
 
         override fun onReadyForSpeech(params: Bundle?) = Unit
@@ -136,6 +160,17 @@ class SystemVoiceInput(private val context: Context) : VoiceInput {
     }
 
     /**
+     * La etiqueta de idioma para el reconocedor. Con el país del teléfono si
+     * habla ese idioma —"es-CO" en Colombia reconoce mejor que "es-ES"—; si no,
+     * la variante más común.
+     */
+    private fun recognitionTag(): String {
+        val device = java.util.Locale.getDefault()
+        if (device.language == language.code && device.country.isNotEmpty()) return device.toLanguageTag()
+        return language.say(en = "en-US", es = "es-ES", it = "it-IT")
+    }
+
+    /**
      * Los códigos de error se traducen a algo que se pueda enseñar.
      *
      * `ERROR_NO_MATCH` y `ERROR_SPEECH_TIMEOUT` no son averías: son "no te he
@@ -143,13 +178,19 @@ class SystemVoiceInput(private val context: Context) : VoiceInput {
      */
     private fun reasonOf(error: Int): String = when (error) {
         SpeechRecognizer.ERROR_NO_MATCH,
-        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "I didn't catch that"
-        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "microphone permission not granted"
+        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> language.say(en = "I didn't catch that", es = "No te he oído", it = "Non ti ho sentito")
+        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> language.say(
+            en = "Microphone permission not granted", es = "Falta el permiso del micrófono", it = "Manca il permesso del microfono",
+        )
         SpeechRecognizer.ERROR_NETWORK,
-        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "speech recognition needs a connection here"
-        SpeechRecognizer.ERROR_AUDIO -> "no audio input on this device"
-        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "still listening, one moment"
-        else -> "speech recognition failed ($error)"
+        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> language.say(
+            en = "Speech recognition needs a connection here",
+            es = "Aquí el reconocimiento de voz necesita conexión",
+            it = "Qui il riconoscimento vocale ha bisogno di connessione",
+        )
+        SpeechRecognizer.ERROR_AUDIO -> language.say(en = "No audio input on this device", es = "Este dispositivo no tiene entrada de audio", it = "Questo dispositivo non ha ingresso audio")
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> language.say(en = "Still listening, one moment", es = "Sigo escuchando, un momento", it = "Sto ancora ascoltando, un momento")
+        else -> language.say(en = "Speech recognition failed ($error)", es = "Falló el reconocimiento de voz ($error)", it = "Riconoscimento vocale non riuscito ($error)")
     }
 
     private companion object {

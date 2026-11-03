@@ -42,10 +42,19 @@
             android:name="com.android.automotive"
             android:resource="@xml/automotive_app_desc" />
 
+        <!--
+          supportsPictureInPicture: en el movil, al iniciar una ruta la app pasa a
+          una ventana flotante junto al navegador y sigue atendiendo la voz.
+          configChanges: entrar y salir de ella —o de la pantalla dividida— no
+          recrea la actividad, que es donde vive el itinerario en curso.
+        -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
             android:exported="true"
-            android:screenOrientation="landscape">
+            android:resizeableActivity="true"
+            android:screenOrientation="landscape"
+            android:supportsPictureInPicture="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

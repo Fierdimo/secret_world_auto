@@ -86,6 +86,7 @@ import com.secretworld.auto.domain.ItineraryDesigner
 import com.secretworld.auto.domain.ItineraryProposal
 import com.secretworld.auto.domain.ItineraryRequest
 import com.secretworld.auto.domain.Tour
+import com.secretworld.auto.domain.PlaceKinds
 import com.secretworld.auto.domain.LayeredIntentResolver
 import com.secretworld.auto.domain.LlmIntentResolver
 import com.secretworld.auto.domain.Resolution
@@ -97,11 +98,12 @@ import com.secretworld.auto.domain.WakeWord
 import com.secretworld.auto.domain.VoiceGrammar
 import com.secretworld.auto.domain.NameMatcher
 import com.secretworld.auto.domain.VoiceLanguage
-import com.secretworld.auto.feature.discover.MapState
-import com.secretworld.auto.map.PlatformMap
 import com.secretworld.auto.feature.discover.NowPlaying
 import com.secretworld.auto.feature.discover.PermissionNotice
 import com.secretworld.auto.feature.discover.RoutePanel
+import com.secretworld.auto.feature.discover.AssistantScreen
+import com.secretworld.auto.feature.discover.TourStopUi
+import com.secretworld.auto.feature.discover.TourUi
 import com.secretworld.auto.feature.discover.SearchShortcut
 import com.secretworld.auto.feature.discover.SearchUi
 import com.secretworld.auto.feature.discover.VoiceStatus
@@ -186,6 +188,17 @@ class MainActivity : ComponentActivity() {
     /** Se ofreció buscar dónde comer; un "sí" busca. */
     private var lunchOffered = false
     private var planJob: kotlinx.coroutines.Job? = null
+    /** El itinerario que se enseña: propuesto, o el que está en curso. */
+    private val shownPlan = MutableStateFlow<ItineraryProposal?>(null)
+    /** Lo que se dice fuera del turno de una orden —la propuesta, al terminar de planificar—, para los subtítulos. */
+    private val lateReply = MutableStateFlow<String?>(null)
+
+    /** Si comparte pantalla: entonces la app es compacta y el navegador está al lado. */
+    private val multiWindow = MutableStateFlow(false)
+    /** Si la app está en la ventana flotante: entonces solo atiende la voz. */
+    private val pip = MutableStateFlow(false)
+    /** Se le pasó una ruta al navegador del usuario, que nosotros no podemos cerrar. */
+    private var externalRouteOpen = false
 
     /** La ruta en curso y su guía. `null` cuando no se navega. */
     private val activeRoute = MutableStateFlow<Route?>(null)
@@ -429,7 +442,8 @@ class MainActivity : ComponentActivity() {
                     catalogueResult = catalogue.nearby(vehicleState.position, language = language)
                 }
 
-                val places = catalogueResult?.places.orEmpty()
+                // Una guía de la ciudad entera no es un sitio al que ir ni que enumerar.
+                val places = catalogueResult?.places.orEmpty().filterNot(PlaceKinds::isCityGuide)
                 val upcoming = remember(places, positionKey, mode, skipped) {
                     queue.next(vehicleState, places, skipped, language, limit = 12)
                         .ifEmpty {
@@ -483,6 +497,13 @@ class MainActivity : ComponentActivity() {
                 // Llegar a una parada del itinerario, se navegue con quien se navegue:
                 // con Google Maps al lado, la posición es lo único que se sabe.
                 val currentTour by tour.collectAsState()
+                val late by lateReply.collectAsState()
+                LaunchedEffect(late) {
+                    if (late != null) {
+                        answer = late
+                        lateReply.value = null
+                    }
+                }
                 LaunchedEffect(vehicleState, currentTour) { checkTourArrival(upcoming) }
 
                 LaunchedEffect(Unit) { narration.ensureVoice() }
@@ -579,6 +600,8 @@ class MainActivity : ComponentActivity() {
                     if (itinerary.busy) {
                         val grammarSays = understood.firstOrNull()?.command ?: VoiceCommand.NotUnderstood(order)
                         val step = itinerary.hear(order, grammarSays, profiles.load())
+                        // Pasó a otra cosa: la propuesta deja de enseñarse.
+                        if (step == null && tour.value == null) shownPlan.value = null
                         if (step != null) {
                             val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
                             val reply = itineraryStep(step, c)
@@ -653,98 +676,84 @@ class MainActivity : ComponentActivity() {
                     if (mode == DrivingMode.DRIVING) panel = Panel.Home
                 }
 
-                // El mapa es el fondo, a pantalla completa. La banda de
-                // información flota encima: en un coche la información se apoya
-                // sobre el mapa, no lo parte en dos.
-                //
-                // Los tamaños los calcula CarMetrics a partir de la ventana, así
-                // que una pantalla nueva —Connect-S, waterfall, media pantalla—
-                // no necesita código nuevo aquí.
+                // La voz es la protagonista y el mapa ya no guía: lo hace el
+                // navegador del usuario, al lado. El mapa, si sale, enseña el
+                // itinerario (SPEC §4.4). Compacta cuando comparte pantalla.
                 val metrics = CarTheme.metrics
-                val expanded = panel !is Panel.Home
-                // El inset de seguridad —el recorte de cámara, que en apaisado cae
-                // sobre el borde izquierdo— se le **suma** al ancho de la banda en
-                // vez de restárselo a su contenido. Si no, la columna se estrecha
-                // 44 dp y las etiquetas de los botones se recortan en la pantalla
-                // más pequeña, justo donde menos sobra.
-                val safeStart = WindowInsets.safeDrawing
-                    .asPaddingValues()
-                    .calculateStartPadding(LocalLayoutDirection.current)
-                // Navegando, la banda se reduce a una tarjeta: más estrecha y solo
-                // del alto de su contenido. El resto de la pantalla es mapa.
-                val navigating = navigationUi != null && panel is Panel.Home
-                val panelWidth = (if (navigating) metrics.navigationPanelWidth() else metrics.panelWidth(expanded)) + safeStart
-                // La fracción que el mapa usa para desplazar su foco tiene que ser
-                // la de la banda **ya ensanchada**, no la teórica.
-                val panelFraction = (panelWidth / metrics.widthDp).coerceIn(0f, 0.9f)
+                val split by multiWindow.collectAsState()
+                val compact = split || metrics.widthDp < COMPACT_WIDTH
+                val plan by shownPlan.collectAsState()
+                val shownPlanUi = plan?.takeIf { currentTour != null || itinerary.state is ItineraryConversation.State.Proposed }
+                val tourUi = shownPlanUi?.let { tourUiOf(it, currentTour) }
+                val searchShown = searchQuery.collectAsState().value
+                val results = searchResults.collectAsState().value
 
+                val inPip by pip.collectAsState()
                 Box(Modifier.fillMaxSize()) {
-                    PlatformMap(
-                        state = MapState(
-                            vehicle = vehicleState,
-                            // Solo se dibuja línea cuando hay un itinerario de
-                            // verdad. Unir puntos de interés sueltos pintaría una
-                            // carretera que no existe, y eso en un mapa es peor
-                            // que no dibujar nada.
-                            route = route?.points ?: if (panel is Panel.Itinerary) {
-                                upcoming.take(5).map { it.position }
-                            } else {
-                                emptyList()
-                            },
-                            // Lo buscado manda sobre lo cercano: si se pidió
-                            // shawarma, el mapa enseña los shawarmas.
-                            places = searchResults.collectAsState().value.ifEmpty { upcoming.take(12) },
-                            highlighted = (panel as? Panel.Detail)?.place?.id
-                                ?: upcoming.firstOrNull()?.id,
-                            mapboxToken = mapboxToken,
-                            panelCoverFraction = panelFraction,
-                            // Lo buscado se encuadra; al volver, se sigue al coche.
-                            frame = if (searchQuery.collectAsState().value != null) {
-                                searchResults.collectAsState().value.map { it.position }
-                            } else {
-                                emptyList()
-                            },
-                        ),
-                        modifier = Modifier.fillMaxSize(),
-                    )
-
-                    // La banda y la barra flotan **sobre** el mapa, cada una en
-                    // su esquina, en vez de repartirse la pantalla en filas. Así
-                    // la banda dispone de todo el alto: una columna que se corta a
-                    // media pantalla desperdicia justo lo que el conductor mira.
-                    Box(Modifier.fillMaxSize()) {
-                        // La banda va **pegada al borde**, no flotando con un
-                        // margen: los insets de seguridad —el recorte de cámara en
-                        // apaisado— se aplican a su contenido, no a su fondo. Al
-                        // revés se ve un margen puesto a mano que en el vehículo no
-                        // tiene ninguna razón de ser.
-                        Box(
-                            Modifier
-                                .align(if (navigating) Alignment.TopStart else Alignment.CenterStart)
-                                .width(panelWidth)
-                                .then(if (navigating) Modifier else Modifier.fillMaxHeight())
-                                .clip(
-                                    RoundedCornerShape(
-                                        topEnd = CarTheme.dimens.cardCorner,
-                                        bottomEnd = CarTheme.dimens.cardCorner,
-                                    ),
+                    if (panel is Panel.Home || inPip) {
+                        AssistantScreen(
+                            mini = inPip,
+                            // La barra del banco de pruebas va al pie: se le deja su hueco.
+                            modifier = if (compact) Modifier else Modifier.padding(bottom = CarTheme.dimens.utilityBarHeight),
+                            compact = compact,
+                            city = upcoming.firstOrNull()?.city,
+                            offline = catalogueResult?.source == CatalogueRepository.Source.FALLBACK,
+                            mode = mode,
+                            voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
+                            speaking = narrationState is NarrationController.State.Speaking && !(narrationState as NarrationController.State.Speaking).preparing ||
+                                narrationState is NarrationController.State.Playing,
+                            nowPlaying = (nowPlayingOf(narrationState, tick) ?: installingOf(modelsPercentNow))
+                                // Una respuesta del asistente ya está en los subtítulos.
+                                ?.takeUnless { narrationState is NarrationController.State.Speaking },
+                            notices = notices,
+                            tour = tourUi,
+                            search = searchShown?.let { query ->
+                                SearchUi(
+                                    title = if (query.endsWith(SIMILAR_MARK)) {
+                                        query.removeSuffix(SIMILAR_MARK)
+                                    } else if (" · " in query) {
+                                        query.replaceFirstChar { it.uppercase() }
+                                    } else {
+                                        stringResource(com.secretworld.auto.feature.discover.R.string.search_nearby, query.replaceFirstChar { it.uppercase() })
+                                    },
+                                    places = results,
                                 )
-                                .animateContentSize(),
-                        ) {
-                            PanelContent(
-                                panel = panel,
-                                upcoming = upcoming,
-                                vehiclePosition = vehicleState.position,
-                                mode = mode,
-                                result = catalogueResult,
-                                nowPlaying = nowPlayingOf(narrationState, tick) ?: installingOf(modelsPercentNow),
-                                voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
-                                navigation = navigationUi,
-                                notices = notices,
-                                onPanel = { panel = it },
-                            )
-                        }
+                            },
+                            nearby = upcoming,
+                            origin = vehicleState.position,
+                            navigation = navigationUi,
+                            // A pantalla completa se planea; al iniciar la ruta se pasa a
+                            // la ventana flotante. No hace falta pedir nada más.
+                            showSplitHint = false,
+                            shortcuts = SHORTCUTS.map { (category, label) ->
+                                val text = label(language)
+                                SearchShortcut(label = text.replaceFirstChar { it.uppercase() }) { findPlaces(text, category, announce = true) }
+                            },
+                            onSelect = { panel = Panel.Detail(it) },
+                            onListen = { play(it) },
+                            onNavigate = { navigateTo(it) },
+                            onStopNarration = { narration.stop() },
+                            onStopNavigation = { endNavigation() },
+                            onClearSearch = ::clearSearch,
+                        )
+                    } else {
+                        PanelContent(
+                            panel = panel,
+                            upcoming = upcoming,
+                            vehiclePosition = vehicleState.position,
+                            mode = mode,
+                            result = catalogueResult,
+                            nowPlaying = nowPlayingOf(narrationState, tick) ?: installingOf(modelsPercentNow),
+                            voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
+                            navigation = navigationUi,
+                            notices = notices,
+                            onPanel = { panel = it },
+                        )
+                    }
 
+                    // La barra del banco de pruebas —vehículo simulado, ajustes—
+                    // solo con sitio: en compacto, la pantalla es del asistente.
+                    if (!compact && !inPip) {
                         DeveloperBar(
                             mode = mode,
                             speedKmh = vehicleState.speedMetersPerSecond * 3.6,
@@ -752,9 +761,6 @@ class MainActivity : ComponentActivity() {
                             enabled = mode == DrivingMode.PARKED,
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
-                                // Nunca por debajo de la banda: si la cruza, le
-                                // vuelve a robar el alto que se le acaba de dar.
-                                .padding(start = panelWidth)
                                 .safeDrawingPadding()
                                 .padding(CarTheme.dimens.spaceS),
                         )
@@ -888,7 +894,7 @@ class MainActivity : ComponentActivity() {
         listening = state is VoiceInput.State.Listening && !handsFreeOn,
         handsFree = handsFreeOn,
         heard = heard,
-        answer = answer ?: (state as? VoiceInput.State.Failed)?.reason,
+        answer = answer ?: (state as? VoiceInput.State.Failed)?.takeUnless { it.quiet }?.reason,
     )
 
     private fun nowPlayingOf(state: NarrationController.State, @Suppress("UNUSED_PARAMETER") tick: Int) =
@@ -1096,9 +1102,10 @@ class MainActivity : ComponentActivity() {
             VoiceCommand.EndRoute -> {
                 narration.stop()
                 if (tour.value != null) {
+                    val floating = isInPictureInPictureMode
                     endTour()
                     endNavigation()
-                    val reply = Phrasebook.itineraryEnded(c)
+                    val reply = withNavigatorHint(Phrasebook.itineraryEnded(c), c, floating)
                     narration.say(reply)
                     return reply
                 }
@@ -1196,7 +1203,7 @@ class MainActivity : ComponentActivity() {
             reply
         }
         ItineraryConversation.Step.Discarded -> {
-            clearSearch()
+            shownPlan.value = null
             val reply = Phrasebook.itineraryDiscarded(c)
             narration.say(reply)
             reply
@@ -1233,21 +1240,37 @@ class MainActivity : ComponentActivity() {
             showItinerary(proposal)
             val reply = Phrasebook.proposeItinerary(c, proposal)
             Log.i("SWItinerary", "propone: «$reply»")
+            lateReply.value = reply
             narration.say(reply) { voiceInput.listenForAnswer() }
         }
     }
 
     /** La propuesta en la lista del panel y en el mapa, para verla con el coche detenido. */
     private fun showItinerary(proposal: ItineraryProposal) {
-        searchResults.value = proposal.stops
-        searchQuery.value = getString(R.string.itinerary_title, proposal.stops.size)
+        clearSearch()
+        shownPlan.value = proposal
         memory.listed(proposal.stops)
     }
+
+    /** El itinerario como lo enseña la pantalla: cada parada con su hora. */
+    private fun tourUiOf(plan: ItineraryProposal, current: Tour?) = TourUi(
+        stops = plan.stops.mapIndexed { index, place ->
+            TourStopUi(
+                place = place,
+                time = plan.arrivals.getOrNull(index)?.let { "%d:%02d".format((it / 60) % 24, it % 60) }.orEmpty(),
+                lunchAfter = plan.mealAfter == index && index < plan.stops.lastIndex,
+            )
+        },
+        proposed = current == null,
+        current = current?.index ?: -1,
+        summary = getString(R.string.itinerary_summary, plan.stops.size, Phrasebook.spokenDuration(plan.minutes * 60.0, language)),
+    )
 
     private fun startTour(proposal: ItineraryProposal) {
         // Lo dicho al pedir se aprende: la próxima vez no hace falta repetirlo.
         profiles.update { it.learn(proposal.request) }
         tour.value = Tour(proposal.stops)
+        shownPlan.value = proposal
         tourMealAfter = proposal.mealAfter
         arrivedAt = null
         storyOffered = null
@@ -1256,6 +1279,8 @@ class MainActivity : ComponentActivity() {
 
     private fun endTour() {
         tour.value = null
+        shownPlan.value = null
+        leavePip()
         tourMealAfter = null
         arrivedAt = null
         storyOffered = null
@@ -1279,9 +1304,10 @@ class MainActivity : ComponentActivity() {
         }
         val next = current.advanced()
         if (next == null) {
+            val floating = isInPictureInPictureMode
             endTour()
             endNavigation()
-            val reply = Phrasebook.itineraryFinished(c)
+            val reply = withNavigatorHint(Phrasebook.itineraryFinished(c), c, floating)
             narration.say(reply)
             return reply
         }
@@ -1335,7 +1361,7 @@ class MainActivity : ComponentActivity() {
         intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
         // En la otra mitad de la pantalla, no encima de nosotros.
         if (isInMultiWindowMode) intent.addFlags(android.content.Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT)
-        return runCatching { startActivity(intent) }.isSuccess
+        return runCatching { startActivity(intent) }.isSuccess.also { if (it) externalRouteOpen = true }
     }
 
     /** Narra un lugar y lo deja en foco: a partir de aquí, "eso" es esto. */
@@ -1499,7 +1525,13 @@ class MainActivity : ComponentActivity() {
             val c = Phrasebook.Context(here, memory.listed, memory, language)
             if (announce) narration.say(Phrasebook.routingTo(c, place))
             if (hasExternalNavigation()) {
-                // Primero termina de hablar: a pantalla completa el navegador nos
+                // A pantalla completa, primero a la ventana flotante: así se sigue
+                // oyendo y hablando con el navegador delante.
+                if (!isInMultiWindowMode && enterPip() && openExternalNavigation(place)) {
+                    endNavigation()
+                    return@launch
+                }
+                // Sin ventana flotante, primero termina de hablar: el navegador nos
                 // deja detrás, y al irnos la voz se corta a media frase.
                 // Lo que se acaba de pedir decir puede no haber empezado aún.
                 withTimeoutOrNull(SPEECH_START_MS) { narration.state.first { it !is NarrationController.State.Idle } }
@@ -1578,7 +1610,7 @@ class MainActivity : ComponentActivity() {
         if (intent.getStringExtra("mic") == "communication") {
             local.source = android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION
         }
-        voiceInput = if (local.available || local.bundled) local.also { onDevice = it } else SystemVoiceInput(this)
+        voiceInput = if (local.available || local.bundled) local.also { onDevice = it } else SystemVoiceInput(this, language)
         handsFree = HandsFree(voiceInput, lifecycleScope)
         resolver = LayeredIntentResolver(
             grammar = grammar,
@@ -1650,7 +1682,6 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.padding(end = d.spaceS),
             )
             if (enabled) {
-                CarSecondaryButton(stringResource(R.string.bar_itinerary), { onPanel(Panel.Itinerary) }, compact = true)
                 CarSecondaryButton(stringResource(R.string.bar_settings), { onPanel(Panel.Settings) }, compact = true)
             }
             // Los mandos del simulador solo con el simulador; con GPS real, el
@@ -1671,6 +1702,67 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         refreshPermissions()
+        multiWindow.value = isInMultiWindowMode
+    }
+
+    override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig)
+        multiWindow.value = isInMultiWindowMode
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        pip.value = isInPictureInPictureMode
+    }
+
+    /**
+     * Con un itinerario en marcha, salir de la app —el botón de inicio— no la
+     * esconde: pasa a la ventana flotante y sigue atendiendo la voz.
+     */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (tour.value != null) enterPip()
+    }
+
+    /**
+     * La ventana flotante (SPEC §4.4, en el móvil): al iniciar una ruta, Secret
+     * World se hace pequeño junto al navegador y **solo atiende la voz**. Sigue
+     * visible, así que no pasa por [onStop]: el micrófono y la narración siguen.
+     * En el coche no hay: allí la doble sección la pone el sistema.
+     */
+    private fun enterPip(): Boolean {
+        if (isInPictureInPictureMode) return true
+        if (!packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) return false
+        val params = android.app.PictureInPictureParams.Builder()
+            .setAspectRatio(android.util.Rational(PIP_WIDTH, PIP_HEIGHT))
+            .build()
+        return runCatching { enterPictureInPictureMode(params) }
+            .onFailure { Log.w("SWPip", "no se pudo pasar a la ventana flotante", it) }
+            .getOrDefault(false)
+    }
+
+    /**
+     * Si la ruta la lleva el navegador del usuario, se le dice que la cierre él:
+     * una app no puede cerrar la de otra. En Pleos sí, con NaviHelper.
+     */
+    private fun withNavigatorHint(reply: String, c: Phrasebook.Context, floating: Boolean): String {
+        if (!externalRouteOpen) return reply
+        externalRouteOpen = false
+        return reply + " " + Phrasebook.closeNavigatorHint(c, floating)
+    }
+
+    /**
+     * De la ventana flotante a pantalla completa: se acabó la ruta. Desde
+     * Android 14 el sistema lo bloquea —una ventana flotante no cuenta como
+     * visible para abrir actividades— y hay que tocarla; en versiones
+     * anteriores vuelve sola.
+     */
+    private fun leavePip() {
+        if (!isInPictureInPictureMode) return
+        startActivity(
+            android.content.Intent(this, MainActivity::class.java)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        )
     }
 
     override fun onStop() {
@@ -1702,6 +1794,11 @@ class MainActivity : ComponentActivity() {
         const val REROUTE_EVERY_MS = 15_000L
         /** A esta distancia de una parada del itinerario se está en ella. */
         const val ARRIVAL_METERS = 150.0
+        /** La ventana flotante, algo más alta que ancha: núcleo, subtítulo y parada. */
+        const val PIP_WIDTH = 4
+        const val PIP_HEIGHT = 5
+        /** Por debajo de este ancho, la pantalla del asistente es compacta. */
+        val COMPACT_WIDTH = 600.dp
         const val GOOGLE_MAPS = "com.google.android.apps.maps"
         const val WAZE = "com.waze"
         /** Lo más que se espera a que termine una frase antes de abrir el navegador. */

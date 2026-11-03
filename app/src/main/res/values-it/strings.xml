@@ -13,5 +13,5 @@
     <string name="permission_location_off">Posizione non disponibile: mostro %1$s.</string>
     <string name="permission_enable">Attiva</string>
     <string name="search_similar">Simili a %1$s</string>
-    <string name="itinerary_title">Itinerario · %1$d tappe</string>
+    <string name="itinerary_summary">%1$d tappe · %2$s</string>
 </resources>

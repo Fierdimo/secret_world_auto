@@ -272,7 +272,7 @@ data class NavigationUi(
 )
 
 @Composable
-private fun NavigationCard(state: NavigationUi, onStop: () -> Unit) {
+internal fun NavigationCard(state: NavigationUi, onStop: () -> Unit) {
     val d = CarTheme.dimens
     Column(
         Modifier
@@ -342,7 +342,7 @@ data class NowPlaying(
 )
 
 @Composable
-private fun NowPlayingCard(state: NowPlaying, onStop: () -> Unit) {
+internal fun NowPlayingCard(state: NowPlaying, onStop: () -> Unit) {
     val d = CarTheme.dimens
     Row(
         Modifier
@@ -568,7 +568,7 @@ private fun ActionsThatFit(spacing: Dp, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun PlaceEntry(
+internal fun PlaceEntry(
     place: Place,
     distance: String,
     showDetails: Boolean,
@@ -642,7 +642,7 @@ private fun PlaceEntry(
     }
 }
 
-private fun formatDistance(meters: Double): String = when {
+internal fun formatDistance(meters: Double): String = when {
     meters < 1_000 -> "%.0f m".format(meters)
     else -> "%.1f km".format(meters / 1_000)
 }
@@ -667,7 +667,7 @@ data class PermissionNotice(
 )
 
 @Composable
-private fun PermissionCard(notice: PermissionNotice) {
+internal fun PermissionCard(notice: PermissionNotice) {
     val d = CarTheme.dimens
     Row(
         Modifier
@@ -695,7 +695,7 @@ private fun PermissionCard(notice: PermissionNotice) {
  * lo que suena.
  */
 @Composable
-private fun VoiceStatusChip(status: VoiceStatus) {
+internal fun VoiceStatusChip(status: VoiceStatus) {
     if (status == VoiceStatus.OFF) return
     val d = CarTheme.dimens
     val active = status != VoiceStatus.WAITING

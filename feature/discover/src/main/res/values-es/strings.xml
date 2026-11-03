@@ -25,4 +25,12 @@
     <string name="stop_narration">Detener</string>
     <string name="search_clear">Volver</string>
     <string name="search_nearby">%1$s cerca</string>
+    <string name="tour_now">Ahora</string>
+    <string name="tour_next">Siguiente</string>
+    <string name="tour_proposed">Itinerario propuesto</string>
+    <string name="tour_active">Tu itinerario</string>
+    <string name="tour_say_yes">Di «sí» para empezar, o cámbialo</string>
+    <string name="tour_lunch">Comida</string>
+    <string name="split_hint">Pon Secret World en pantalla dividida con tu navegador: yo te guío, él te lleva.</string>
+    <string name="assistant_hint">Di «%1$s» y pregúntame lo que quieras de donde estás</string>
 </resources>

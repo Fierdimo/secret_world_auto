@@ -203,6 +203,28 @@ la sección grande y nosotros en la pequeña.
   no hace falta trabajar en segundo plano.
 - La narración cede ante las indicaciones del navegador: se pausa o baja el
   volumen mientras él habla, y después sigue.
+- **La interfaz es la del asistente, no la de un navegador** (decidido el
+  2026‑11‑03). Un núcleo animado dice qué hace la voz —espera, oye, piensa,
+  habla—, la conversación va como subtítulos y, al lado, el contexto: la línea
+  de tiempo del itinerario con la hora de cada parada, lo buscado o lo cercano.
+  El mapa ya no guía: **enseña el itinerario** —las paradas unidas y
+  encuadradas— en una tarjeta. Las indicaciones paso a paso desaparecen.
+- **Modo compacto** cuando comparte pantalla o la ventana es estrecha: solo el
+  núcleo, el subtítulo y la parada actual y la siguiente. Funciona desde la
+  mitad hasta un tercio de la pantalla; la proporción la elige el usuario
+  arrastrando el divisor, una app no puede fijarla.
+- **En el móvil, la prueba funciona así** (decidido el 2026‑11‑03): la app abre
+  a pantalla completa y se usa con normalidad, **sin mapas**, para planear,
+  armar itinerarios y ver lugares. **Al iniciar la ruta pasa a una ventana
+  flotante (PiP)** y abre el navegador a pantalla completa debajo; en la
+  ventana solo hay núcleo, subtítulo y parada en curso, y **solo se habla**.
+  Android no deja a una app partir la pantalla por su cuenta en un móvil, y la
+  ventana flotante es la forma estándar de seguir a la vista y oyendo. En el
+  coche no hay PiP para terceros: allí la doble sección la pone el sistema.
+- **Al terminar**, en el móvil la app no puede cerrar la ruta del navegador ni
+  —desde Android 14— volver sola de la ventana flotante: lo dice ("puedes cerrar
+  la ruta en el navegador y tocar mi ventana para volver"). En Pleos, la ruta se
+  cancela con `cancelRoute` de NaviHelper.
 - **En la demo del móvil se imita con la pantalla dividida de Android**: Google
   Maps en una mitad y Secret World en la otra. Si el teléfono no tiene
   navegador, se usa la navegación propia con Mapbox como último recurso.

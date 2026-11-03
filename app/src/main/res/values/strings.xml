@@ -16,5 +16,5 @@
     <string name="permission_location_off">Location unavailable: showing %1$s.</string>
     <string name="permission_enable">Enable</string>
     <string name="search_similar">Similar to %1$s</string>
-    <string name="itinerary_title">Itinerary · %1$d stops</string>
+    <string name="itinerary_summary">%1$d stops · %2$s</string>
 </resources>

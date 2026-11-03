@@ -643,6 +643,24 @@ object Phrasebook {
         it = "Itinerario terminato.",
     )
 
+    /**
+     * En el móvil, una app no puede cerrar la ruta de otra ni volver sola desde
+     * la ventana flotante: se le dice al conductor qué hacer.
+     */
+    fun closeNavigatorHint(c: Context, floating: Boolean): String = if (floating) {
+        c.say(
+            en = "You can close the route in the navigation app, and tap my window to come back.",
+            es = "Puedes cerrar la ruta en el navegador, y tocar mi ventana para volver.",
+            it = "Puoi chiudere il percorso nel navigatore, e toccare la mia finestra per tornare.",
+        )
+    } else {
+        c.say(
+            en = "You can close the route in the navigation app.",
+            es = "Puedes cerrar la ruta en el navegador.",
+            it = "Puoi chiudere il percorso nel navigatore.",
+        )
+    }
+
     fun profileForgotten(c: Context): String = c.say(
         en = "Done, I've forgotten your preferences.",
         es = "Hecho, he olvidado tus preferencias.",

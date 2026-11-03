@@ -159,6 +159,8 @@ object ItineraryPlanner {
  * @param minutes duración estimada de todo, conducción y comida incluidas.
  * @param mealAfter tras qué parada (índice) se para a comer, o `null` si no se para.
  * @param from desde dónde se sale: con él se recalcula al quitar una parada.
+ * @param startMinute a qué hora se empieza, en minutos desde medianoche.
+ * @param arrivals a qué hora se llega a cada parada, en el mismo orden que [stops].
  */
 data class ItineraryProposal(
     val stops: List<Place>,
@@ -166,6 +168,8 @@ data class ItineraryProposal(
     val mealAfter: Int?,
     val request: ItineraryRequest,
     val from: Coordinates? = null,
+    val startMinute: Int = 0,
+    val arrivals: List<Int> = emptyList(),
 )
 
 /**
@@ -233,7 +237,31 @@ object ItineraryDesigner {
         }
 
         val mealAfter = if (meal && chosen.isNotEmpty()) mealIndex(from, chosen, pace, start) else null
-        return ItineraryProposal(chosen, minutes + if (mealAfter != null) MEAL_MINUTES else 0, mealAfter, wanted, from)
+        return ItineraryProposal(
+            stops = chosen,
+            minutes = minutes + if (mealAfter != null) MEAL_MINUTES else 0,
+            mealAfter = mealAfter,
+            request = wanted,
+            from = from,
+            startMinute = start,
+            arrivals = arrivals(from, chosen, pace, start, mealAfter),
+        )
+    }
+
+    /**
+     * A qué hora se llega a cada parada: conducir hasta ella, y antes visitar
+     * las anteriores y comer donde toque. Es lo que enseña la línea de tiempo.
+     */
+    fun arrivals(from: Coordinates, stops: List<Place>, pace: Pace, startMinute: Int, mealAfter: Int?): List<Int> {
+        var clock = startMinute
+        var here = from
+        return stops.mapIndexed { index, stop ->
+            clock += Phrasebook.drivingMinutes(here.distanceTo(stop.position))
+            val arrival = clock
+            clock += stopMinutes(stop, pace) + if (index == mealAfter) MEAL_MINUTES else 0
+            here = stop.position
+            arrival
+        }
     }
 
     /** La misma propuesta sin una parada, con la duración rehecha (RF-8.4: "quita el museo"). */
@@ -248,7 +276,12 @@ object ItineraryDesigner {
             minutes += Phrasebook.drivingMinutes(here.distanceTo(stop.position)) + stopMinutes(stop, pace)
             here = stop.position
         }
-        return proposal.copy(stops = stops, mealAfter = mealAfter, minutes = minutes + if (mealAfter != null) MEAL_MINUTES else 0)
+        return proposal.copy(
+            stops = stops,
+            mealAfter = mealAfter,
+            minutes = minutes + if (mealAfter != null) MEAL_MINUTES else 0,
+            arrivals = arrivals(from, stops, pace, proposal.startMinute, mealAfter),
+        )
     }
 
     /**

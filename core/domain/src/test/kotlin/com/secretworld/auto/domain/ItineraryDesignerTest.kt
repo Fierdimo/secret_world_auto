@@ -93,6 +93,16 @@ class ItineraryDesignerTest {
     }
 
     @Test
+    fun `cada parada tiene su hora y van en orden`() {
+        val proposal = ItineraryDesigner.plan(here, all, ItineraryRequest(minutes = 600), TravellerProfile(), threePm)
+        assertEquals(proposal.stops.size, proposal.arrivals.size)
+        assertTrue(proposal.arrivals.first() > threePm)
+        assertEquals(proposal.arrivals.sorted(), proposal.arrivals)
+        val shorter = ItineraryDesigner.without(proposal, proposal.stops.first())
+        assertEquals(shorter.stops.size, shorter.arrivals.size)
+    }
+
+    @Test
     fun `quitar una parada acorta la duracion`() {
         val proposal = ItineraryDesigner.plan(here, all, ItineraryRequest(minutes = 600), TravellerProfile(), threePm)
         val shorter = ItineraryDesigner.without(proposal, proposal.stops.last())
