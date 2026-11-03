@@ -97,6 +97,9 @@ sealed interface VoiceCommand {
     /** "Empieza mi itinerario" → arranca el itinerario guardado. */
     data object StartItinerary : VoiceCommand
 
+    /** "Mis itinerarios" → la ventana con los guardados, para elegir uno. */
+    data object ShowItineraries : VoiceCommand
+
     /**
      * Se entendió que pide algo, pero no a qué se refiere. La pregunta se le
      * dice al conductor y se abre el turno para que conteste.
@@ -168,7 +171,11 @@ object VoiceGrammar {
         if (words.size <= 2 && words.hasAny(NO)) return VoiceCommand.No
 
         if (words.hasAny(FORGET_PROFILE)) return VoiceCommand.ForgetProfile
+        // Empezar antes que ver: "empieza mi itinerario" no es abrir la lista.
         if (words.hasAny(START_ITINERARY)) return VoiceCommand.StartItinerary
+        // Al pie de la letra: "hazme mi itinerario" se parece a "mis itinerarios"
+        // y es pedir uno nuevo.
+        if (words.hasExactly(SHOW_ITINERARIES)) return VoiceCommand.ShowItineraries
         // Antes que las búsquedas: "un itinerario con comida" no es buscar comida.
         ItineraryRequests.parse(heard)?.let { return VoiceCommand.PlanItinerary(it) }
 
@@ -426,6 +433,11 @@ object VoiceGrammar {
     )
 
     /** ¿Contiene la frase alguna de estas expresiones, como palabras enteras y seguidas? */
+    private fun List<String>.hasExactly(phrases: List<String>): Boolean = phrases.any { phrase ->
+        val needle = normalise(phrase).split(' ')
+        indices.any { start -> start + needle.size <= size && subList(start, start + needle.size) == needle }
+    }
+
     private fun List<String>.hasAny(phrases: List<String>): Boolean = phrases.any { phrase ->
         val needle = normalise(phrase).split(' ')
         indices.any { start ->
@@ -583,6 +595,9 @@ object VoiceGrammar {
         return null
     }
 
+    /** "El segundo", "la tercera", "il primo": el índice desde 0, o `null`. */
+    fun ordinal(heard: String): Int? = ordinalIn(normalise(heard).split(' '))
+
     /** Índice (desde 0) del ordinal que aparezca, o `null`. */
     private fun ordinalIn(words: List<String>): Int? =
         words.firstNotNullOfOrNull { ORDINALS[it] }
@@ -724,6 +739,12 @@ object VoiceGrammar {
         "empieza mi itinerario", "empieza el itinerario", "empezar el itinerario", "empecemos el itinerario", "arranca el itinerario",
         "inizia il mio itinerario", "inizia l itinerario", "iniziamo l itinerario", "parti con l itinerario",
         "start my itinerary", "start the itinerary", "begin my itinerary",
+    )
+    private val SHOW_ITINERARIES = listOf(
+        "mis itinerarios", "itinerarios guardados", "muestra los itinerarios", "muestrame los itinerarios", "ver los itinerarios",
+        "que itinerarios tengo",
+        "i miei itinerari", "itinerari salvati", "mostrami gli itinerari",
+        "my itineraries", "saved itineraries", "show the itineraries", "show my itineraries",
     )
     private val FORGET_PROFILE = listOf(
         "olvida mis preferencias", "olvida mis gustos", "borra mis preferencias", "borra mis gustos",

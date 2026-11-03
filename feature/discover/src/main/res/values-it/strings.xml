@@ -35,4 +35,10 @@
     <string name="assistant_hint">Di «%1$s» e chiedimi quello che vuoi del posto in cui sei</string>
     <string name="tour_edit_hint">«Salvalo», «partiamo», «inizia da…», «più tempo a…»</string>
     <string name="close_view">Chiudi</string>
+    <string name="library_title">I miei itinerari</string>
+    <string name="library_hint">Di «il secondo», «inizia quello con…» o «cancella il primo»</string>
+    <string name="library_empty">Non ci sono ancora itinerari salvati. Chiedimi di organizzarne uno.</string>
+    <string name="library_start">Inizia</string>
+    <string name="library_view">Vedi</string>
+    <string name="library_delete">Cancella</string>
 </resources>

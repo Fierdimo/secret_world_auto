@@ -35,4 +35,10 @@
     <string name="assistant_hint">Say “%1$s” and ask me anything about where you are</string>
     <string name="tour_edit_hint">“Save it”, “let’s start”, “start with…”, “more time at…”</string>
     <string name="close_view">Close</string>
+    <string name="library_title">My itineraries</string>
+    <string name="library_hint">Say “the second one”, “start the one with…” or “delete the first one”</string>
+    <string name="library_empty">No saved itineraries yet. Ask me to plan one.</string>
+    <string name="library_start">Start</string>
+    <string name="library_view">View</string>
+    <string name="library_delete">Delete</string>
 </resources>

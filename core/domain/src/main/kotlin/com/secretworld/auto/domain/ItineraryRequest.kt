@@ -205,6 +205,9 @@ object ItineraryRequests {
         }
     }
 
+    /** "Empieza", "vamos", "partiamo", aunque la frase diga más: "empieza el del castillo". */
+    fun startsNow(heard: String): Boolean = words(heard).hasAffirmed(START_VERBS)
+
     /**
      * Como [hasAny], pero sin una negación justo delante: "no empecemos
      * todavía", "don't start", "non partiamo". "No, guárdalo" sí guarda: el
