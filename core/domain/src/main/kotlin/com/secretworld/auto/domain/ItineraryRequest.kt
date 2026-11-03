@@ -205,6 +205,9 @@ object ItineraryRequests {
         }
     }
 
+    /** "Háblame de Cartagena", "cuéntame del castillo", "raccontami", "tell me about": pedir que le cuenten. */
+    fun asksAbout(heard: String): Boolean = words(heard).let { it.any { word -> word in TELL_WORDS } || it.hasAny(TELL_PHRASES) }
+
     /** "Empieza", "vamos", "partiamo", aunque la frase diga más: "empieza el del castillo". */
     fun startsNow(heard: String): Boolean = words(heard).hasAffirmed(START_VERBS)
 
@@ -390,6 +393,11 @@ object ItineraryRequests {
     /** "No, vale": la negación gana. */
     private val REFUSALS = setOf("no", "nope", "non", "nah", "mejor", "meglio")
     private const val MAX_REPLY_WORDS = 8
+    private val TELL_WORDS = setOf(
+        "cuentame", "cuenta", "cuentanos", "hablame", "habla", "hablanos", "dime", "explicame",
+        "raccontami", "racconta", "parlami", "parla", "dimmi", "spiegami",
+    )
+    private val TELL_PHRASES = listOf("que es", "que sabes", "tell me", "talk about", "what is", "cos e")
     private val SAVE_VERBS = listOf(
         "guarda", "guardalo", "guardala", "guardar", "guardame", "salva", "salvalo", "salvala", "apunta", "apuntalo",
         "memoriza", "memorizalo", "conserva", "conservalo", "quedate con", "me lo quedo",

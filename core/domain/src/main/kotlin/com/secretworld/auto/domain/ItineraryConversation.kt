@@ -122,9 +122,9 @@ class ItineraryConversation {
                     state = State.Idle
                     return null
                 }
-                // "Cuéntame del castillo", siendo una parada: es querer oírlo, no
-                // pedir más castillos.
-                if (command == VoiceCommand.TellMeMore || (command is VoiceCommand.TellMeAbout && proposal.stops.any { it.id == command.place.id })) return null
+                // "Cuéntame del castillo" o "háblame de Cartagena": es querer oírlo,
+                // no pedir más castillos ni un itinerario en Cartagena.
+                if (command.isAside() && (ItineraryRequests.asksAbout(heard) || command.names(proposal.stops))) return null
                 val answered = reply ?: when (command) {
                     VoiceCommand.StartItinerary -> ItineraryReply.START
                     VoiceCommand.Yes -> ItineraryReply.SAVE
@@ -253,8 +253,15 @@ class ItineraryConversation {
     private fun VoiceCommand.keepsPending(): Boolean =
         isAside() || this == VoiceCommand.Stop || this is VoiceCommand.NotUnderstood
 
-    /** Contar un sitio, o más de él: un inciso que no cambia lo pendiente. */
-    private fun VoiceCommand.isAside(): Boolean = this is VoiceCommand.TellMeAbout || this == VoiceCommand.TellMeMore
+    /**
+     * Contar un sitio, o más de él, o preguntar cuál o qué hacer con él: un
+     * inciso que no cambia lo pendiente.
+     */
+    private fun VoiceCommand.isAside(): Boolean =
+        this is VoiceCommand.TellMeAbout || this == VoiceCommand.TellMeMore || this is VoiceCommand.ChooseAction || this is VoiceCommand.WhichOne
+
+    /** Si nombra una de [stops]. */
+    private fun VoiceCommand.names(stops: List<Place>): Boolean = namedPlace()?.let { place -> stops.any { it.id == place.id } } ?: (this == VoiceCommand.TellMeMore)
 
     private fun VoiceCommand.isRefusal(): Boolean =
         this == VoiceCommand.No || this == VoiceCommand.Stop || this == VoiceCommand.EndRoute

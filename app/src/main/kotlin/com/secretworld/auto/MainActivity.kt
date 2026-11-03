@@ -667,7 +667,11 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    if (itinerary.busy) {
+                    // Un "sí" o un "no" justo después de «¿te llevo o te la cuento?»
+                    // contestan a eso, no al itinerario: con uno guardado, el "sí"
+                    // lo arrancaba.
+                    val answersOffer = offered != null && (grammarFirst == VoiceCommand.Yes || grammarFirst == VoiceCommand.No)
+                    if (itinerary.busy && !answersOffer) {
                         val grammarSays = understood.firstOrNull()?.command ?: VoiceCommand.NotUnderstood(order)
                         val pending = itinerary.state
                         val step = itinerary.hear(order, grammarSays, profiles.load())
@@ -1322,7 +1326,13 @@ class MainActivity : ComponentActivity() {
     // ------------------------------------------------------------------ itinerarios
 
     /** Hace lo que pide la conversación del itinerario y devuelve lo que se dice. */
-    private fun itineraryStep(step: ItineraryConversation.Step, c: Phrasebook.Context): String = when (step) {
+    private fun itineraryStep(step: ItineraryConversation.Step, c: Phrasebook.Context): String {
+        // Lo que se ofreció antes ya no está en el aire: el "sí" siguiente es para esto.
+        offered = null
+        return itineraryStepNow(step, c)
+    }
+
+    private fun itineraryStepNow(step: ItineraryConversation.Step, c: Phrasebook.Context): String = when (step) {
         is ItineraryConversation.Step.Ask -> {
             val reply = Phrasebook.askItinerary(c, step.missing)
             narration.say(reply) { voiceInput.listenForAnswer() }
@@ -1453,6 +1463,7 @@ class MainActivity : ComponentActivity() {
                 // ahí se puede cambiar o empezar.
                 library.value = null
                 editingId = item.id
+                offered = null
                 itinerary.resumed(item.proposal)
                 showItinerary(item.proposal)
                 lifecycleScope.launch { flyover.value = flyoverOf(item.proposal, intro = false) }

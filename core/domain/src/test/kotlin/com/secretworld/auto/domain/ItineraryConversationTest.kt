@@ -178,6 +178,18 @@ class ItineraryConversationTest {
     }
 
     @Test
+    fun `hablar de la ciudad es un inciso, no un itinerario en ella`() {
+        val city = place("9", "Cartagena")
+        listOf(proposed(), proposed().also { hear(it, "guárdalo") }).forEach { conversation ->
+            val before = conversation.state
+            assertNull(conversation.hear("háblame de Cartagena", VoiceCommand.ChooseAction(city), empty))
+            assertEquals(before, conversation.state)
+            assertNull(conversation.hear("cuéntame de cartagena", VoiceCommand.TellMeAbout(city), empty))
+            assertEquals(before, conversation.state)
+        }
+    }
+
+    @Test
     fun `lo que no se entiende no aparta del itinerario, otra orden si`() {
         val conversation = proposed()
         assertNull(hear(conversation, "y entonces le dije que tal"))
