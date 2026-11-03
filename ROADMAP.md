@@ -186,7 +186,7 @@ acotado.
 
 - [ ] `SecretWorldApi` sobre los endpoints existentes.
 - [ ] Room, caché y `AudioPrefetcher`.
-- [ ] `TourQueue` v1 y `NarrationTrigger` (anticipación por velocidad).
+- [ ] `TourQueue` v1. ~~`NarrationTrigger` (anticipación por velocidad).~~ Descartado el 2026‑11‑03: no hay narración automática en marcha, toda narración la pide el usuario (SPEC RF‑3.3).
 - [ ] Servicio de media e integración con el centro multimedia del vehículo.
 - [x] **Vocabulario cerrado con palabra de activación** *(2026‑09‑07)*: gramática en el dominio para "cuéntame más", "llévame ahí", "sáltalo" y "¿qué hay cerca?", con *"Siky"* al principio de la frase y pruebas sobre transcripciones sucias. Micrófono por `SpeechRecognizer` de AOSP: el `SpeechService` de Pleos acepta la conexión pero su `onBind` devuelve `null`.
 - [ ] **Detector de palabra clave *offline*** delante del reconocedor, con sherpa-onnx. Es lo que convierte la escucha permanente en algo que se puede dejar encendido.

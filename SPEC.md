@@ -35,10 +35,15 @@ voz y sí permite fijar un destino. El mapa medido está en
 > **Un acompañante que te cuenta dónde estás, te responde cuando le preguntas y
 > te orienta hacia lo que merece la pena.**
 
-Mientras el vehículo se mueve, la app narra por voz los lugares con historia que
-hay en el trayecto y alrededor, con el ritmo de un copiloto que conoce la zona:
-habla cuando hay algo que merece la pena, se calla cuando no. El conductor puede
-hablarle sin tocar nada.
+Mientras el vehículo se mueve, la app conoce los lugares con historia que hay en
+el trayecto y alrededor, y **los narra cuando el usuario se lo pide**: "¿qué hay
+cerca?", "cuéntame de ese castillo". El conductor le habla sin tocar nada.
+
+> **Decisión del 2026‑11‑03: no hay narración automática durante la conducción.**
+> La app nunca empieza a narrar por iniciativa propia mientras el vehículo está
+> en marcha. Toda narración la solicita el usuario, por voz o por pantalla. Esto
+> sustituye la "narración por proximidad" y la anticipación de la versión anterior
+> de esta especificación (RF‑3.3).
 
 El objetivo final es un asistente de verdad. El camino hasta él tiene **dos
 niveles**, y la separación no es una concesión: es lo que permite entregar algo
@@ -102,6 +107,32 @@ peor que no tenerlo.
 Explorador visual del catálogo y de los itinerarios de la cuenta, sin
 restricciones.
 
+### 2.4 Itinerarios a la medida, pedidos de viva voz *(decidido el 2026‑11‑03)*
+
+**El eje de la app no es la navegación, es el guía.** Competir con Waze o con el
+navegador del coche no tiene sentido. Secret World se queda encendido **junto
+al navegador** y hace lo que ellos no hacen: decidir qué merece la pena, en qué
+orden, y contarlo cuando se le pide.
+
+El usuario le pide a la IA un itinerario según lo que le apetece. Hay tres formas
+de pedirlo:
+
+| El usuario dice | La app hace |
+|---|---|
+| **Genérico**: "ármame un itinerario para esta tarde" | Completa lo que falta con el perfil guardado. Sin perfil, **una sola pregunta combinada**: tiempo e intereses |
+| **Específico**: "quiero aprovechar el día en Cartagena, me gustan los castillos" | Lo saca todo de la frase y propone sin preguntar |
+| **Ajuste**: "menos iglesias", "añade dónde comer a las dos", "quita el museo" | Modifica la propuesta, sin empezar de cero |
+
+Antes de arrancar, **siempre se confirma** de viva voz: cuántas paradas, cuánto
+tiempo y cuáles. Con el vehículo detenido, la lista se ve y se edita en pantalla.
+
+**Al llegar a cada parada, la app ofrece la narración** ("Hemos llegado al
+Castillo de San Felipe, ¿te cuento su historia?") y espera la respuesta. Es una
+oferta que pide confirmación, no una narración automática: compatible con
+RF‑3.3.
+
+Detalle en [RF-8](#rf-8--itinerarios).
+
 ---
 
 Esto es un producto que **en el móvil no tendría sentido y en el coche sí**. No
@@ -112,7 +143,7 @@ larga y sin pantalla es una ventaja en lugar de un problema.
 
 | Perfil | Situación | Qué espera |
 |---|---|---|
-| **Conductor en trayecto largo** | Autopista o carretera secundaria, 30 a 180 min | Compañía informada; cero interacción obligatoria |
+| **Conductor en trayecto largo** | Autopista o carretera secundaria, 30 a 180 min | Compañía informada cuando la pide, sin tocar la pantalla |
 | **Turista con coche** | Ciudad o región desconocida | "¿Qué hay cerca que valga la pena?" y navegación directa |
 | **Pasajero** | Copiloto o asiento trasero | Exploración visual sin restricciones |
 | **Usuario existente de Secret World** | Ya tiene cuenta, favoritos e itinerarios | Que su contenido aparezca en el coche sin reconfigurar nada |
@@ -126,10 +157,12 @@ Tres superficies con reglas distintas, según el estado del vehículo.
 Es el producto. No compite por la mirada del conductor, que es exactamente lo
 que protegen las reglas de distracción.
 
-- **Narración por proximidad**: segmentos de 60 a 90 segundos por lugar, disparados
-  con antelación suficiente para que el usuario aún vea el sitio.
-- **Cola inteligente** (`TourQueue`): se reordena según avanza el coche, encadena
-  por proximidad y no repite lo ya escuchado. Prefiere el silencio al relleno.
+- **Narración a petición**: segmentos de 60 a 90 segundos por lugar, **solo cuando
+  el usuario los pide**. En marcha la app no arranca a narrar por su cuenta
+  (decisión del 2026‑11‑03, §2).
+- **Cola inteligente** (`TourQueue`): ordena lo cercano según avanza el coche y no
+  repite lo ya escuchado. Sirve para responder bien a "¿qué hay cerca?" y a "el
+  siguiente", y para tener el audio preparado, **no para disparar narraciones**.
 - **Escucha activa** vía el reconocimiento del vehículo: vocabulario cerrado en
   el nivel 1 (§2.1), lenguaje abierto en el nivel 2 (§2.2).
 - **Salida por audio pre-generado** en el nivel 1; síntesis dinámica en el nivel 2
@@ -156,6 +189,23 @@ densidad, no la identidad.
 - Cuenta, idioma y suscripción.
 
 La transición entre 4.2 y 4.3 es automática, instantánea y **sin cortar la voz**.
+
+### 4.4 Media pantalla junto al navegador
+
+La pantalla del coche admite **dos apps en primer plano a la vez**: una en la
+sección grande y otra en la pequeña (por ejemplo, Waze en la grande y Spotify en
+la pequeña). **Ese es el uso principal de Secret World en marcha**: el navegador en
+la sección grande y nosotros en la pequeña.
+
+- La sección pequeña muestra solo lo esencial: la parada actual y la siguiente
+  del itinerario, lo que está sonando y el estado de la voz.
+- Como las dos apps están visibles, el micrófono y la narración siguen activos;
+  no hace falta trabajar en segundo plano.
+- La narración cede ante las indicaciones del navegador: se pausa o baja el
+  volumen mientras él habla, y después sigue.
+- **En la demo del móvil se imita con la pantalla dividida de Android**: Google
+  Maps en una mitad y Secret World en la otra. Si el teléfono no tiene
+  navegador, se usa la navegación propia con Mapbox como respaldo.
 
 ## 5. Requisitos funcionales
 
@@ -191,7 +241,7 @@ La transición entre 4.2 y 4.3 es automática, instantánea y **sin cortar la vo
 ### RF-3 · Ubicación y ruta
 - RF-3.1 La posición se obtiene del **Fused Location SDK** del vehículo.
 - RF-3.2 Si hay ruta activa en el navegador nativo, se usa para precargar contenido por delante del coche.
-- RF-3.3 **Anticipación**: el disparo de narración se calcula con la velocidad actual, de forma que el usuario aún vea el lugar. Narrar algo ya pasado se considera un fallo, no una degradación.
+- RF-3.3 **Sin narración automática en marcha** (decisión del 2026‑11‑03). Mientras el vehículo se mueve, la app no inicia ninguna narración por su cuenta: solo narra lo que el usuario pide, por voz o pantalla. La velocidad y la posición sirven para **ordenar lo que se ofrece** ("¿qué hay cerca?" prioriza lo que queda por delante, no lo ya pasado) y para **preparar el audio por delante**, nunca para disparar. *Sustituye a la "anticipación" anterior, que disparaba la narración según la velocidad.*
 - RF-3.4 "Llévame ahí" entrega el destino al navegador nativo con **`requestRoute` + `startRouteGuiding`** (permiso `pleos.car.permission.NAVI_ROUTE_SEARCH`, nivel `normal`, sin restricción durante la conducción). La app no dibuja navegación propia. El intent estándar `geo:` **no sirve**: nadie lo atiende.
 - RF-3.5 **La narración respeta las maniobras.** Con `getTBTInfo` se conoce el giro que viene; la app calla antes de una maniobra compleja en lugar de narrar encima. Es la diferencia entre copiloto y ruido.
 
@@ -207,7 +257,7 @@ La transición entre 4.2 y 4.3 es automática, instantánea y **sin cortar la vo
 
 ### RF-6 · Monetización
 - RF-6.1 Nivel gratuito con cupo diario de lugares narrados.
-- RF-6.2 Premium: catálogo completo, acompañamiento continuo, uso offline.
+- RF-6.2 Premium: catálogo completo, narraciones sin cupo, uso offline.
 - RF-6.3 Cobro con la pasarela de Pleos; entitlements resueltos en el servidor.
 - RF-6.4 Una suscripción activa en móvil vale en el coche y viceversa.
 
@@ -215,6 +265,40 @@ La transición entre 4.2 y 4.3 es automática, instantánea y **sin cortar la vo
 - RF-7.1 **Los permisos deben estar pre-aprobados con Pleos App Market.** Cualquier permiso no declarado o no aprobado provoca rechazo. Se define la lista en fase 0.
 - RF-7.2 Eventos mínimos: sesión, narración iniciada y completada, intención de voz reconocida, destino fijado, conversión.
 - RF-7.3 Sin SDKs de atribución móvil (AppsFlyer, Facebook, AppLovin).
+
+### RF-8 · Itinerarios
+
+Ver §2.4 para el porqué. Decidido el 2026‑11‑03.
+
+**Petición**
+- RF-8.1 El itinerario se pide de viva voz y se entiende igual que las órdenes: primero la gramática ("itinerario", "tour", "giro", "para esta tarde"…), después el LLM para frases libres. El LLM **extrae datos**, no inventa paradas: las paradas salen siempre del catálogo (RF‑2.5).
+- RF-8.2 Datos de una petición, y qué se hace si faltan:
+
+  | Dato | Si no se dice |
+  |---|---|
+  | Cuándo y cuánto ("esta tarde", "todo el día", "dos horas") | Hasta el anochecer, o 3 h |
+  | Dónde: aquí o una ciudad o zona con nombre | Alrededor del vehículo |
+  | Intereses (historia, arte, religión, naturaleza, ciudad) | Los del perfil; sin perfil, se pregunta |
+  | Ritmo: tranquilo o "aprovechar al máximo" | Normal |
+  | Comida o descanso | Una parada para comer si el plan cruza la hora de comer |
+
+- RF-8.3 Como mucho **una pregunta**, combinada, y solo si falta algo que el perfil no cubre. Un turista al volante no rellena formularios.
+- RF-8.4 **Confirmación obligatoria** antes de empezar: número de paradas, duración total y nombres. Se acepta "sí", se ajusta ("menos iglesias", "añade dónde comer", "quita el museo") o se descarta.
+
+**Perfil**
+- RF-8.5 El perfil se guarda **solo en el dispositivo** por ahora. Contiene lo que el usuario dice ("me gusta la historia", "no me interesan las iglesias", "viajo con niños"), lo que se deduce del uso (narraciones escuchadas enteras, saltadas o pedidas; pesa menos que lo dicho) y los lugares ya visitados, que no se repiten.
+- RF-8.6 El perfil se puede consultar y borrar de viva voz ("olvida mis preferencias") y en ajustes. Sincronizarlo con la cuenta queda para RF‑5.
+
+**Planificación**
+- RF-8.7 Las paradas se eligen por **relevancia y no solo por cercanía**: primero el catálogo editorial de Secret World, después Wikipedia ordenada por importancia.
+- RF-8.8 La duración de la visita depende del tipo de lugar (un museo, 60–90 min; una plaza, 15), y el plan respeta una **franja horaria real**, con la comida en su sitio.
+- RF-8.9 Si se pide otra ciudad o zona, los candidatos son los de allí, no los de alrededor del vehículo.
+- RF-8.10 **Horarios de apertura**: hoy no los trae ninguna fuente que usamos. Hasta tenerlos, la app no afirma que un sitio esté abierto.
+
+**Recorrido**
+- RF-8.11 Cada parada se **entrega al navegador** que use el usuario: Waze o Google Maps en el móvil, NaviHelper en Pleos. La navegación propia con Mapbox queda como respaldo cuando no hay navegador.
+- RF-8.12 La llegada a cada parada se detecta con la posición del vehículo. Al llegar, la app **ofrece** la narración y espera un sí (§2.4). Después propone la siguiente parada.
+- RF-8.13 Durante el recorrido valen "siguiente parada", "salta esta", "¿cuánto queda?" y "termina el itinerario".
 
 ## 6. Requisitos no funcionales
 
@@ -241,8 +325,9 @@ cuando el nivel 1 esté en la calle y las piezas de §2.2 estén resueltas.
 
 En vehículo o en el emulador de Pleos:
 
-1. Con el coche en movimiento y sin tocar nada, la app narra el lugar relevante
-   más cercano **antes** de que el conductor lo pase, y encadena el siguiente.
+1. Con el coche en movimiento, al pedirlo por voz ("¿qué hay cerca?", "cuéntame
+   de ese castillo"), la app narra el lugar pedido, prefiriendo lo que queda por
+   delante. **Sin pedirlo, no narra nada** (RF‑3.3).
 2. "Llévame ahí" fija el destino y el navegador nativo lo acepta.
 3. "Cuéntame más" y "sáltalo" funcionan sobre lo que se está narrando.
 4. Con el coche detenido se ve mapa, ficha completa e itinerarios.
@@ -262,7 +347,9 @@ pantallas de pasajero traseras, publicidad in-car.
 1. **El contenido es el trabajo grande, y no es código.** Reescribir o
    re-generar el catálogo en formato conversacional de 60 a 90 segundos es la
    dependencia crítica del producto.
-2. **La anticipación separa la magia del ruido.** Ver RF-3.3.
+2. **Sin narración automática, el valor está en responder bien y rápido.** Si
+   "¿qué hay cerca?" tarda o devuelve algo ya pasado, el producto no aporta nada
+   que el usuario no viera por la ventanilla. Ver RF-3.3.
 3. **Densidad del catálogo en carretera.** El catálogo es urbano y turístico;
    hay que medir cuántos kilómetros de carretera real tienen cobertura antes de
    prometer acompañamiento continuo.

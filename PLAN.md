@@ -108,9 +108,12 @@ Reglas: no repetir en la sesión, preferir lo que está por delante, no encolar 
 contenido descargado, y **silencio antes que relleno**.
 
 ### 5.2 `NarrationTrigger`
-Calcula el momento de disparo a partir de velocidad y distancia, de modo que el
-usuario aún vea el lugar. Narrar algo ya pasado es un fallo, no una degradación
-(RF-3.3). Es el componente que separa la magia del ruido.
+~~Calcula el momento de disparo a partir de velocidad y distancia.~~ **Sin uso en
+el producto desde el 2026‑11‑03**: la narración en marcha la pide siempre el
+usuario y no hay disparo automático (SPEC §2, RF‑3.3). Sigue en el dominio solo
+porque lo usa la prueba de [NarrationLoopActivity](feature/voice/src/main/kotlin/com/secretworld/auto/feature/voice/NarrationLoopActivity.kt),
+que mide si el audio está preparado a tiempo. La velocidad y la distancia siguen
+sirviendo para **ordenar** lo que se ofrece y **preparar** el audio por delante.
 
 ### 5.3 `DrivingModeController`
 Única fuente de verdad sobre qué superficie puede estar visible. Escucha Vehicle
