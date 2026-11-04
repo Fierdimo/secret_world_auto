@@ -455,6 +455,18 @@ class MainActivity : ComponentActivity() {
      *
      * En la de entrega no: otra app podría dictarle órdenes.
      */
+    /**
+     * Para probar en un build de depuración sin mover la ventana: `am start` saca
+     * la app de la ventana flotante, y un broadcast no.
+     * `adb shell am broadcast -a com.secretworld.auto.SAY --es say "frase"`
+     */
+    private val sayReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context, intent: android.content.Intent) {
+            val text = intent.getStringExtra("say") ?: return
+            if (::voiceInput.isInitialized) voiceInput.inject(text)
+        }
+    }
+
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         val debuggable = applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
@@ -464,6 +476,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            androidx.core.content.ContextCompat.registerReceiver(
+                this, sayReceiver, android.content.IntentFilter(SAY_ACTION), androidx.core.content.ContextCompat.RECEIVER_EXPORTED,
+            )
+        }
         // Las imágenes, identificándose: Wikimedia devuelve 403 a quien no lo hace,
         // y las fotos de Wikipedia se quedaban en la inicial.
         coil3.SingletonImageLoader.setSafe { context ->
@@ -1504,6 +1521,17 @@ class MainActivity : ComponentActivity() {
                     endTour()
                     endNavigation()
                     val reply = withNavigatorHint(Phrasebook.itineraryEnded(c), c, floating)
+                    narration.say(reply)
+                    return reply
+                }
+                // La ruta va en el navegador: terminarla es volver a la app a
+                // pantalla completa. El navegador no se puede cerrar desde aquí; se
+                // dice cómo.
+                if (externalRouteOpen) {
+                    val floating = isInPictureInPictureMode
+                    endNavigation()
+                    leavePip()
+                    val reply = withNavigatorHint(Phrasebook.routeEnded(c), c, floating)
                     narration.say(reply)
                     return reply
                 }
@@ -2661,6 +2689,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(sayReceiver) }
         super.onDestroy()
         device?.stop()
         onDevice?.release()
@@ -2746,6 +2775,7 @@ class MainActivity : ComponentActivity() {
         const val SEARCH_SHOWN = 8
         /** Búsquedas de imágenes a la vez: más, y Wikipedia limita. */
         const val PICTURE_PARALLEL = 4
+        const val SAY_ACTION = "com.secretworld.auto.SAY"
         /** Fuera de escena: el panel ocupa el 40 % izquierdo, y un poco más para que no asome. */
         const val HUD_OFFSTAGE = 0.45f
         const val HUD_EXIT_MS = 200
