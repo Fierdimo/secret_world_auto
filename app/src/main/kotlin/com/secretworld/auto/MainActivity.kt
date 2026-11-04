@@ -1344,8 +1344,9 @@ class MainActivity : ComponentActivity() {
                     narration.say(reply) { voiceInput.listenForAnswer() }
                     reply
                 } else {
+                    // Con navegador, en silencio: el suyo ya anuncia la ruta.
                     val reply = Phrasebook.routingTo(c, place)
-                    narration.say(reply)
+                    if (!hasExternalNavigation()) narration.say(reply)
                     navigateTo(place, announce = false)
                     reply
                 }
@@ -1397,7 +1398,7 @@ class MainActivity : ComponentActivity() {
                     reply
                 } else {
                     val reply = said ?: Phrasebook.routingTo(c, target)
-                    narration.say(reply)
+                    if (!hasExternalNavigation()) narration.say(reply)
                     navigateTo(target, announce = false)
                     reply
                 }
@@ -2298,7 +2299,9 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             val here = vehicle.state.value.position
             val c = Phrasebook.Context(here, memory.listed, memory, language)
-            if (announce) narration.say(Phrasebook.routingTo(c, place))
+            // Con navegador, nada que decir: su voz anuncia la ruta, y la nuestra
+            // la pisaba al pasar a la ventana flotante.
+            if (announce && !hasExternalNavigation()) narration.say(Phrasebook.routingTo(c, place))
             if (hasExternalNavigation()) {
                 // A pantalla completa, primero a la ventana flotante: así se sigue
                 // oyendo y hablando con el navegador delante.
