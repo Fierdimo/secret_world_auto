@@ -6,24 +6,22 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -46,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.secretworld.auto.core.designsystem.CarButton
 import com.secretworld.auto.core.designsystem.CarSecondaryButton
 import com.secretworld.auto.core.designsystem.CarTheme
+import com.secretworld.auto.core.designsystem.panelInsetsPadding
 import com.secretworld.auto.domain.Place
 import kotlin.math.cos
 import kotlin.math.max
@@ -67,173 +66,165 @@ data class SavedItineraryUi(
 )
 
 /**
- * Los itinerarios guardados, para empezar uno o verlo antes. Todas las
- * tarjetas iguales: arriba, el recorrido dibujado con sus paradas numeradas
- * —se reconoce de un vistazo, tenga fotos o no—; abajo, de dónde sale, hasta
- * dónde llega, cuánto es, y empezar. Tocar la tarjeta lo abre en el mapa. Se
- * elige también de viva voz ("el segundo"), por eso cada una lleva su número.
+ * "Mis itinerarios" como la selección de nivel de un videojuego: al fondo, el
+ * mapa con el itinerario elegido —la cámara vuela a cada uno al cambiar—; a la
+ * izquierda, en un panel translúcido, la lista. El elegido se resalta y lleva
+ * sus acciones; arriba, empezar uno nuevo. Cada uno lleva su número para
+ * elegirlo de viva voz ("el segundo").
  */
 @Composable
-fun ItineraryLibraryView(
+fun BoxScope.ItineraryLibraryOverlay(
     items: List<SavedItineraryUi>,
+    selected: Int,
     voice: VoiceUi,
-    onOpen: (String) -> Unit,
-    onStart: (String) -> Unit,
-    onDelete: (String) -> Unit,
+    onSelect: (Int) -> Unit,
+    onOpen: (Int) -> Unit,
+    onStart: (Int) -> Unit,
+    onDelete: (Int) -> Unit,
+    onSuggest: () -> Unit,
+    onBuild: () -> Unit,
     onClose: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     val d = CarTheme.dimens
+    val accent = MaterialTheme.colorScheme.primary
+    val glass = MaterialTheme.colorScheme.surface.copy(alpha = 0.84f)
+    val shape = RoundedCornerShape(d.cardCorner)
     Column(
-        modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            // Solo la barra de estado: con toda la zona segura —el hueco de la
-            // cámara a la izquierda, la barra de gestos abajo— quedaban bandas
-            // vacías y las tarjetas no cabían.
-            .windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top))
-            .padding(horizontal = d.spaceM, vertical = d.spaceS),
+        Modifier
+            .align(Alignment.CenterStart)
+            .fillMaxHeight()
+            .fillMaxWidth(PANEL_SHARE)
+            .panelInsetsPadding()
+            .padding(d.spaceM)
+            .clip(shape)
+            .background(glass)
+            .border(1.dp, accent.copy(alpha = 0.35f), shape)
+            .padding(d.spaceS),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = stringResource(R.string.library_title),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            VoiceStatusChip(voice.status, labelled = false)
+        }
+        voice.answer?.let { said ->
+            Text(
+                text = said,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.height(d.spaceS))
+        // Empezar uno nuevo, siempre a mano.
+        Row(horizontalArrangement = Arrangement.spacedBy(d.spaceS)) {
+            CarButton(label = "+ " + stringResource(R.string.library_suggested), onClick = onSuggest, dense = true, modifier = Modifier.weight(1f))
+            CarSecondaryButton(label = "+ " + stringResource(R.string.library_manual), onClick = onBuild, dense = true, modifier = Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(d.spaceS))
+        val list = rememberLazyListState()
+        LaunchedEffect(selected) { if (selected in items.indices) list.animateScrollToItem(selected) }
+        LazyColumn(Modifier.fillMaxWidth().weight(1f), state = list, verticalArrangement = Arrangement.spacedBy(d.spaceXs)) {
+            itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
+                LibraryRow(
+                    number = index + 1,
+                    item = item,
+                    selected = index == selected,
+                    onClick = { if (index == selected) onOpen(index) else onSelect(index) },
+                    onOpen = { onOpen(index) },
+                    onStart = { onStart(index) },
+                    onDelete = { onDelete(index) },
+                )
+            }
+        }
+    }
+    Box(Modifier.align(Alignment.TopEnd).panelInsetsPadding().padding(d.spaceM)) {
+        CarSecondaryButton(label = stringResource(R.string.close_view), onClick = onClose, compact = true)
+    }
+}
+
+/**
+ * Una fila: el número, el recorrido en miniatura, de dónde sale y cuánto es.
+ * La elegida se ilumina y despliega sus acciones; tocarla otra vez la abre.
+ */
+@Composable
+private fun LibraryRow(
+    number: Int,
+    item: SavedItineraryUi,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onOpen: () -> Unit,
+    onStart: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val d = CarTheme.dimens
+    val accent = MaterialTheme.colorScheme.primary
+    val shape = RoundedCornerShape(d.cardCorner * 0.75f)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (selected) accent.copy(alpha = 0.16f) else Color.Transparent)
+            .border(1.dp, if (selected) accent else Color.Transparent, shape)
+            .clickable(onClick = onClick)
+            .padding(d.spaceXs)
+            .animateContentSize(),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(BADGE).clip(CircleShape).background(if (selected) accent else accent.copy(alpha = 0.25f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "$number",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimary else accent,
+                )
+            }
+            Spacer(Modifier.width(d.spaceS))
+            Box(
+                Modifier.size(SKETCH).clip(RoundedCornerShape(d.cardCorner / 2)).background(Color.Black.copy(alpha = 0.55f)),
+            ) {
+                RouteSketch(item.stops, Modifier.fillMaxSize().padding(8.dp), small = true)
+            }
+            Spacer(Modifier.width(d.spaceS))
             Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                item.destination?.let {
                     Text(
-                        text = stringResource(R.string.library_title),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Spacer(Modifier.width(d.spaceS))
-                    VoiceStatusChip(voice.status, labelled = false)
-                }
-                // Lo que se contesta, si se contesta algo ("Borrado."); nada de instrucciones.
-                voice.answer?.let { said ->
-                    Text(
-                        text = said,
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = stringResource(R.string.library_until, it),
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-            }
-            CarSecondaryButton(label = stringResource(R.string.close_view), onClick = onClose, compact = true)
-        }
-        Spacer(Modifier.height(d.spaceM))
-        if (items.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = stringResource(R.string.library_empty),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = "${item.count} · ${item.duration} · ${item.date}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = accent,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            return@Column
         }
-        // La misma altura para todas, y que quepa entera en lo que queda de
-        // pantalla: en un móvil apaisado, 300 dp se salían por abajo.
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val cardHeight = minOf(maxHeight, CARD_HEIGHT).coerceAtLeast(CARD_MIN_HEIGHT)
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(CARD_MIN),
-                horizontalArrangement = Arrangement.spacedBy(d.spaceM),
-                verticalArrangement = Arrangement.spacedBy(d.spaceM),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
-                    SavedCard(
-                        number = index + 1,
-                        item = item,
-                        onOpen = { onOpen(item.id) },
-                        onStart = { onStart(item.id) },
-                        onDelete = { onDelete(item.id) },
-                        modifier = Modifier.height(cardHeight),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SavedCard(
-    number: Int,
-    item: SavedItineraryUi,
-    onOpen: () -> Unit,
-    onStart: () -> Unit,
-    onDelete: () -> Unit,
-    modifier: Modifier,
-) {
-    val d = CarTheme.dimens
-    val accent = MaterialTheme.colorScheme.primary
-    val shape = RoundedCornerShape(d.cardCorner)
-    Column(
-        modifier
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, accent.copy(alpha = 0.22f), shape)
-            .clickable(onClick = onOpen),
-    ) {
-        // Arriba, el recorrido: la foto de una parada, oscurecida, y encima la
-        // ruta dibujada con sus paradas.
-        Box(Modifier.fillMaxWidth().weight(HERO_WEIGHT)) {
-            val cover = item.stops.firstOrNull { it.imageUrl != null } ?: item.stops.first()
-            PlaceImage(cover, Modifier.fillMaxSize(), initial = false)
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.55f), 1f to Color.Black.copy(alpha = 0.85f))),
-            )
-            RouteSketch(item.stops, Modifier.fillMaxSize().padding(horizontal = d.spaceL, vertical = d.spaceM))
-            Box(
-                Modifier
-                    .align(Alignment.TopStart)
-                    .padding(d.spaceS)
-                    .size(BADGE)
-                    .clip(CircleShape)
-                    .background(accent),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("$number", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
-            }
-            Box(Modifier.align(Alignment.TopEnd).padding(d.spaceXs)) {
+        if (selected) {
+            Spacer(Modifier.height(d.spaceXs))
+            Row(horizontalArrangement = Arrangement.spacedBy(d.spaceS), verticalAlignment = Alignment.CenterVertically) {
+                CarButton(label = stringResource(R.string.library_start), onClick = onStart, dense = true, modifier = Modifier.weight(1f))
+                CarSecondaryButton(label = stringResource(R.string.library_edit), onClick = onOpen, dense = true, modifier = Modifier.weight(1f))
                 RoundAction(Glyph.DELETE, onDelete, filled = false, diameter = DELETE)
-            }
-        }
-        // Abajo, de más a menos: de dónde sale, hasta dónde, cuánto es, cuándo.
-        Column(Modifier.fillMaxWidth().weight(1f - HERO_WEIGHT).padding(d.spaceS)) {
-            Text(
-                text = item.title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = item.destination?.let { stringResource(R.string.library_until, it) }.orEmpty(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.weight(1f))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = "${item.count} · ${item.duration}",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = accent,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = item.date,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        maxLines = 1,
-                    )
-                }
-                CarButton(label = stringResource(R.string.library_start), onClick = onStart, dense = true)
             }
         }
     }
@@ -245,7 +236,7 @@ private fun SavedCard(
  * cada itinerario tiene su forma.
  */
 @Composable
-private fun RouteSketch(stops: List<Place>, modifier: Modifier) {
+private fun RouteSketch(stops: List<Place>, modifier: Modifier, small: Boolean = false) {
     val accent = MaterialTheme.colorScheme.primary
     val ink = MaterialTheme.colorScheme.onPrimary
     Canvas(modifier) {
@@ -273,11 +264,11 @@ private fun RouteSketch(stops: List<Place>, modifier: Modifier) {
                 moveTo(points.first().x, points.first().y)
                 points.drop(1).forEach { lineTo(it.x, it.y) }
             }
-            drawPath(path, accent.copy(alpha = 0.28f), style = Stroke(width = 14f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-            drawPath(path, accent, style = Stroke(width = 4f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            drawPath(path, accent.copy(alpha = 0.28f), style = Stroke(width = if (small) 7f else 14f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            drawPath(path, accent, style = Stroke(width = if (small) 2.5f else 4f, cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
         points.forEachIndexed { index, point ->
-            val radius = if (index == 0) 13f else 9f
+            val radius = (if (index == 0) 13f else 9f) * (if (small) 0.5f else 1f)
             drawCircle(accent.copy(alpha = 0.3f), radius = radius * 2f, center = point)
             drawCircle(accent, radius = radius, center = point)
             drawCircle(ink, radius = radius * 0.4f, center = point)
@@ -285,9 +276,7 @@ private fun RouteSketch(stops: List<Place>, modifier: Modifier) {
     }
 }
 
-private val CARD_MIN = 340.dp
-private val CARD_HEIGHT = 300.dp
-private val CARD_MIN_HEIGHT = 220.dp
-private const val HERO_WEIGHT = 0.48f
-private val BADGE = 36.dp
-private val DELETE = 36.dp
+private const val PANEL_SHARE = 0.40f
+private val BADGE = 30.dp
+private val SKETCH = 64.dp
+private val DELETE = 40.dp

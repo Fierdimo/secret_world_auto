@@ -33,8 +33,10 @@
     <string name="split_hint">Metti Secret World a schermo diviso con il navigatore: io ti guido, lui ti porta.</string>
     <string name="close_view">Chiudi</string>
     <string name="library_title">I miei itinerari</string>
-    <string name="library_empty">Non ci sono ancora itinerari salvati. Chiedimi di organizzarne uno.</string>
     <string name="library_start">Inizia</string>
     <string name="library_delete">Cancella</string>
     <string name="library_until">fino a %1$s</string>
+    <string name="library_suggested">Suggerito</string>
+    <string name="library_manual">A mano</string>
+    <string name="library_edit">Modifica</string>
 </resources>

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.only
@@ -208,12 +209,11 @@ fun ScreenTitle(text: String, subtitle: String? = null) {
 private const val DENSE_TARGET = 0.68f
 
 /**
- * Los márgenes de seguridad de una banda **pegada al borde izquierdo**: el
- * izquierdo, el de arriba y el de abajo, nunca el derecho. En un móvil apaisado
- * la barra de navegación del sistema está a la derecha, y con todos los lados
- * su ancho se le sumaba a la banda como relleno: un hueco vacío que tapaba mapa.
+ * El único margen de seguridad que se respeta: la barra de estado, arriba. Lo
+ * demás —el hueco de la cámara a un lado, la barra de gestos abajo, la de
+ * navegación a la derecha— dejaba bandas vacías: la app usa toda la pantalla.
  */
 @Composable
 fun Modifier.panelInsetsPadding(): Modifier = windowInsetsPadding(
-    WindowInsets.safeDrawing.only(WindowInsetsSides.Start + WindowInsetsSides.Vertical),
+    WindowInsets.statusBars.only(WindowInsetsSides.Top),
 )

@@ -33,8 +33,10 @@
     <string name="split_hint">Put Secret World side by side with your navigation app: I guide, it drives.</string>
     <string name="close_view">Close</string>
     <string name="library_title">My itineraries</string>
-    <string name="library_empty">No saved itineraries yet. Ask me to plan one.</string>
     <string name="library_start">Start</string>
     <string name="library_delete">Delete</string>
     <string name="library_until">to %1$s</string>
+    <string name="library_suggested">Suggested</string>
+    <string name="library_manual">By hand</string>
+    <string name="library_edit">Edit</string>
 </resources>

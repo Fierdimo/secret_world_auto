@@ -255,7 +255,9 @@ fun TourFlyover(
                 }
                 finale = camera
                 // En la vista que se queda, cada cambio se reencuadra con suavidad.
-                if (!state.intro) viewport.easeTo(camera, MapAnimationOptions.mapAnimationOptions { duration(REFRAME_MS) })
+                // Un vuelo, no un deslizamiento: al cambiar de itinerario en la lista
+                // la cámara sube y baja sobre el siguiente, como en un videojuego.
+                if (!state.intro) viewport.flyTo(camera, MapAnimationOptions.mapAnimationOptions { duration(REFRAME_MS) })
             }
             val visible = state.path.take(revealed.value.toInt().coerceAtLeast(0))
             if (visible.size >= 2) {
@@ -484,7 +486,7 @@ private const val FINAL_PITCH = 48.0
 private const val FINAL_BEARING = 30.0
 private const val FIRST_BEARING = 20.0
 private const val FIRST_LEG_MS = 3_000L
-private const val REFRAME_MS = 1_200L
+private const val REFRAME_MS = 1_800L
 private const val FOCUS_MS = 2_400L
 private const val EMPTY_ZOOM = 15.0
 private const val UNFOCUS_MS = 2_000L

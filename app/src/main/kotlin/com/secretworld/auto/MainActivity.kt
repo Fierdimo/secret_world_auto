@@ -21,14 +21,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
+import com.secretworld.auto.core.designsystem.panelInsetsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -108,7 +106,7 @@ import com.secretworld.auto.feature.discover.NowPlaying
 import com.secretworld.auto.feature.discover.PermissionNotice
 import com.secretworld.auto.feature.discover.RoutePanel
 import com.secretworld.auto.feature.discover.AssistantScreen
-import com.secretworld.auto.feature.discover.ItineraryLibraryView
+import com.secretworld.auto.feature.discover.ItineraryLibraryOverlay
 import com.secretworld.auto.feature.discover.ItineraryOverlay
 import com.secretworld.auto.feature.discover.SavedItineraryUi
 import com.secretworld.auto.feature.discover.FlyoverState
@@ -221,7 +219,10 @@ class MainActivity : ComponentActivity() {
     /** Armando uno a mano y aún sin paradas: el mapa de alrededor, para ir eligiendo. */
     private val drafting = MutableStateFlow(false)
 
-    /** Cuántos hay guardados: sin ninguno, la sugerencia de verlos no sale. */
+    /** El que se ve en el mapa de "Mis itinerarios". */
+    private val librarySelected = MutableStateFlow(0)
+
+    /** Cuántos hay guardados. */
     private val savedCount = MutableStateFlow(0)
 
     /**
@@ -656,8 +657,8 @@ class MainActivity : ComponentActivity() {
                         val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
                         val reply = when {
                             choice != null -> libraryChoice(saved, choice, c)
-                            shelf != null && (grammarFirst == VoiceCommand.No || grammarFirst == VoiceCommand.Stop || ItineraryRequests.refuses(order)) -> {
-                                library.value = null
+                            shelf != null && (grammarFirst == VoiceCommand.No || ItineraryRequests.refuses(order)) -> {
+                                closeLibrary()
                                 ""
                             }
                             else -> null
@@ -785,7 +786,6 @@ class MainActivity : ComponentActivity() {
                 val results = searchResults.collectAsState().value
 
                 val inPip by pip.collectAsState()
-                val savedCountNow by savedCount.collectAsState()
                 LaunchedEffect(Unit) { refreshSaved() }
                 Box(Modifier.fillMaxSize()) {
                     if (panel is Panel.Home || inPip) {
@@ -819,7 +819,8 @@ class MainActivity : ComponentActivity() {
                             origin = vehicleState.position,
                             navigation = navigationUi,
                             // Tocar una sugerencia es decirla: pasa por el mismo camino que la voz.
-                            suggestions = (listOfNotNull(myItineraries(language).takeIf { savedCountNow > 0 }) + suggestionsFor(language)).map { text ->
+                            // "Mis itinerarios" siempre: también es donde se empieza uno nuevo.
+                            suggestions = (listOf(myItineraries(language)) + suggestionsFor(language)).map { text ->
                                 SearchShortcut(label = text) { voiceInput.inject(text) }
                             },
                             shortcuts = SHORTCUTS.map { (category, label) ->
@@ -856,24 +857,13 @@ class MainActivity : ComponentActivity() {
                             onClick = { panel = Panel.Settings },
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .safeDrawingPadding()
+                                .panelInsetsPadding()
                                 .padding(CarTheme.dimens.spaceS),
                         )
                     }
 
-                    // Los guardados, a pantalla completa: se elige uno y se empieza o se ve.
                     val shelf by library.collectAsState()
-                    shelf?.takeIf { !inPip }?.let { saved ->
-                        val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
-                        ItineraryLibraryView(
-                            items = saved.map(::savedUiOf),
-                            voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
-                            onOpen = { id -> saved.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { answer = libraryChoice(saved, ItineraryLibrary.Choice(it, ItineraryLibrary.Action.OPEN), c) } },
-                            onStart = { id -> saved.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { answer = libraryChoice(saved, ItineraryLibrary.Choice(it, ItineraryLibrary.Action.START), c) } },
-                            onDelete = { id -> saved.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { answer = libraryChoice(saved, ItineraryLibrary.Choice(it, ItineraryLibrary.Action.DELETE), c) } },
-                            onClose = { library.value = null },
-                        )
-                    }
+                    val shelfAt by librarySelected.collectAsState()
 
                     // La presentación del itinerario recién propuesto, por encima de todo.
                     val fly by flyover.collectAsState()
@@ -889,7 +879,8 @@ class MainActivity : ComponentActivity() {
                     // vuelve a pedir al enseñar un itinerario, o el mapa sale negro.
                     val flying = fly != null
                     LaunchedEffect(flying) { if (flying && mapboxToken == null) mapboxToken = mapKeys.mapboxToken() }
-                    fly?.takeIf { !compact && !inPip }?.let { state ->
+                    // Con "Mis itinerarios" abierta, también en compacto: es su fondo.
+                    fly?.takeIf { (!compact || shelf != null) && !inPip }?.let { state ->
                         TourFlyover(
                             state = state,
                             mapboxToken = mapboxToken,
@@ -898,7 +889,28 @@ class MainActivity : ComponentActivity() {
                                 answer = addToItinerary(place, Phrasebook.Context(vehicleState.position, upcoming, memory, language))
                             },
                             overlay = {
-                                (tourUi ?: draftUi.takeIf { draftNow })?.let { ui ->
+                                val saved = shelf
+                                if (saved != null) {
+                                    val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
+                                    fun act(index: Int, action: ItineraryLibrary.Action) {
+                                        if (index in saved.indices) answer = libraryChoice(saved, ItineraryLibrary.Choice(index, action), c).ifEmpty { null }
+                                    }
+                                    ItineraryLibraryOverlay(
+                                        items = saved.map(::savedUiOf),
+                                        selected = shelfAt,
+                                        voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
+                                        onSelect = { previewSaved(it) },
+                                        onOpen = { act(it, ItineraryLibrary.Action.OPEN) },
+                                        onStart = { act(it, ItineraryLibrary.Action.START) },
+                                        onDelete = { act(it, ItineraryLibrary.Action.DELETE) },
+                                        onSuggest = {
+                                            closeLibrary()
+                                            answer = itineraryStep(itinerary.request(ItineraryRequest(), profiles.load()), c)
+                                        },
+                                        onBuild = { answer = buildItinerary(c) },
+                                        onClose = ::closeLibrary,
+                                    )
+                                } else (tourUi ?: draftUi.takeIf { draftNow })?.let { ui ->
                                     ItineraryOverlay(
                                         tour = ui,
                                         voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
@@ -1373,6 +1385,8 @@ class MainActivity : ComponentActivity() {
             reply
         }
         is ItineraryConversation.Step.Repropose -> {
+            // Un cambio a uno de la lista: pasa a su vista para seguir con él.
+            library.value = null
             showItinerary(step.proposal)
             // El cambio se ve en el mismo mapa con los marcadores renumerados, sin
             // recorrido: ese se traza cuando se acepta. Se dice solo lo que cambió.
@@ -1392,6 +1406,7 @@ class MainActivity : ComponentActivity() {
             reply
         }
         is ItineraryConversation.Step.Start -> {
+            library.value = null
             // "Inicia el itinerario" a la propuesta: se guarda también.
             saveCurrent(step.proposal)
             flyover.value = null
@@ -1404,6 +1419,7 @@ class MainActivity : ComponentActivity() {
             reply
         }
         is ItineraryConversation.Step.Shelved -> {
+            library.value = null
             saveCurrent(step.proposal)
             flyover.value = null
             shownPlan.value = null
@@ -1412,6 +1428,7 @@ class MainActivity : ComponentActivity() {
             reply
         }
         ItineraryConversation.Step.Discarded -> {
+            library.value = null
             flyover.value = null
             shownPlan.value = null
             val reply = Phrasebook.itineraryDiscarded(c)
@@ -1452,13 +1469,8 @@ class MainActivity : ComponentActivity() {
         drafting.value = false
         focusJob?.cancel()
         if (tour.value != null) return
-        planJob?.cancel()
-        itinerary.reset()
-        shownPlan.value = null
-        editingId = null
-        val saved = savedList()
-        savedCount.value = saved.size
-        library.value = saved.takeIf { it.isNotEmpty() }
+        // De vuelta a la lista, con el que se veía elegido si estaba guardado.
+        showLibrary(selectId = editingId)
     }
 
     // ------------------------------------------------------------------ a mano
@@ -1543,15 +1555,61 @@ class MainActivity : ComponentActivity() {
      * ni quedarse esperando. Se elige tocando o con la palabra de activación.
      */
     private fun openLibrary(c: Phrasebook.Context): String {
+        showLibrary(selectId = null)
+        return ""
+    }
+
+    /**
+     * La lista sobre el mapa, con [selectId] —o el primero— elegido y a la vista.
+     * También sin ninguno guardado: desde aquí se empieza uno nuevo.
+     */
+    private fun showLibrary(selectId: String?) {
         val all = savedList()
         savedCount.value = all.size
-        if (all.isEmpty()) return Phrasebook.noSavedItinerary(c).also { narration.say(it) }
-        // Lo que hubiera a medias deja de enseñarse: ahora se elige otro.
-        itinerary.reset()
-        flyover.value = null
-        shownPlan.value = null
+        planJob?.cancel()
+        drafting.value = false
         library.value = all
-        return ""
+        val at = all.indexOfFirst { it.id == selectId }.coerceAtLeast(0)
+        if (all.isEmpty()) {
+            // Sin ninguno: el mapa de alrededor, de fondo.
+            itinerary.reset()
+            shownPlan.value = null
+            editingId = null
+            val here = vehicle.state.value.position
+            flyover.value = FlyoverState(here, emptyList(), emptyList(), emptyList(), emptyList(), "", intro = false)
+        } else {
+            previewSaved(at)
+        }
+    }
+
+    /**
+     * Elegir uno de la lista: el mapa vuela a él y queda como el itinerario a la
+     * vista, así que "empecemos" o "empieza por el castillo" van con él.
+     */
+    private fun previewSaved(index: Int) {
+        val item = library.value?.getOrNull(index) ?: return
+        librarySelected.value = index
+        editingId = item.id
+        offered = null
+        itinerary.resumed(item.proposal)
+        shownPlan.value = item.proposal
+        memory.listed(item.proposal.stops)
+        // Primero en línea recta, al momento; después, con las calles.
+        lifecycleScope.launch {
+            flyover.value = flyoverOf(item.proposal, intro = false, route = false, around = false)
+            val routed = flyoverOf(item.proposal, intro = false, around = false)
+            if (library.value != null && librarySelected.value == index) flyover.value = routed
+        }
+    }
+
+    /** Salir de "Mis itinerarios": al inicio, sin nada a medias. */
+    private fun closeLibrary() {
+        library.value = null
+        flyover.value = null
+        if (tour.value != null) return
+        itinerary.reset()
+        shownPlan.value = null
+        editingId = null
     }
 
     /** Lo elegido de los guardados: empezarlo, verlo en el mapa o borrarlo. */
@@ -1564,22 +1622,18 @@ class MainActivity : ComponentActivity() {
                 itineraryStep(ItineraryConversation.Step.Start(item.proposal), c)
             }
             ItineraryLibrary.Action.OPEN -> {
-                // Directo a la vista que se queda, sin la presentación: quien
-                // revisa sus guardados no quiere esperar al vuelo de cámara. Desde
-                // ahí se puede cambiar o empezar.
+                // Su vista, para cambiarlo: la del itinerario, sin presentación,
+                // con los sitios de alrededor para añadir.
+                if (librarySelected.value != choice.index || library.value == null) previewSaved(choice.index)
                 library.value = null
-                editingId = item.id
-                offered = null
-                itinerary.resumed(item.proposal)
                 showItinerary(item.proposal)
                 lifecycleScope.launch { flyover.value = flyoverOf(item.proposal, intro = false) }
-                Phrasebook.resumeItinerary(c, item.proposal).also { narration.say(it) { voiceInput.listenForAnswer() } }
+                ""
             }
             ItineraryLibrary.Action.DELETE -> {
                 savedItineraries.delete(item.id)
                 if (editingId == item.id) editingId = null
-                refreshSaved()
-                if (savedCount.value == 0) library.value = null
+                showLibrary(selectId = saved.getOrNull(choice.index + 1)?.id ?: saved.getOrNull(choice.index - 1)?.id)
                 Phrasebook.itineraryDeleted(c).also { narration.say(it) }
             }
         }
@@ -1686,7 +1740,7 @@ class MainActivity : ComponentActivity() {
      * Lo que necesita la presentación: la ruta por calles de parada en parada. Si
      * un tramo no se puede calcular —sin red—, ese tramo va en línea recta.
      */
-    private suspend fun flyoverOf(proposal: ItineraryProposal, intro: Boolean = true, route: Boolean = true): FlyoverState {
+    private suspend fun flyoverOf(proposal: ItineraryProposal, intro: Boolean = true, route: Boolean = true, around: Boolean = true): FlyoverState {
         // Desde la primera parada, no desde donde esté el coche: el itinerario es
         // el recorrido entre las paradas; llegar a la primera es cosa del navegador.
         val legs = if (!route) emptyList() else coroutineScope {
@@ -1714,7 +1768,7 @@ class MainActivity : ComponentActivity() {
             legEnds = ends,
             summary = ui.summary,
             intro = intro,
-            candidates = if (intro) emptyList() else candidatesAround(proposal.stops.first().position),
+            candidates = if (intro || !around) emptyList() else candidatesAround(proposal.stops.first().position),
         )
     }
 
