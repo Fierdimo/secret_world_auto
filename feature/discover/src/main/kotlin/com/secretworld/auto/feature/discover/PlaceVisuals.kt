@@ -22,7 +22,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -135,7 +137,7 @@ internal fun PlaceThumb(place: Place, size: Dp, modifier: Modifier = Modifier) {
     PlaceImage(place, modifier.size(size).clip(RoundedCornerShape(size / 4)))
 }
 
-internal enum class Glyph { LISTEN, GO, SETTINGS, ADD, DELETE, ROUTE }
+internal enum class Glyph { LISTEN, GO, SETTINGS, ADD, DELETE, ROUTE, SIGHT, FOOD, FUEL, PARKING, BED, CROSS, CASH }
 
 /** Los botones de una tarjeta: visibles sin tapar la foto. */
 private val ACTION: Dp = 40.dp
@@ -200,6 +202,85 @@ internal fun GlyphIcon(glyph: Glyph, ink: Color, extent: Dp) {
                 drawLine(ink, a, b, strokeWidth = w)
                 drawLine(ink, b, c, strokeWidth = w)
                 listOf(a, b, c).forEach { drawCircle(ink, radius = size.minDimension * 0.16f, center = it) }
+            }
+            Glyph.SIGHT -> {
+                // Un monumento: frontón, tres columnas y la base.
+                val w = size.width
+                val h = size.height
+                val roof = Path().apply {
+                    moveTo(w * 0.5f, 0f)
+                    lineTo(w, h * 0.28f)
+                    lineTo(0f, h * 0.28f)
+                    close()
+                }
+                drawPath(roof, ink)
+                listOf(0.16f, 0.5f, 0.84f).forEach { x ->
+                    drawLine(ink, Offset(w * x, h * 0.36f), Offset(w * x, h * 0.84f), strokeWidth = w * 0.13f)
+                }
+                drawLine(ink, Offset(0f, h * 0.94f), Offset(w, h * 0.94f), strokeWidth = h * 0.12f)
+            }
+            Glyph.FOOD -> {
+                // Tenedor y cuchillo.
+                val w = size.width
+                val h = size.height
+                val s = w * 0.09f
+                listOf(0.12f, 0.26f, 0.40f).forEach { x -> drawLine(ink, Offset(w * x, 0f), Offset(w * x, h * 0.32f), strokeWidth = s) }
+                drawLine(ink, Offset(w * 0.12f, h * 0.36f), Offset(w * 0.40f, h * 0.36f), strokeWidth = s * 1.4f)
+                drawLine(ink, Offset(w * 0.26f, h * 0.36f), Offset(w * 0.26f, h), strokeWidth = s * 1.3f)
+                val blade = Path().apply {
+                    moveTo(w * 0.72f, 0f)
+                    quadraticTo(w * 0.95f, h * 0.2f, w * 0.84f, h * 0.52f)
+                    lineTo(w * 0.72f, h * 0.52f)
+                    close()
+                }
+                drawPath(blade, ink)
+                drawLine(ink, Offset(w * 0.75f, h * 0.5f), Offset(w * 0.75f, h), strokeWidth = s * 1.3f)
+            }
+            Glyph.FUEL -> {
+                // Un surtidor con su manguera.
+                val w = size.width
+                val h = size.height
+                drawRoundRect(ink, topLeft = Offset(w * 0.08f, h * 0.08f), size = Size(w * 0.5f, h * 0.84f), cornerRadius = CornerRadius(w * 0.06f))
+                drawRect(Color.Black.copy(alpha = 0.6f), topLeft = Offset(w * 0.17f, h * 0.18f), size = Size(w * 0.32f, h * 0.22f))
+                val hose = Path().apply {
+                    moveTo(w * 0.58f, h * 0.3f)
+                    lineTo(w * 0.86f, h * 0.44f)
+                    lineTo(w * 0.86f, h * 0.78f)
+                    lineTo(w * 0.72f, h * 0.78f)
+                }
+                drawPath(hose, ink, style = Stroke(width = w * 0.09f))
+            }
+            Glyph.PARKING -> {
+                // Una "P" en su cuadro.
+                val w = size.width
+                val h = size.height
+                drawRoundRect(ink, size = size, cornerRadius = CornerRadius(w * 0.18f), style = Stroke(width = w * 0.1f))
+                drawLine(ink, Offset(w * 0.38f, h * 0.24f), Offset(w * 0.38f, h * 0.78f), strokeWidth = w * 0.12f)
+                drawArc(ink, -90f, 180f, false, topLeft = Offset(w * 0.24f, h * 0.24f), size = Size(w * 0.44f, h * 0.3f), style = Stroke(width = w * 0.11f))
+            }
+            Glyph.BED -> {
+                // Una cama, de lado.
+                val w = size.width
+                val h = size.height
+                drawLine(ink, Offset(w * 0.06f, h * 0.15f), Offset(w * 0.06f, h * 0.92f), strokeWidth = w * 0.11f)
+                drawRect(ink, topLeft = Offset(w * 0.06f, h * 0.55f), size = Size(w * 0.9f, h * 0.18f))
+                drawLine(ink, Offset(w * 0.94f, h * 0.55f), Offset(w * 0.94f, h * 0.92f), strokeWidth = w * 0.11f)
+                drawCircle(ink, radius = w * 0.12f, center = Offset(w * 0.28f, h * 0.4f))
+                drawRoundRect(ink, topLeft = Offset(w * 0.45f, h * 0.3f), size = Size(w * 0.5f, h * 0.22f), cornerRadius = CornerRadius(w * 0.08f))
+            }
+            Glyph.CROSS -> {
+                // La cruz de farmacia.
+                val w = size.width
+                val h = size.height
+                drawRect(ink, topLeft = Offset(w * 0.34f, 0f), size = Size(w * 0.32f, h))
+                drawRect(ink, topLeft = Offset(0f, h * 0.34f), size = Size(w, h * 0.32f))
+            }
+            Glyph.CASH -> {
+                // Un billete.
+                val w = size.width
+                val h = size.height
+                drawRoundRect(ink, topLeft = Offset(0f, h * 0.2f), size = Size(w, h * 0.6f), cornerRadius = CornerRadius(w * 0.08f), style = Stroke(width = w * 0.09f))
+                drawCircle(ink, radius = w * 0.13f, center = Offset(w / 2, h / 2))
             }
             Glyph.DELETE -> {
                 // Una "×": quitar.

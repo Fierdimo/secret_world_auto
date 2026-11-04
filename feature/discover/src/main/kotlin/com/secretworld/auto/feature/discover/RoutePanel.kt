@@ -657,7 +657,12 @@ private fun formatTime(ms: Int): String {
 data class SearchUi(val title: String, val places: List<Place>)
 
 /** Una búsqueda de un toque: "Ristoranti", "Benzina". */
-data class SearchShortcut(val label: String, val onClick: () -> Unit)
+data class SearchShortcut(
+    val label: String,
+    /** La categoría que busca ("restaurant", "gas_station"…), para su icono. */
+    val category: String? = null,
+    val onClick: () -> Unit,
+)
 
 /** Un permiso que falta: qué se pierde sin él y cómo activarlo. */
 data class PermissionNotice(

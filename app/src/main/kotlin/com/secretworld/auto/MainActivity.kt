@@ -891,7 +891,7 @@ class MainActivity : ComponentActivity() {
                             }
                 val shortcutsUi = SHORTCUTS.map { (category, label) ->
                                 val text = label(language)
-                                SearchShortcut(label = text.replaceFirstChar { it.uppercase() }) { findPlaces(text, category, announce = true) }
+                                SearchShortcut(label = text.replaceFirstChar { it.uppercase() }, category = category) { findPlaces(text, category, announce = true) }
                             }
                 val flyNow by flyover.collectAsState()
                 val homeAt by homeSelected.collectAsState()

@@ -9,12 +9,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -105,11 +107,14 @@ fun BoxScope.HomeOverlay(
             )
         }
         Spacer(Modifier.height(d.spaceS))
-        // Una sola fila: pestañas de texto, no botones; la activa, subrayada.
+        // Una sola fila: cada sección es su icono, y la activa se despliega con su nombre.
         val tabMatch = shortcuts.firstOrNull { it.label.equals(activeSearch, ignoreCase = true) }
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(d.spaceM)) {
-            Tab(stringResource(R.string.tab_around), active = activeSearch == null, onClick = onClearSearch)
-            shortcuts.forEach { Tab(it.label, active = it === tabMatch, onClick = it.onClick) }
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Tab(Glyph.SIGHT, stringResource(R.string.tab_around), active = activeSearch == null, onClick = onClearSearch)
+            shortcuts.forEach { Tab(glyphOf(it.category), it.label, active = it === tabMatch, onClick = it.onClick) }
         }
         // Una búsqueda dicha que no es una pestaña ("shawarma"): su título.
         if (search != null && tabMatch == null) {
@@ -226,26 +231,55 @@ private fun PlaceLine(
     }
 }
 
-/** Una pestaña de la lista: texto, y la activa con su raya debajo. */
+/**
+ * Una sección de la lista, sencilla para que quepan muchas: un icono suelto; la
+ * activa, con su nombre al lado y la raya debajo.
+ */
 @Composable
-private fun Tab(label: String, active: Boolean, onClick: () -> Unit) {
+private fun Tab(glyph: Glyph, label: String, active: Boolean, onClick: () -> Unit) {
     val accent = MaterialTheme.colorScheme.primary
+    val ink = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
-        Modifier.clip(RoundedCornerShape(4.dp)).clickable(onClick = onClick).padding(vertical = 6.dp),
+        Modifier
+            .animateContentSize()
+            .clip(RoundedCornerShape(4.dp))
+            .clickable(onClick = onClick)
+            .defaultMinSize(minWidth = TAB_TOUCH)
+            .padding(horizontal = 4.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            GlyphIcon(glyph, if (active) accent else ink, TAB_ICON)
+            if (active) {
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = label.replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = ink,
+                    maxLines = 1,
+                )
+            }
+        }
         Spacer(Modifier.height(4.dp))
         Box(Modifier.height(2.dp).width(24.dp).clip(RoundedCornerShape(1.dp)).background(if (active) accent else Color.Transparent))
     }
 }
 
+/** El icono de cada búsqueda de un toque. */
+private fun glyphOf(category: String?): Glyph = when (category) {
+    "restaurant" -> Glyph.FOOD
+    "gas_station" -> Glyph.FUEL
+    "parking_lot" -> Glyph.PARKING
+    "hotel" -> Glyph.BED
+    "pharmacy" -> Glyph.CROSS
+    "atm" -> Glyph.CASH
+    else -> Glyph.SIGHT
+}
+
 private const val PANEL_SHARE = 0.40f
 private val THUMB = 44.dp
 private val ACTION = 36.dp
+private val TAB_ICON = 20.dp
+/** Lo mínimo que se toca bien con el dedo; nada más, para que quepan. */
+private val TAB_TOUCH = 36.dp
