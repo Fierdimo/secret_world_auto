@@ -20,4 +20,6 @@
     <string name="catalogue_loading">caricamento</string>
     <string name="listen_minutes">%1$d min di racconto</string>
     <string name="testing">Prove</string>
+    <string name="action_radius">Raggio d\'azione</string>
+    <string name="radius_km">%1$d km</string>
 </resources>

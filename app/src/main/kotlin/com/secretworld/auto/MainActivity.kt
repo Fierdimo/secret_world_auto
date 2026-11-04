@@ -74,6 +74,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import com.secretworld.auto.domain.ConversationMemory
+import com.secretworld.auto.domain.Bounds
 import com.secretworld.auto.domain.Coordinates
 import com.secretworld.auto.domain.DrivingMode
 import com.secretworld.auto.domain.GrammarIntentResolver
@@ -214,6 +215,17 @@ class MainActivity : ComponentActivity() {
     private val lateReply = MutableStateFlow<String?>(null)
     /** La presentación cinemática del itinerario recién propuesto. */
     private val flyover = MutableStateFlow<FlyoverState?>(null)
+
+    private val settingsPrefs by lazy { getSharedPreferences("settings", MODE_PRIVATE) }
+
+    /**
+     * El radio de acción del inicio, en km: lo de alrededor y las búsquedas,
+     * dentro de él. Se elige en los ajustes.
+     */
+    private val homeRadiusKm by lazy { MutableStateFlow(settingsPrefs.getInt(RADIUS_KEY, DEFAULT_RADIUS_KM)) }
+
+    /** La última búsqueda de una pestaña, para repetirla si cambia el radio. */
+    private var lastSearch: Pair<String, String?>? = null
 
     /** El sitio elegido en la lista o el mapa del inicio: la cámara vuela a él. */
     private val homeSelected = MutableStateFlow<Place?>(null)
@@ -823,13 +835,20 @@ class MainActivity : ComponentActivity() {
                 val homeAt by homeSelected.collectAsState()
                 val toldAt by homeFocus.collectAsState()
                 val menu = rememberMenuRailState()
+                val radiusKm by homeRadiusKm.collectAsState()
+                // Lo de alrededor, dentro del radio y del más cercano al más lejano:
+                // no la ciudad entera.
+                val around = remember(places, positionKey, radiusKm) {
+                    places.filter { vehicleState.position.distanceTo(it.position) <= radiusKm * 1000.0 }
+                        .sortedBy { vehicleState.position.distanceTo(it.position) }
+                }
                 Box(Modifier.fillMaxSize().collapseMenuOnOutsideTap(menu)) {
                     if (panel is Panel.Home && !inPip && !compact) {
                         // El inicio sobre el mapa: lo de alrededor —o lo buscado— al
                         // fondo, y el panel a la izquierda. Con un itinerario a la vista,
                         // su mapa lo tapa todo y este no se dibuja.
                         if (flyNow == null) {
-                            val places = searchUi?.places ?: upcoming
+                            val places = searchUi?.places ?: around
                             val selectedPlace = homeAt?.takeIf { chosen -> places.any { it.id == chosen.id } }
                             val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
                             TourFlyover(
@@ -845,6 +864,7 @@ class MainActivity : ComponentActivity() {
                                     candidates = places,
                                     pickable = true,
                                     me = vehicleState.position,
+                                    radiusMeters = radiusKm * 1000.0,
                                 ),
                                 mapboxToken = mapboxToken,
                                 onIntroDone = {},
@@ -859,11 +879,12 @@ class MainActivity : ComponentActivity() {
                                         notices = notices,
                                         tour = tourUi,
                                         search = searchUi,
-                                        nearby = upcoming,
+                                        nearby = around,
                                         origin = vehicleState.position,
                                         navigation = navigationUi,
                                         shortcuts = shortcutsUi,
                                         activeSearch = searchShown,
+                                        radiusKm = radiusKm,
                                         selected = selectedPlace,
                                         onSelect = { homeSelected.value = it },
                                         onDetails = { panel = Panel.Detail(it) },
@@ -1101,6 +1122,9 @@ class MainActivity : ComponentActivity() {
                     CatalogueRepository.Source.POI -> stringResource(com.secretworld.auto.feature.parked.R.string.catalogue_poi, result.places.size)
                     null -> stringResource(com.secretworld.auto.feature.parked.R.string.catalogue_loading)
                 },
+                radii = RADII_KM,
+                radiusKm = homeRadiusKm.collectAsState().value,
+                onRadius = ::setRadius,
                 onRemoveVoice = { },
                 onClose = { onPanel(Panel.Home) },
                 testingStatus = "${stringResource(if (mode == DrivingMode.PARKED) R.string.mode_parked else R.string.mode_driving)} · %.0f km/h"
@@ -1686,6 +1710,20 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Salir de "Mis itinerarios": al inicio, sin nada a medias. */
+    private fun boundsAround(center: Coordinates, meters: Double): Bounds {
+        val dLat = meters / 111_320.0
+        val dLon = meters / (111_320.0 * kotlin.math.cos(Math.toRadians(center.latitude)))
+        return Bounds(center.latitude - dLat, center.longitude - dLon, center.latitude + dLat, center.longitude + dLon)
+    }
+
+    /** Otro radio de acción: se guarda, y la búsqueda a la vista se rehace con él. */
+    private fun setRadius(km: Int) {
+        settingsPrefs.edit().putInt(RADIUS_KEY, km).apply()
+        homeRadiusKm.value = km
+        val again = lastSearch
+        if (searchQuery.value != null && again != null) findPlaces(again.first, again.second)
+    }
+
     private fun closeLibrary() {
         library.value = null
         flyover.value = null
@@ -2070,13 +2108,17 @@ class MainActivity : ComponentActivity() {
                 narration.say(Phrasebook.areaNotFound(c, name))
                 return@launch
             }
+            // Sin zona dicha, dentro del radio de acción: lo mismo que "Alrededor".
+            val radiusM = homeRadiusKm.value * 1000.0
+            lastSearch = (query to category).takeIf { where == null }
             val results = search.search(
                 query,
                 where?.position ?: here,
-                limit = if (where != null) SEARCH_AREA_SHOWN else SEARCH_SHOWN,
+                limit = if (where != null) SEARCH_AREA_SHOWN else SEARCH_RADIUS_SHOWN,
                 category = category,
-                within = where?.bounds,
+                within = where?.bounds ?: boundsAround(here, radiusM),
             )
+                .filter { where != null || here.distanceTo(it.position) <= radiusM }
                 .let { mixed ->
                     // Donde el buscador mezcla lo que no es —tiendas de dentro de
                     // un centro comercial marcadas como centro comercial—, solo lo
@@ -2539,6 +2581,11 @@ class MainActivity : ComponentActivity() {
 
         /** Cuántos resultados de búsqueda se enseñan, y cuántos se dicen. */
         const val SEARCH_SHOWN = 8
+        /** Dentro del radio de acción: todos los que haya, hasta un tope razonable. */
+        const val SEARCH_RADIUS_SHOWN = 40
+        const val RADIUS_KEY = "radius_km"
+        const val DEFAULT_RADIUS_KM = 3
+        val RADII_KM = listOf(1, 3, 5, 10)
         /** En un barrio se enseña más: se busca por todo él, no solo lo cercano. */
         const val SEARCH_AREA_SHOWN = 30
         /** Menos que esto dentro de un barrio y se completa con lo de al lado. */

@@ -88,4 +88,6 @@ data class FlyoverState(
     val pickable: Boolean = false,
     /** Dónde está el coche, si se enseña. */
     val me: Coordinates? = null,
+    /** El radio de acción alrededor de [me], dibujado como un anillo y encuadrado entero. */
+    val radiusMeters: Double? = null,
 )

@@ -39,5 +39,6 @@
     <string name="library_suggested">Suggerito</string>
     <string name="library_manual">A mano</string>
     <string name="library_edit">Modifica</string>
-    <string name="tab_around">Qui intorno</string>
+    <string name="tab_around">Da vedere</string>
+    <string name="nothing_within">Niente entro %1$d km</string>
 </resources>

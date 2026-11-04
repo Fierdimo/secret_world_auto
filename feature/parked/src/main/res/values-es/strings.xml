@@ -20,4 +20,6 @@
     <string name="catalogue_loading">cargando</string>
     <string name="listen_minutes">%1$d min de relato</string>
     <string name="testing">Pruebas</string>
+    <string name="action_radius">Radio de acción</string>
+    <string name="radius_km">%1$d km</string>
 </resources>

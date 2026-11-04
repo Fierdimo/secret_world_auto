@@ -59,8 +59,10 @@ fun BoxScope.HomeOverlay(
     navigation: NavigationUi?,
     /** Las búsquedas de un toque, como pestañas que filtran la lista. */
     shortcuts: List<SearchShortcut>,
-    /** Lo que se está buscando, para marcar su pestaña; `null` es "Alrededor". */
+    /** Lo que se está buscando, para marcar su pestaña; `null` es "Qué ver". */
     activeSearch: String?,
+    /** El radio de acción, para decir que no hay nada dentro. */
+    radiusKm: Int,
     selected: Place?,
     onSelect: (Place) -> Unit,
     onDetails: (Place) -> Unit,
@@ -131,6 +133,14 @@ fun BoxScope.HomeOverlay(
         LaunchedEffect(selected?.id) {
             val at = places.indexOfFirst { it.id == selected?.id }
             if (at >= 0) list.animateScrollToItem(at)
+        }
+        if (places.isEmpty()) {
+            Text(
+                text = stringResource(R.string.nothing_within, radiusKm),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = d.spaceS),
+            )
         }
         LazyColumn(Modifier.fillMaxWidth().weight(1f), state = list, verticalArrangement = Arrangement.spacedBy(d.spaceXs)) {
             items(places, key = { it.id }) { place ->

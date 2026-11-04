@@ -53,6 +53,10 @@ fun SettingsPanel(
     testingStatus: String? = null,
     /** Lo que antes iba en una barra fija sobre la pantalla: simulador y silencio. */
     testing: List<SettingAction> = emptyList(),
+    /** Los radios de acción que se pueden elegir, en km; vacío, no sale. */
+    radii: List<Int> = emptyList(),
+    radiusKm: Int = 0,
+    onRadius: (Int) -> Unit = {},
 ) {
     val d = CarTheme.dimens
     Column(
@@ -84,6 +88,22 @@ fun SettingsPanel(
                     CarButton(label = option.label, onClick = {}, dense = true)
                 } else {
                     CarSecondaryButton(label = option.label, onClick = { onLanguage(option.code) }, dense = true)
+                }
+            }
+        }
+        // Hasta dónde mira el inicio: lo de alrededor y las búsquedas, dentro de este radio.
+        if (radii.isNotEmpty()) {
+            Spacer(Modifier.height(d.spaceM))
+            Text(stringResource(R.string.action_radius), style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.height(d.spaceXs))
+            Row(horizontalArrangement = Arrangement.spacedBy(d.spaceXs)) {
+                radii.forEach { km ->
+                    val label = stringResource(R.string.radius_km, km)
+                    if (km == radiusKm) {
+                        CarButton(label = label, onClick = {}, dense = true)
+                    } else {
+                        CarSecondaryButton(label = label, onClick = { onRadius(km) }, dense = true)
+                    }
                 }
             }
         }

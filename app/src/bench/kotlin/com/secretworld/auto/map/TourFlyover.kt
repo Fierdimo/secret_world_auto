@@ -127,8 +127,14 @@ fun TourFlyover(
     var finale by remember { mutableStateOf<CameraOptions?>(null) }
     val density = androidx.compose.ui.platform.LocalDensity.current
     val width = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
+    val height = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
     val introPadding = with(density) {
         com.mapbox.maps.EdgeInsets(FRAME_TOP.toPx().toDouble(), FRAME_SIDE.toPx().toDouble(), FRAME_BOTTOM.toPx().toDouble(), FRAME_SIDE.toPx().toDouble())
+    }
+    // Para el anillo: el panel a la izquierda y la barra de iconos a la derecha;
+    // arriba y abajo, poco: en un móvil apaisado la altura es lo que falta.
+    val ringPadding = with(density) {
+        com.mapbox.maps.EdgeInsets(RING_SIDE.toPx().toDouble(), (width * OVERLAY_SHARE + RING_SIDE).toPx().toDouble(), RING_SIDE.toPx().toDouble(), RING_RAIL.toPx().toDouble())
     }
     val viewPadding = with(density) {
         com.mapbox.maps.EdgeInsets(FRAME_SIDE.toPx().toDouble(), (width * OVERLAY_SHARE + FRAME_SIDE).toPx().toDouble(), FRAME_BOTTOM.toPx().toDouble(), FRAME_SIDE.toPx().toDouble())
@@ -185,7 +191,9 @@ fun TourFlyover(
             focus = null
             // El encuadre de conjunto ya tiene en cuenta el panel; el margen que
             // dejó el acercamiento lo desplazaría otra vez hacia la izquierda.
-            finale?.let { viewport.fly(it.toBuilder().padding(com.mapbox.maps.EdgeInsets(0.0, 0.0, 0.0, 0.0)).build(), UNFOCUS_MS) }
+            // El del anillo lleva su propio margen y vuelve tal cual.
+            val ringed = state.radiusMeters != null && state.stops.isEmpty()
+            finale?.let { viewport.fly(if (ringed) it else it.toBuilder().padding(com.mapbox.maps.EdgeInsets(0.0, 0.0, 0.0, 0.0)).build(), UNFOCUS_MS) }
             return@LaunchedEffect
         }
         focus = state.stops.indexOfFirst { it.id == target.id }.takeIf { it >= 0 }
@@ -233,22 +241,47 @@ fun TourFlyover(
             scaleBar = {},
             compass = {},
         ) {
-            com.mapbox.maps.extension.compose.MapEffect(state.stops, state.intro, state.candidates.map { it.id }) { mapView ->
-                // Sin paradas, lo que hay para elegir: que se vea todo lo tocable.
-                val framed = if (state.stops.isEmpty()) state.candidates.map { it.position } + state.start else state.stops.map { it.position }
-                val camera = if (framed.size < 2) {
+            com.mapbox.maps.extension.compose.MapEffect(state.stops, state.intro, state.candidates.map { it.id }, state.radiusMeters) { mapView ->
+                // Sin paradas, lo que hay para elegir: que se vea todo lo tocable; con
+                // un radio de acción, el anillo entero.
+                val ring = state.me?.let { me -> state.radiusMeters?.let { ringOf(me, it, RING_FRAME_POINTS) } }
+                val framed = when {
+                    state.stops.isNotEmpty() -> state.stops.map { it.position }
+                    ring != null -> ring
+                    else -> state.candidates.map { it.position } + state.start
+                }
+                // Con el anillo, casi cenital: inclinado, el círculo se veía elipse.
+                val pitch = if (ring != null && state.stops.isEmpty()) RING_PITCH else FINAL_PITCH
+                val me = state.me
+                val radius = state.radiusMeters
+                val camera = if (me != null && radius != null && state.stops.isEmpty()) {
+                    // El radio de acción, justo: el zoom con el que el anillo llena el
+                    // hueco a la derecha del panel. Calculado, no pedido al mapa, que
+                    // al montarse aún no tiene tamaño y encuadraba de más.
+                    val freeWidth = width.value * (1 - OVERLAY_SHARE) - RING_SIDE.value - RING_RAIL.value
+                    val freeHeight = height.value - 2 * RING_SIDE.value
+                    val fit = minOf(freeWidth, freeHeight) * RING_FILL
+                    val zoom = ln(METERS_PER_DP_Z0 * cos(Math.toRadians(me.latitude)) * fit / (2 * radius)) / ln(2.0)
+                    CameraOptions.Builder()
+                        .center(me.point())
+                        .zoom(zoom)
+                        .pitch(pitch)
+                        .bearing(0.0)
+                        .padding(ringPadding)
+                        .build()
+                } else if (framed.size < 2) {
                     // Una parada o ninguna no se encuadran: se centra, a la derecha del panel.
                     CameraOptions.Builder()
                         .center((state.stops.firstOrNull()?.position ?: state.start).point())
                         .zoom(EMPTY_ZOOM)
-                        .pitch(FINAL_PITCH)
+                        .pitch(pitch)
                         .bearing(FINAL_BEARING)
                         .padding(viewPadding)
                         .build()
                 } else {
                     mapView.mapboxMap.cameraForCoordinates(
                         framed.map { it.point() },
-                        CameraOptions.Builder().pitch(FINAL_PITCH).bearing(FINAL_BEARING).build(),
+                        CameraOptions.Builder().pitch(pitch).bearing(FINAL_BEARING).build(),
                         if (state.intro) introPadding else viewPadding,
                         STOP_ZOOM,
                         null,
@@ -289,6 +322,23 @@ fun TourFlyover(
                     }
                 }
             }
+            // El radio de acción: un anillo dorado, como el de un radar.
+            state.me?.let { me ->
+                state.radiusMeters?.let { radius ->
+                    val circle = ringOf(me, radius, RING_POINTS).map { it.point() }
+                    PolylineAnnotation(points = circle) {
+                        lineColor = accent.copy(alpha = 0.25f)
+                        lineWidth = 12.0
+                        lineBlur = 6.0
+                        lineEmissiveStrength = 1.0
+                    }
+                    PolylineAnnotation(points = circle) {
+                        lineColor = accent.copy(alpha = 0.8f)
+                        lineWidth = 2.0
+                        lineEmissiveStrength = 1.0
+                    }
+                }
+            }
             // Lo de alrededor, pequeño y tocable: tocarlo lo añade al itinerario.
             if (!state.intro) {
                 state.candidates
@@ -298,10 +348,15 @@ fun TourFlyover(
                             ViewAnnotation(
                                 options = viewAnnotationOptions {
                                     geometry(candidate.position.point())
-                                    allowOverlap(false)
+                                    // Los puntos del inicio nunca se ocultan: son pequeños.
+                                    allowOverlap(state.pickable)
                                 },
                             ) {
-                                CandidateMarker(candidate, adds = !state.pickable) { onAddPlace(candidate) }
+                                if (state.pickable) {
+                                    CandidateDot { onAddPlace(candidate) }
+                                } else {
+                                    CandidateMarker(candidate, adds = true) { onAddPlace(candidate) }
+                                }
                             }
                         }
                     }
@@ -382,6 +437,26 @@ fun TourFlyover(
             color = Color.White.copy(alpha = 0.6f),
             modifier = Modifier.align(Alignment.BottomEnd).padding(d.spaceL),
         )
+    }
+}
+
+/** Un sitio en el mapa del inicio: un punto, sin nombre, que no tapa a los demás. El elegido lleva el suyo. */
+@Composable
+private fun CandidateDot(onClick: () -> Unit) {
+    val accent = MaterialTheme.colorScheme.primary
+    Box(Modifier.size(32.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(20.dp).clip(CircleShape).background(accent.copy(alpha = 0.25f)))
+        Box(Modifier.size(11.dp).clip(CircleShape).border(1.5.dp, Color.Black.copy(alpha = 0.6f), CircleShape).background(accent))
+    }
+}
+
+/** Puntos de un círculo de [meters] alrededor de [center], cerrado. */
+private fun ringOf(center: Coordinates, meters: Double, points: Int): List<Coordinates> {
+    val dLat = meters / 111_320.0
+    val dLon = meters / (111_320.0 * cos(Math.toRadians(center.latitude)))
+    return (0..points).map { i ->
+        val a = 2 * Math.PI * i / points
+        Coordinates(center.latitude + dLat * kotlin.math.sin(a), center.longitude + dLon * cos(a))
     }
 }
 
@@ -522,6 +597,16 @@ private const val FIRST_LEG_MS = 3_000L
 private const val REFRAME_MS = 1_800L
 private const val FOCUS_MS = 2_400L
 private const val EMPTY_ZOOM = 15.0
+private const val RING_POINTS = 96
+private const val RING_PITCH = 20.0
+/** Cuánto del hueco libre ocupa el anillo: el resto, aire alrededor. */
+private const val RING_FILL = 0.92
+private val RING_SIDE = 20.dp
+/** Lo que ocupa la barra de iconos de la derecha. */
+private val RING_RAIL = 80.dp
+/** Metros por dp en el ecuador a zoom 0, con las teselas de 512 de Mapbox. */
+private const val METERS_PER_DP_Z0 = 78_271.517
+private const val RING_FRAME_POINTS = 8
 private const val UNFOCUS_MS = 2_000L
 private const val FOCUS_ZOOM = 17.0
 private const val FOCUS_TURN = 35.0
