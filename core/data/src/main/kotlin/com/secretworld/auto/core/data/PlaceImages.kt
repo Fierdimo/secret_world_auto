@@ -52,14 +52,14 @@ class PlaceImages(
      * el sitio se quedaba con su inicial.
      */
     suspend fun find(place: Place, language: VoiceLanguage, mapboxToken: String?): String? = withContext(Dispatchers.IO) {
-        memory.get(place.id)?.let { return@withContext it }
+        memory.get(KEY + place.id)?.let { return@withContext it }
         place.imageUrl?.takeIf(::loads)?.let { own ->
-            memory.put(place.id, own)
+            memory.put(KEY + place.id, own)
             return@withContext own
         }
         val sight = place.kind == null
         val found = (if (sight) photoOf(place, language) else null) ?: satellite(place.position, mapboxToken)
-        found?.also { memory.put(place.id, it) }
+        found?.also { memory.put(KEY + place.id, it) }
     }
 
     private fun photoOf(place: Place, language: VoiceLanguage): String? =
@@ -74,15 +74,38 @@ class PlaceImages(
             .addQueryParameter("generator", "search")
             .addQueryParameter("gsrsearch", place.name)
             .addQueryParameter("gsrlimit", "5")
-            .addQueryParameter("prop", "pageimages|coordinates")
+            .addQueryParameter("prop", "pageimages|coordinates|pageprops")
+            .addQueryParameter("ppprop", "wikibase_item")
             .addQueryParameter("pithumbsize", THUMB.toString())
             .addQueryParameter("format", "json")
             .build().toString()
         val pages = json.parseToJsonElement(get(url)).jsonObject["query"]?.jsonObject?.get("pages")?.jsonObject ?: return null
-        return pages.values.map { it.jsonObject }
+        val page = pages.values.map { it.jsonObject }
             .sortedBy { it["index"]?.jsonPrimitive?.content?.toIntOrNull() ?: Int.MAX_VALUE }
-            .firstOrNull { page -> page.thumbnail() != null && page.near(place.position, ARTICLE_RADIUS_M) }
-            ?.thumbnail()
+            .firstOrNull { page -> page.near(place.position, ARTICLE_RADIUS_M) }
+            ?: return null
+        // Primero la imagen que Wikidata da como la del sitio: suele ser una foto
+        // *de* él. La del artículo es a menudo una vista *desde* él —"Cartagena
+        // desde el cerro de La Popa"—, que no deja reconocerlo al llegar.
+        val item = page["pageprops"]?.jsonObject?.get("wikibase_item")?.jsonPrimitive?.content
+        return item?.let { runCatching { wikidataImage(it) }.getOrNull() } ?: page.thumbnail()
+    }
+
+    /** La imagen (P18) del elemento de Wikidata, ya en miniatura. */
+    private fun wikidataImage(item: String): String? {
+        val url = "https://www.wikidata.org/w/api.php".toHttpUrl().newBuilder()
+            .addQueryParameter("action", "wbgetclaims")
+            .addQueryParameter("entity", item)
+            .addQueryParameter("property", "P18")
+            .addQueryParameter("format", "json")
+            .build().toString()
+        val file = json.parseToJsonElement(get(url)).jsonObject["claims"]?.jsonObject?.get("P18")?.jsonArray
+            ?.firstOrNull()?.jsonObject?.get("mainsnak")?.jsonObject?.get("datavalue")?.jsonObject?.get("value")
+            ?.jsonPrimitive?.content ?: return null
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/".toHttpUrl().newBuilder()
+            .addPathSegment(file.replace(' ', '_'))
+            .addQueryParameter("width", THUMB.toString())
+            .build().toString()
     }
 
     /** La foto de Commons hecha más cerca del punto, que no sea un mapa ni un logo. */
@@ -143,6 +166,8 @@ class PlaceImages(
         val json = Json { ignoreUnknownKeys = true }
         const val USER_AGENT = "SecretWorldAuto/0.1 (https://sworld.co.uk; bench build)"
         const val THUMB = 480
+        /** Cambia cuando cambia cómo se eligen: lo guardado con el criterio anterior no vale. */
+        const val KEY = "v2:"
         const val ARTICLE_RADIUS_M = 1_500.0
         const val COMMONS_RADIUS_M = 120
         const val SATELLITE_ZOOM = 17.5

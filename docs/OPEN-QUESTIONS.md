@@ -41,6 +41,7 @@ Versión 0.2. Ordenado por urgencia.
 | 11 | Nombre en el App Market | Mantener la marca Secret World |
 | 12 | ¿Cuenta obligatoria para el nivel gratuito? | No. La fricción de login en un coche es letal |
 | 13 | ¿A qué se ata el entitlement? | A la cuenta, no a la instalación del coche. Los coches se comparten y se venden |
+| 14 | **Origen de las fotos de los sitios** — *pendiente de autorización* | Hoy, solo fuentes gratuitas: Wikidata/Wikipedia/Commons para lo turístico y vista de satélite de Mapbox para negocios. Las de negocios son pobres. Opciones: **Google Places Photos** (fotos reales de casi todo; clave y facturación, coste por petición, atribución del autor obligatoria, prohibido guardarlas) o **Mapillary** (fachada a pie de calle, gratis, cobertura irregular). En el coche, confirmar que el contrato de mapas de Pleos permite mezclar contenido de Google. Las de Wikimedia son CC BY-SA: falta mostrar el crédito antes de un uso público |
 
 ## Riesgos abiertos
 
