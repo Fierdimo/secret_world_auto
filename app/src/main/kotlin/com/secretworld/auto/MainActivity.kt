@@ -15,6 +15,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import com.secretworld.auto.core.designsystem.Motion
+import androidx.compose.animation.core.EaseInCubic
+import androidx.compose.animation.core.EaseOutCubic
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -893,7 +904,6 @@ class MainActivity : ComponentActivity() {
                                 val text = label(language)
                                 SearchShortcut(label = text.replaceFirstChar { it.uppercase() }, category = category) { findPlaces(text, category, announce = true) }
                             }
-                val flyNow by flyover.collectAsState()
                 val homeAt by homeSelected.collectAsState()
                 val toldAt by homeFocus.collectAsState()
                 val menu = rememberMenuRailState()
@@ -905,62 +915,152 @@ class MainActivity : ComponentActivity() {
                         .sortedBy { vehicleState.position.distanceTo(it.position) }
                 }
                 Box(Modifier.fillMaxSize().collapseMenuOnOutsideTap(menu)) {
-                    if (panel is Panel.Home && !inPip && !compact) {
-                        // El inicio sobre el mapa: lo de alrededor —o lo buscado— al
-                        // fondo, y el panel a la izquierda. Con un itinerario a la vista,
-                        // su mapa lo tapa todo y este no se dibuja.
-                        if (flyNow == null) {
-                            LaunchedEffect(around.map { it.id }) { picture(around) }
-                            val places = searchUi?.places ?: around.pictured(imgs)
-                            val selectedPlace = homeAt?.takeIf { chosen -> places.any { it.id == chosen.id } }
-                            val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
-                            TourFlyover(
-                                state = FlyoverState(
-                                    start = vehicleState.position,
-                                    stops = emptyList(),
-                                    times = emptyList(),
-                                    path = emptyList(),
-                                    legEnds = emptyList(),
-                                    summary = "",
-                                    intro = false,
-                                    focus = toldAt ?: selectedPlace,
-                                    candidates = places,
-                                    pickable = true,
-                                    me = vehicleState.position,
-                                    radiusMeters = radiusKm * 1000.0,
-                                ),
-                                mapboxToken = mapboxToken,
-                                onIntroDone = {},
-                                onAddPlace = { place -> homeSelected.value = place },
-                                overlay = {
-                                    HomeOverlay(
-                                        city = where ?: upcoming.firstOrNull()?.city,
-                                        offline = catalogueResult?.source == CatalogueRepository.Source.FALLBACK,
-                                        voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
-                                        nowPlaying = (nowPlayingOf(narrationState, tick) ?: installingOf(modelsPercentNow))
-                                            ?.takeUnless { narrationState is NarrationController.State.Speaking },
-                                        notices = notices,
-                                        tour = tourUi,
-                                        search = searchUi,
-                                        nearby = around.pictured(imgs),
-                                        origin = vehicleState.position,
-                                        navigation = navigationUi,
-                                        shortcuts = shortcutsUi,
-                                        activeSearch = searchShown,
-                                        radiusKm = radiusKm,
-                                        selected = selectedPlace,
-                                        onSelect = { homeSelected.value = it },
-                                        onDetails = { panel = Panel.Detail(it) },
-                                        onListen = { play(it) },
-                                        onNavigate = { navigateTo(it) },
-                                        onAdd = { place -> answer = addToItinerary(place, c) },
-                                        onStopNarration = { narration.stop() },
-                                        onStopNavigation = { endNavigation() },
-                                        onClearSearch = ::clearSearch,
-                                    )
-                                },
-                            )
+                    val shelf by library.collectAsState()
+                    val shelfAt by librarySelected.collectAsState()
+                    val fly by flyover.collectAsState()
+                    val draftNow by drafting.collectAsState()
+                    val draftUi = TourUi(
+                        stops = emptyList(),
+                        proposed = true,
+                        current = -1,
+                        summary = "",
+                        title = stringResource(R.string.itinerary_draft),
+                    )
+                    // Si al abrir la app no hubo red, la clave del mapa no llegó: se
+                    // vuelve a pedir al enseñar un itinerario, o el mapa sale negro.
+                    val flying = fly != null
+                    LaunchedEffect(flying) { if (flying && mapboxToken == null) mapboxToken = mapKeys.mapboxToken() }
+
+                    // Un solo mapa para el inicio, "Mis itinerarios" y el itinerario: es
+                    // el mundo, y no se va; lo que cambia es el panel de encima. Con "Mis
+                    // itinerarios" abierta, también en compacto: es su fondo.
+                    val itineraryMap = fly?.takeIf { (!compact || shelf != null) && !inPip }
+                    val homeMap = itineraryMap == null && panel is Panel.Home && !inPip && !compact
+                    if (itineraryMap != null || homeMap) {
+                        LaunchedEffect(around.map { it.id }) { picture(around) }
+                        LaunchedEffect(itineraryMap?.stops?.map { it.id }, itineraryMap?.candidates?.map { it.id }) {
+                            itineraryMap?.let { picture(it.stops + it.candidates) }
                         }
+                        val places = searchUi?.places ?: around.pictured(imgs)
+                        val selectedPlace = homeAt?.takeIf { chosen -> places.any { it.id == chosen.id } }
+                        val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
+                        val screen = when {
+                            itineraryMap == null -> HudScreen.HOME
+                            shelf != null -> HudScreen.LIBRARY
+                            else -> HudScreen.ITINERARY
+                        }
+                        // Lo último de cada pantalla: la que se va se sigue viendo mientras sale.
+                        var lastShelf by remember { mutableStateOf<List<SavedItinerary>>(emptyList()) }
+                        shelf?.let { lastShelf = it }
+                        var lastTour by remember { mutableStateOf<TourUi?>(null) }
+                        (tourUi ?: draftUi.takeIf { draftNow })?.let { lastTour = it }
+                        TourFlyover(
+                            state = itineraryMap?.pictured(imgs) ?: FlyoverState(
+                                start = vehicleState.position,
+                                stops = emptyList(),
+                                times = emptyList(),
+                                path = emptyList(),
+                                legEnds = emptyList(),
+                                summary = "",
+                                intro = false,
+                                focus = toldAt ?: selectedPlace,
+                                candidates = places,
+                                pickable = true,
+                                me = vehicleState.position,
+                                radiusMeters = radiusKm * 1000.0,
+                            ),
+                            mapboxToken = mapboxToken,
+                            onIntroDone = { flyover.value = flyover.value?.copy(intro = false) },
+                            onAddPlace = { place ->
+                                if (itineraryMap == null) homeSelected.value = place else answer = addToItinerary(place, c)
+                            },
+                            overlay = {
+                                // Cambiar de pantalla es cambiar de escena, como en el menú de un
+                                // juego: el panel de ahora sale por la izquierda y el nuevo entra
+                                // desde fuera de la pantalla, un instante después, y ocupa su sitio.
+                                val reduced = Motion.reduced
+                                AnimatedContent(
+                                    targetState = screen,
+                                    transitionSpec = {
+                                        val offstage = { width: Int -> -(width * HUD_OFFSTAGE).toInt() }
+                                        val enter = if (reduced) {
+                                            fadeIn(snap())
+                                        } else {
+                                            slideInHorizontally(tween(HUD_ENTER_MS, delayMillis = HUD_ENTER_DELAY_MS, easing = EaseOutCubic), offstage) +
+                                                fadeIn(tween(HUD_ENTER_MS / 2, delayMillis = HUD_ENTER_DELAY_MS))
+                                        }
+                                        val exit = if (reduced) {
+                                            fadeOut(snap())
+                                        } else {
+                                            slideOutHorizontally(tween(HUD_EXIT_MS, easing = EaseInCubic), offstage) + fadeOut(tween(HUD_EXIT_MS))
+                                        }
+                                        // El que entra, por encima del que se va.
+                                        (enter togetherWith exit).apply { targetContentZIndex = 1f }
+                                    },
+                                    label = "hud",
+                                ) { shown ->
+                                    Box(Modifier.fillMaxSize()) {
+                                        when (shown) {
+                                            HudScreen.HOME -> HomeOverlay(
+                                                city = where ?: upcoming.firstOrNull()?.city,
+                                                offline = catalogueResult?.source == CatalogueRepository.Source.FALLBACK,
+                                                voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
+                                                nowPlaying = (nowPlayingOf(narrationState, tick) ?: installingOf(modelsPercentNow))
+                                                    ?.takeUnless { narrationState is NarrationController.State.Speaking },
+                                                notices = notices,
+                                                tour = tourUi,
+                                                search = searchUi,
+                                                nearby = around.pictured(imgs),
+                                                origin = vehicleState.position,
+                                                navigation = navigationUi,
+                                                shortcuts = shortcutsUi,
+                                                activeSearch = searchShown,
+                                                radiusKm = radiusKm,
+                                                selected = selectedPlace,
+                                                onSelect = { homeSelected.value = it },
+                                                onDetails = { panel = Panel.Detail(it) },
+                                                onListen = { play(it) },
+                                                onNavigate = { navigateTo(it) },
+                                                onAdd = { place -> answer = addToItinerary(place, c) },
+                                                onStopNarration = { narration.stop() },
+                                                onStopNavigation = { endNavigation() },
+                                                onClearSearch = ::clearSearch,
+                                            )
+                                            HudScreen.LIBRARY -> {
+                                                val saved = lastShelf
+                                                fun act(index: Int, action: ItineraryLibrary.Action) {
+                                                    if (index in saved.indices) answer = libraryChoice(saved, ItineraryLibrary.Choice(index, action), c).ifEmpty { null }
+                                                }
+                                                ItineraryLibraryOverlay(
+                                                    items = saved.map(::savedUiOf),
+                                                    selected = shelfAt,
+                                                    voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
+                                                    onSelect = { previewSaved(it) },
+                                                    onOpen = { act(it, ItineraryLibrary.Action.OPEN) },
+                                                    onStart = { act(it, ItineraryLibrary.Action.START) },
+                                                    onDelete = { act(it, ItineraryLibrary.Action.DELETE) },
+                                                    onSuggest = {
+                                                        closeLibrary()
+                                                        answer = itineraryStep(itinerary.request(ItineraryRequest(), profiles.load()), c)
+                                                    },
+                                                    onBuild = { answer = buildItinerary(c) },
+                                                    onClose = ::closeLibrary,
+                                                )
+                                            }
+                                            HudScreen.ITINERARY -> lastTour?.let { ui ->
+                                                ItineraryOverlay(
+                                                    tour = ui,
+                                                    voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
+                                                    speaking = narrationState is NarrationController.State.Speaking && !(narrationState as NarrationController.State.Speaking).preparing ||
+                                                        narrationState is NarrationController.State.Playing,
+                                                    onClose = ::closeItineraryView,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                        )
                     } else if (panel is Panel.Home || inPip) {
                         AssistantScreen(
                             mini = inPip,
@@ -1011,13 +1111,13 @@ class MainActivity : ComponentActivity() {
                     // incluidos—, en vez de una barra fija que estorbaba.
                     // Arriba a la derecha, la barra de iconos: un toque enseña qué es,
                     // otro lo abre. Con la vista de un itinerario delante, solo los ajustes.
-                    if (panel is Panel.Home && !inPip) {
+                    if (panel is Panel.Home && !inPip && itineraryMap == null) {
                         val ctx = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
                         MenuRail(
                             entries = listOfNotNull(
                                 MenuEntry(MenuIcon.ITINERARIES, myItineraries(language)) {
                                     answer = openLibrary(ctx).ifEmpty { null }
-                                }.takeIf { flyNow == null },
+                                }.takeIf { itineraryMap == null },
                                 MenuEntry(MenuIcon.SETTINGS, settingsLabel(language)) { panel = Panel.Settings },
                             ),
                             state = menu,
@@ -1028,71 +1128,13 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    val shelf by library.collectAsState()
-                    val shelfAt by librarySelected.collectAsState()
-
-                    // La presentación del itinerario recién propuesto, por encima de todo.
-                    val fly by flyover.collectAsState()
-                    val draftNow by drafting.collectAsState()
-                    val draftUi = TourUi(
-                        stops = emptyList(),
-                        proposed = true,
-                        current = -1,
-                        summary = "",
-                        title = stringResource(R.string.itinerary_draft),
-                    )
-                    // Si al abrir la app no hubo red, la clave del mapa no llegó: se
-                    // vuelve a pedir al enseñar un itinerario, o el mapa sale negro.
-                    val flying = fly != null
-                    LaunchedEffect(flying) { if (flying && mapboxToken == null) mapboxToken = mapKeys.mapboxToken() }
-                    // Con "Mis itinerarios" abierta, también en compacto: es su fondo.
-                    fly?.takeIf { (!compact || shelf != null) && !inPip }?.let { state ->
-                        LaunchedEffect(state.stops.map { it.id }, state.candidates.map { it.id }) { picture(state.stops + state.candidates) }
-                        TourFlyover(
-                            state = state.pictured(imgs),
-                            mapboxToken = mapboxToken,
-                            onIntroDone = { flyover.value = flyover.value?.copy(intro = false) },
-                            onAddPlace = { place ->
-                                answer = addToItinerary(place, Phrasebook.Context(vehicleState.position, upcoming, memory, language))
-                            },
-                            overlay = {
-                                val saved = shelf
-                                if (saved != null) {
-                                    val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
-                                    fun act(index: Int, action: ItineraryLibrary.Action) {
-                                        if (index in saved.indices) answer = libraryChoice(saved, ItineraryLibrary.Choice(index, action), c).ifEmpty { null }
-                                    }
-                                    ItineraryLibraryOverlay(
-                                        items = saved.map(::savedUiOf),
-                                        selected = shelfAt,
-                                        voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
-                                        onSelect = { previewSaved(it) },
-                                        onOpen = { act(it, ItineraryLibrary.Action.OPEN) },
-                                        onStart = { act(it, ItineraryLibrary.Action.START) },
-                                        onDelete = { act(it, ItineraryLibrary.Action.DELETE) },
-                                        onSuggest = {
-                                            closeLibrary()
-                                            answer = itineraryStep(itinerary.request(ItineraryRequest(), profiles.load()), c)
-                                        },
-                                        onBuild = { answer = buildItinerary(c) },
-                                        onClose = ::closeLibrary,
-                                    )
-                                } else (tourUi ?: draftUi.takeIf { draftNow })?.let { ui ->
-                                    ItineraryOverlay(
-                                        tour = ui,
-                                        voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
-                                        speaking = narrationState is NarrationController.State.Speaking && !(narrationState as NarrationController.State.Speaking).preparing ||
-                                            narrationState is NarrationController.State.Playing,
-                                        onClose = ::closeItineraryView,
-                                    )
-                                }
-                            },
-                        )
-                    }
                 }
             }
         }
     }
+
+    /** Qué panel hay sobre el mapa. */
+    private enum class HudScreen { HOME, LIBRARY, ITINERARY }
 
     @Composable
     private fun PanelContent(
@@ -2652,6 +2694,12 @@ class MainActivity : ComponentActivity() {
         const val SEARCH_SHOWN = 8
         /** Búsquedas de imágenes a la vez: más, y Wikipedia limita. */
         const val PICTURE_PARALLEL = 4
+        /** Fuera de escena: el panel ocupa el 40 % izquierdo, y un poco más para que no asome. */
+        const val HUD_OFFSTAGE = 0.45f
+        const val HUD_EXIT_MS = 200
+        const val HUD_ENTER_MS = 420
+        /** El nuevo entra cuando el de antes ya va saliendo: se reemplazan, no se pisan. */
+        const val HUD_ENTER_DELAY_MS = 120
         const val IMAGE_USER_AGENT = "SecretWorldAuto/0.1 (https://sworld.co.uk; bench build)"
         /** Dentro del radio de acción: todos los que haya, hasta un tope razonable. */
         const val SEARCH_RADIUS_SHOWN = 40
