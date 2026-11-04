@@ -1,6 +1,22 @@
 package com.secretworld.auto.feature.discover
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -109,12 +125,29 @@ fun BoxScope.HomeOverlay(
         Spacer(Modifier.height(d.spaceS))
         // Una sola fila: cada sección es su icono, y la activa se despliega con su nombre.
         val tabMatch = shortcuts.firstOrNull { it.label.equals(activeSearch, ignoreCase = true) }
+        // La pestaña cambia al tocarla, no cuando llegan los resultados: entonces
+        // el mapa está dibujando decenas de puntos y la animación no se veía.
+        var chosen by remember { mutableStateOf(tabMatch?.label ?: AROUND.takeIf { activeSearch == null }) }
+        LaunchedEffect(activeSearch, tabMatch?.label) { chosen = tabMatch?.label ?: AROUND.takeIf { activeSearch == null } }
         Row(
             Modifier.horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Tab(Glyph.SIGHT, stringResource(R.string.tab_around), active = activeSearch == null, onClick = onClearSearch)
-            shortcuts.forEach { Tab(glyphOf(it.category), it.label, active = it === tabMatch, onClick = it.onClick) }
+            // Lo pedido, cuando la pestaña ya se ha desplegado: buscar a la vez
+            // ocupaba el teléfono —voz, red, mapa— y la animación iba a saltos.
+            val scope = rememberCoroutineScope()
+            fun choose(key: String, action: () -> Unit) {
+                if (chosen == key) return
+                chosen = key
+                scope.launch {
+                    delay(TAB_RESIZE_MS.toLong())
+                    action()
+                }
+            }
+            Tab(Glyph.SIGHT, stringResource(R.string.tab_around), active = chosen == AROUND) { choose(AROUND, onClearSearch) }
+            shortcuts.forEach { shortcut ->
+                Tab(glyphOf(shortcut.category), shortcut.label, active = chosen == shortcut.label) { choose(shortcut.label, shortcut.onClick) }
+            }
         }
         // Una búsqueda dicha que no es una pestaña ("shawarma"): su título.
         if (search != null && tabMatch == null) {
@@ -241,27 +274,42 @@ private fun Tab(glyph: Glyph, label: String, active: Boolean, onClick: () -> Uni
     val ink = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
         Modifier
-            .animateContentSize()
             .clip(RoundedCornerShape(4.dp))
-            .clickable(onClick = onClick)
+            // Sin el recuadro gris del toque: la raya ya dice cuál está activa.
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
             .defaultMinSize(minWidth = TAB_TOUCH)
             .padding(horizontal = 4.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // La activa, solo su nombre: el icono ya no hace falta para saber cuál es.
-        if (active) {
-            Text(
-                text = label.replaceFirstChar { it.uppercase() },
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = ink,
-                maxLines = 1,
-            )
-        } else {
-            GlyphIcon(glyph, ink, TAB_ICON)
+        // Icono y nombre entran y salen cada uno por su lado, con la misma curva:
+        // el que se va se recoge mientras el nuevo se despliega, sin saltos.
+        Row(Modifier.height(TAB_LINE), verticalAlignment = Alignment.CenterVertically) {
+            AnimatedVisibility(
+                visible = !active,
+                enter = fadeIn(tween(TAB_RESIZE_MS)) + expandHorizontally(tween(TAB_RESIZE_MS, easing = FastOutSlowInEasing)),
+                exit = fadeOut(tween(TAB_FADE_OUT_MS)) + shrinkHorizontally(tween(TAB_RESIZE_MS, easing = FastOutSlowInEasing)),
+            ) {
+                GlyphIcon(glyph, ink, TAB_ICON)
+            }
+            AnimatedVisibility(
+                visible = active,
+                enter = fadeIn(tween(TAB_FADE_IN_MS)) + expandHorizontally(tween(TAB_RESIZE_MS, easing = FastOutSlowInEasing), expandFrom = Alignment.Start),
+                exit = fadeOut(tween(TAB_FADE_OUT_MS)) + shrinkHorizontally(tween(TAB_RESIZE_MS, easing = FastOutSlowInEasing), shrinkTowards = Alignment.Start),
+            ) {
+                Text(
+                    text = label.replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
         }
         Spacer(Modifier.height(4.dp))
-        Box(Modifier.height(2.dp).width(24.dp).clip(RoundedCornerShape(1.dp)).background(if (active) accent else Color.Transparent))
+        val underline by animateFloatAsState(if (active) 1f else 0f, tween(TAB_RESIZE_MS, easing = FastOutSlowInEasing), label = "raya")
+        Box(Modifier.height(2.dp).width(24.dp * underline).clip(RoundedCornerShape(1.dp)).background(accent.copy(alpha = underline)))
     }
 }
 
@@ -277,8 +325,15 @@ private fun glyphOf(category: String?): Glyph = when (category) {
 }
 
 private const val PANEL_SHARE = 0.40f
+/** La pestaña de "Qué ver", que no es una búsqueda. */
+private const val AROUND = "\u0000around"
 private val THUMB = 44.dp
 private val ACTION = 36.dp
 private val TAB_ICON = 20.dp
+/** El alto de una línea de texto: icono y nombre ocupan lo mismo y la fila no salta. */
+private val TAB_LINE = 22.dp
+private const val TAB_FADE_OUT_MS = 160
+private const val TAB_FADE_IN_MS = 360
+private const val TAB_RESIZE_MS = 360
 /** Lo mínimo que se toca bien con el dedo; nada más, para que quepan. */
 private val TAB_TOUCH = 36.dp
