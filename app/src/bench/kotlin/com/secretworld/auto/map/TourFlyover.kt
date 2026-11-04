@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -387,11 +388,24 @@ fun TourFlyover(
             }
         }
 
-        // Viñeta: los bordes oscuros llevan la mirada al centro, como en cine.
+        // Viñeta: los bordes oscuros llevan la mirada al centro, como en cine. Con
+        // el panel a la izquierda, al centro de lo que queda de mapa, no al de la
+        // pantalla: si no, la luz caía en el borde del panel.
+        val lightX = if (state.intro) 0.5f else OVERLAY_SHARE + (1 - OVERLAY_SHARE) / 2
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Brush.radialGradient(0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.75f))),
+                .drawWithCache {
+                    val center = androidx.compose.ui.geometry.Offset(size.width * lightX, size.height / 2)
+                    val radius = maxOf(size.width * (1 - lightX), size.width * lightX, size.height) * VIGNETTE_REACH
+                    val vignette = Brush.radialGradient(
+                        0.55f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.75f),
+                        center = center,
+                        radius = radius,
+                    )
+                    onDrawBehind { drawRect(vignette) }
+                },
         )
 
         val d = CarTheme.dimens
@@ -598,6 +612,8 @@ private const val REFRAME_MS = 1_800L
 private const val FOCUS_MS = 2_400L
 private const val EMPTY_ZOOM = 15.0
 private const val RING_POINTS = 96
+/** Hasta dónde llega la luz de la viñeta, respecto al lado más largo. */
+private const val VIGNETTE_REACH = 0.9f
 private const val RING_PITCH = 20.0
 /** Cuánto del hueco libre ocupa el anillo: el resto, aire alrededor. */
 private const val RING_FILL = 0.92
