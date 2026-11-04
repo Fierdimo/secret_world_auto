@@ -79,4 +79,9 @@ data class FlyoverState(
      * vuelve a la vista del itinerario. Puede no ser una de las paradas.
      */
     val focus: Place? = null,
+    /**
+     * Lo que hay alrededor y no está en el itinerario: en pequeño en el mapa,
+     * para añadirlo tocándolo. Armándolo a mano, es todo lo que hay.
+     */
+    val candidates: List<Place> = emptyList(),
 )

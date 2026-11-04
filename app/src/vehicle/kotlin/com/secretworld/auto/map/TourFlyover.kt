@@ -22,6 +22,7 @@ fun TourFlyover(
     onIntroDone: () -> Unit,
     modifier: Modifier = Modifier,
     overlay: @Composable BoxScope.() -> Unit = {},
+    onAddPlace: (com.secretworld.auto.domain.Place) -> Unit = {},
 ) {
     LaunchedEffect(state.intro) { if (state.intro) onIntroDone() }
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) { overlay() }

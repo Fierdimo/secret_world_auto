@@ -357,6 +357,23 @@ object ItineraryDesigner {
             .minBy { it.minutes }
     }
 
+    /**
+     * Uno armado a mano, empezando por [place]: sin petición ni perfil, solo
+     * lo que el conductor elige. Sale ahora desde [from].
+     */
+    fun startedWith(place: Place, from: Coordinates, startMinute: Int): ItineraryProposal =
+        appended(ItineraryProposal(emptyList(), 0, mealAfter = null, request = ItineraryRequest(), from = from, startMinute = startMinute), place)
+
+    /**
+     * Al final, en el orden en que se eligen: armándolo a mano, lo que se toca
+     * después va después. Para reordenar está la voz ("empieza por…").
+     */
+    fun appended(proposal: ItineraryProposal, place: Place): ItineraryProposal {
+        if (proposal.stops.any { it.id == place.id }) return proposal
+        val pace = proposal.request.pace ?: Pace.NORMAL
+        return rebuild(proposal, proposal.stops + place, staysOf(proposal) + stopMinutes(place, pace))
+    }
+
     /** Más o menos tiempo en una parada: "más tiempo en el castillo". */
     fun restayed(proposal: ItineraryProposal, place: Place, factor: Double): ItineraryProposal {
         val index = proposal.stops.indexOf(place)

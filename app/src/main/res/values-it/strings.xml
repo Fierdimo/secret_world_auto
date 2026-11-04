@@ -18,4 +18,6 @@
         <item quantity="one">%d tappa</item>
         <item quantity="other">%d tappe</item>
     </plurals>
+    <string name="itinerary_draft">Il tuo itinerario</string>
+    <string name="itinerary_draft_hint">Tocca i posti sulla mappa, o di «aggiungi…»</string>
 </resources>

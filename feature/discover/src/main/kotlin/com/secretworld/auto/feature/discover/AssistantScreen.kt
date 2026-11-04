@@ -134,6 +134,8 @@ fun AssistantScreen(
     onStopNavigation: () -> Unit,
     onClearSearch: () -> Unit,
     modifier: Modifier = Modifier,
+    /** El "+" de cada sitio: al itinerario, o a uno nuevo que empieza por él. */
+    onAdd: ((Place) -> Unit)? = null,
     /** En la ventana flotante: lo mínimo, y solo voz. */
     mini: Boolean = false,
 ) {
@@ -181,6 +183,7 @@ fun AssistantScreen(
                 onSelect = onSelect,
                 onListen = onListen,
                 onNavigate = onNavigate,
+                onAdd = onAdd,
                 onClearSearch = onClearSearch,
                 modifier = Modifier.weight(1f - ASSISTANT_WEIGHT).fillMaxHeight(),
             )
@@ -592,6 +595,7 @@ private fun ContextColumn(
     onNavigate: (Place) -> Unit,
     onClearSearch: () -> Unit,
     modifier: Modifier,
+    onAdd: ((Place) -> Unit)? = null,
 ) {
     val d = CarTheme.dimens
     val driving = mode == DrivingMode.DRIVING
@@ -646,6 +650,7 @@ private fun ContextColumn(
                         onListen = { onListen(place) },
                         onNavigate = { onNavigate(place) },
                         modifier = Modifier.fillMaxWidth().height(cardHeight),
+                        onAdd = onAdd?.let { add -> { add(place) } },
                     )
                 }
             }

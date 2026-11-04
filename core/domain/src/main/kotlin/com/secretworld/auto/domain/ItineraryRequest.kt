@@ -97,8 +97,11 @@ sealed interface ItineraryEdit {
     /** "La India Catalina antes que el castillo" ([before]) o "después de". */
     data class Relative(val place: Place, val anchor: Place, val before: Boolean) : ItineraryEdit
 
-    /** "Añade el Cerro de la Popa". */
-    data class Add(val place: Place) : ItineraryEdit
+    /**
+     * "Añade el Cerro de la Popa": donde menos rodeo suponga. Tocado en el mapa
+     * o en la lista ([atEnd]), al final: se está armando en ese orden.
+     */
+    data class Add(val place: Place, val atEnd: Boolean = false) : ItineraryEdit
 
     /** "Más tiempo en el castillo" ([longer]) o "menos tiempo en la plaza". */
     data class Stay(val place: Place, val longer: Boolean) : ItineraryEdit
@@ -181,6 +184,9 @@ object ItineraryRequests {
         }
         return null
     }
+
+    /** "Añade el castillo", "aggiungi il teatro", "add the cathedral". */
+    fun adds(heard: String): Boolean = words(heard).any { it in ADD_VERBS } && !words(heard).hasAny(MEAL)
 
     /** "Quita el museo", "togli il castello", "remove the cathedral". */
     fun removes(heard: String): Boolean = words(heard).any { it in REMOVE_VERBS }

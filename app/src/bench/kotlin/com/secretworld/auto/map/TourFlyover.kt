@@ -65,6 +65,7 @@ import com.mapbox.maps.viewannotation.geometry
 import com.mapbox.maps.viewannotation.viewAnnotationOptions
 import com.secretworld.auto.core.designsystem.CarTheme
 import com.secretworld.auto.domain.Coordinates
+import com.secretworld.auto.domain.Phrasebook
 import com.secretworld.auto.domain.Place
 import com.secretworld.auto.feature.discover.FlyoverState
 import kotlinx.coroutines.delay
@@ -96,15 +97,18 @@ fun TourFlyover(
     onIntroDone: () -> Unit,
     modifier: Modifier = Modifier,
     overlay: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit = {},
+    /** Se tocó un sitio de alrededor: añadirlo. */
+    onAddPlace: (Place) -> Unit = {},
 ) {
-    if (mapboxToken.isNullOrBlank() || state.stops.isEmpty()) {
+    if (mapboxToken.isNullOrBlank() || (state.stops.isEmpty() && state.intro)) {
         LaunchedEffect(Unit) { onIntroDone() }
         Box(modifier.fillMaxSize().background(Color.Black)) { overlay() }
         return
     }
     MapboxOptions.accessToken = mapboxToken
     val accent = MaterialTheme.colorScheme.primary
-    val overview = overviewOf(state.stops.map { it.position })
+    // Sin paradas —armándolo a mano—, el sitio de partida y lo de alrededor.
+    val overview = if (state.stops.isEmpty()) state.start to EMPTY_ZOOM else overviewOf(state.stops.map { it.position })
     val viewport = rememberMapViewportState {
         setCameraOptions {
             center(overview.first.point())
@@ -228,14 +232,27 @@ fun TourFlyover(
             scaleBar = {},
             compass = {},
         ) {
-            com.mapbox.maps.extension.compose.MapEffect(state.stops, state.intro) { mapView ->
-                val camera = mapView.mapboxMap.cameraForCoordinates(
-                    state.stops.map { it.position.point() },
-                    CameraOptions.Builder().pitch(FINAL_PITCH).bearing(FINAL_BEARING).build(),
-                    if (state.intro) introPadding else viewPadding,
-                    STOP_ZOOM,
-                    null,
-                )
+            com.mapbox.maps.extension.compose.MapEffect(state.stops, state.intro, state.candidates.isEmpty()) { mapView ->
+                // Sin paradas, lo que hay para elegir: que se vea todo lo tocable.
+                val framed = if (state.stops.isEmpty()) state.candidates.map { it.position } + state.start else state.stops.map { it.position }
+                val camera = if (framed.size < 2) {
+                    // Una parada o ninguna no se encuadran: se centra, a la derecha del panel.
+                    CameraOptions.Builder()
+                        .center((state.stops.firstOrNull()?.position ?: state.start).point())
+                        .zoom(EMPTY_ZOOM)
+                        .pitch(FINAL_PITCH)
+                        .bearing(FINAL_BEARING)
+                        .padding(viewPadding)
+                        .build()
+                } else {
+                    mapView.mapboxMap.cameraForCoordinates(
+                        framed.map { it.point() },
+                        CameraOptions.Builder().pitch(FINAL_PITCH).bearing(FINAL_BEARING).build(),
+                        if (state.intro) introPadding else viewPadding,
+                        STOP_ZOOM,
+                        null,
+                    )
+                }
                 finale = camera
                 // En la vista que se queda, cada cambio se reencuadra con suavidad.
                 if (!state.intro) viewport.easeTo(camera, MapAnimationOptions.mapAnimationOptions { duration(REFRAME_MS) })
@@ -268,6 +285,23 @@ fun TourFlyover(
                         StopMarker(number = index + 1, place = stop, highlighted = focus == index)
                     }
                 }
+            }
+            // Lo de alrededor, pequeño y tocable: tocarlo lo añade al itinerario.
+            if (!state.intro) {
+                state.candidates
+                    .filter { candidate -> state.stops.none { it.id == candidate.id } && candidate.id != state.focus?.id }
+                    .forEach { candidate ->
+                        androidx.compose.runtime.key("cand-" + candidate.id) {
+                            ViewAnnotation(
+                                options = viewAnnotationOptions {
+                                    geometry(candidate.position.point())
+                                    allowOverlap(false)
+                                },
+                            ) {
+                                CandidateMarker(candidate) { onAddPlace(candidate) }
+                            }
+                        }
+                    }
             }
             // Lo que se cuenta y no es una parada: su marcador, solo mientras se cuenta.
             state.focus?.takeIf { target -> state.stops.none { it.id == target.id } }?.let { target ->
@@ -333,6 +367,32 @@ fun TourFlyover(
             style = MaterialTheme.typography.titleMedium,
             color = Color.White.copy(alpha = 0.6f),
             modifier = Modifier.align(Alignment.BottomEnd).padding(d.spaceL),
+        )
+    }
+}
+
+/** Un sitio de alrededor: pequeño, con un "+" y el nombre, para añadirlo tocándolo. */
+@Composable
+private fun CandidateMarker(place: Place, onClick: () -> Unit) {
+    val accent = MaterialTheme.colorScheme.primary
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background(Color.Black.copy(alpha = 0.72f))
+            .border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(50))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("+", color = accent, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.width(6.dp))
+        Text(
+            Phrasebook.shortName(place),
+            color = Color.White,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 150.dp),
         )
     }
 }
@@ -426,6 +486,7 @@ private const val FIRST_BEARING = 20.0
 private const val FIRST_LEG_MS = 3_000L
 private const val REFRAME_MS = 1_200L
 private const val FOCUS_MS = 2_400L
+private const val EMPTY_ZOOM = 15.0
 private const val UNFOCUS_MS = 2_000L
 private const val FOCUS_ZOOM = 17.0
 private const val FOCUS_TURN = 35.0

@@ -83,6 +83,7 @@ import com.secretworld.auto.domain.IntentPrompt
 import com.secretworld.auto.domain.IntentResolver
 import com.secretworld.auto.domain.ItineraryConversation
 import com.secretworld.auto.domain.ItineraryDesigner
+import com.secretworld.auto.domain.ItineraryEdit
 import com.secretworld.auto.domain.ItineraryProposal
 import com.secretworld.auto.domain.ItineraryRequest
 import com.secretworld.auto.domain.Tour
@@ -216,6 +217,9 @@ class MainActivity : ComponentActivity() {
 
     /** La ventana de los itinerarios guardados, abierta con estos; `null`, cerrada. */
     private val library = MutableStateFlow<List<SavedItinerary>?>(null)
+
+    /** Armando uno a mano y aún sin paradas: el mapa de alrededor, para ir eligiendo. */
+    private val drafting = MutableStateFlow(false)
 
     /** Cuántos hay guardados: sin ninguno, la sugerencia de verlos no sale. */
     private val savedCount = MutableStateFlow(0)
@@ -822,6 +826,7 @@ class MainActivity : ComponentActivity() {
                             onStopNarration = { narration.stop() },
                             onStopNavigation = { endNavigation() },
                             onClearSearch = ::clearSearch,
+                            onAdd = { place -> answer = addToItinerary(place, Phrasebook.Context(vehicleState.position, upcoming, memory, language)) },
                         )
                     } else {
                         PanelContent(
@@ -866,6 +871,15 @@ class MainActivity : ComponentActivity() {
 
                     // La presentación del itinerario recién propuesto, por encima de todo.
                     val fly by flyover.collectAsState()
+                    val draftNow by drafting.collectAsState()
+                    val draftUi = TourUi(
+                        stops = emptyList(),
+                        proposed = true,
+                        current = -1,
+                        summary = "",
+                        title = stringResource(R.string.itinerary_draft),
+                        duration = stringResource(R.string.itinerary_draft_hint),
+                    )
                     // Si al abrir la app no hubo red, la clave del mapa no llegó: se
                     // vuelve a pedir al enseñar un itinerario, o el mapa sale negro.
                     val flying = fly != null
@@ -875,14 +889,20 @@ class MainActivity : ComponentActivity() {
                             state = state,
                             mapboxToken = mapboxToken,
                             onIntroDone = { flyover.value = flyover.value?.copy(intro = false) },
+                            onAddPlace = { place ->
+                                answer = addToItinerary(place, Phrasebook.Context(vehicleState.position, upcoming, memory, language))
+                            },
                             overlay = {
-                                tourUi?.let { ui ->
+                                (tourUi ?: draftUi.takeIf { draftNow })?.let { ui ->
                                     ItineraryOverlay(
                                         tour = ui,
                                         voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
                                         speaking = narrationState is NarrationController.State.Speaking && !(narrationState as NarrationController.State.Speaking).preparing ||
                                             narrationState is NarrationController.State.Playing,
-                                        onClose = { flyover.value = null },
+                                        onClose = {
+                                            flyover.value = null
+                                            drafting.value = false
+                                        },
                                     )
                                 }
                             },
@@ -1280,6 +1300,12 @@ class MainActivity : ComponentActivity() {
 
             VoiceCommand.ShowItineraries -> openLibrary(c)
 
+            // Sin itinerario a la vista: empieza uno con ese sitio. Con uno, lo
+            // atiende antes la conversación como un cambio.
+            is VoiceCommand.AddToItinerary -> addToItinerary(command.place, c)
+
+            VoiceCommand.BuildItinerary -> buildItinerary(c)
+
             VoiceCommand.ForgetProfile -> {
                 profiles.clear()
                 val reply = Phrasebook.profileForgotten(c)
@@ -1412,6 +1438,64 @@ class MainActivity : ComponentActivity() {
             }
             flyover.value = flyover.value?.copy(focus = null)
         }
+    }
+
+    // ------------------------------------------------------------------ a mano
+
+    /** Lo que se puede añadir tocándolo en el mapa: lo que hay alrededor de [center]. */
+    private suspend fun candidatesAround(center: Coordinates): List<Place> =
+        runCatching { catalogue.nearby(center, language = language).places.take(MAX_CANDIDATES) }.getOrDefault(emptyList())
+
+    /** "Quiero armar mi propio itinerario": el mapa de alrededor, vacío, para ir eligiendo. */
+    private fun buildItinerary(c: Phrasebook.Context): String {
+        planJob?.cancel()
+        itinerary.reset()
+        editingId = null
+        library.value = null
+        shownPlan.value = null
+        drafting.value = true
+        val here = vehicle.state.value.position
+        lifecycleScope.launch {
+            flyover.value = FlyoverState(
+                start = here,
+                stops = emptyList(),
+                times = emptyList(),
+                path = emptyList(),
+                legEnds = emptyList(),
+                summary = "",
+                intro = false,
+                candidates = candidatesAround(here),
+            )
+        }
+        val reply = Phrasebook.draftItinerary(c)
+        narration.say(reply) { voiceInput.listenForAnswer() }
+        return reply
+    }
+
+    /**
+     * Un sitio elegido —tocado en el mapa o en la lista, o "añade…"—: al
+     * itinerario a la vista, al final; sin ninguno, empieza uno con él.
+     */
+    private fun addToItinerary(place: Place, c: Phrasebook.Context): String {
+        itinerary.edited(ItineraryEdit.Add(place, atEnd = true))?.let { step ->
+            if (flyover.value == null) {
+                (step as? ItineraryConversation.Step.Repropose)?.let { change ->
+                    lifecycleScope.launch { flyover.value = flyoverOf(change.proposal, intro = false, route = false) }
+                }
+            }
+            return itineraryStep(step, c)
+        }
+        planJob?.cancel()
+        editingId = null
+        drafting.value = false
+        library.value = null
+        val proposal = ItineraryDesigner.startedWith(place, vehicle.state.value.position, nowMinute())
+        itinerary.proposed(proposal)
+        showItinerary(proposal)
+        lifecycleScope.launch { flyover.value = flyoverOf(proposal, intro = false, route = false) }
+        val reply = Phrasebook.itineraryStartedWith(c, place)
+        narration.say(reply) { voiceInput.listenForAnswer() }
+        return reply
     }
 
     // ------------------------------------------------------------------ guardados
@@ -1609,6 +1693,7 @@ class MainActivity : ComponentActivity() {
             legEnds = ends,
             summary = ui.summary,
             intro = intro,
+            candidates = if (intro) emptyList() else candidatesAround(proposal.stops.first().position),
         )
     }
 
@@ -2245,6 +2330,8 @@ class MainActivity : ComponentActivity() {
         /** Silencio que cuenta como final de una narración, no como la pausa tras la introducción. */
         const val FOCUS_SETTLE_MS = 1_500L
         const val MODEL_MIN_WORDS = 2
+        /** Sitios de alrededor tocables en el mapa: más, y se tapan unos a otros. */
+        const val MAX_CANDIDATES = 14
         /** Lo más que se enseña "elaboro" sin que la app llegue a contestar. */
         const val THINKING_MAX_MS = 10_000L
 

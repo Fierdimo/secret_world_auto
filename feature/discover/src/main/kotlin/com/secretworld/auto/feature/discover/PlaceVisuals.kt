@@ -50,6 +50,8 @@ internal fun PhotoCard(
     onListen: () -> Unit,
     onNavigate: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Añadirlo al itinerario —o empezar uno con él—; sin esto, no sale el botón. */
+    onAdd: (() -> Unit)? = null,
 ) {
     val d = CarTheme.dimens
     Box(
@@ -71,6 +73,7 @@ internal fun PhotoCard(
             horizontalArrangement = Arrangement.spacedBy(d.spaceXs),
         ) {
             if (hasStory) RoundAction(Glyph.LISTEN, onListen, filled = true, diameter = ACTION)
+            onAdd?.let { RoundAction(Glyph.ADD, it, filled = false, diameter = ACTION) }
             RoundAction(Glyph.GO, onNavigate, filled = !hasStory, diameter = ACTION)
         }
         Column(
@@ -131,7 +134,7 @@ internal fun PlaceThumb(place: Place, size: Dp, modifier: Modifier = Modifier) {
     PlaceImage(place, modifier.size(size).clip(RoundedCornerShape(size / 4)))
 }
 
-internal enum class Glyph { LISTEN, GO, SETTINGS }
+internal enum class Glyph { LISTEN, GO, SETTINGS, ADD }
 
 /** Los botones de una tarjeta: visibles sin tapar la foto. */
 private val ACTION: Dp = 40.dp
@@ -180,6 +183,12 @@ internal fun RoundAction(glyph: Glyph, onClick: () -> Unit, filled: Boolean, dia
                         drawLine(ink, c + dir * (r * 0.62f), c + dir * r, strokeWidth = r * 0.32f)
                     }
                     drawCircle(ink, radius = r * 0.58f, center = c, style = Stroke(width = r * 0.26f))
+                }
+                Glyph.ADD -> {
+                    // Un "+": añadir al itinerario.
+                    val w = size.minDimension * 0.16f
+                    drawLine(ink, Offset(size.width / 2, 0f), Offset(size.width / 2, size.height), strokeWidth = w)
+                    drawLine(ink, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = w)
                 }
                 Glyph.GO -> {
                     // Una flecha de navegación, inclinada hacia arriba a la derecha.

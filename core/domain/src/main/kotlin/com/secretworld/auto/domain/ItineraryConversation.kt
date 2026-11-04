@@ -200,6 +200,19 @@ class ItineraryConversation {
         state = pending
     }
 
+    /**
+     * Un cambio hecho tocando, no hablando —el "+" de un sitio en el mapa o en la
+     * lista—: igual que dicho. `null` si no hay itinerario a la vista.
+     */
+    fun edited(edit: ItineraryEdit): Step? {
+        val proposal = when (val current = state) {
+            is State.Proposed -> current.proposal
+            is State.Saved -> current.proposal
+            else -> return null
+        }
+        return reproposed(proposal, edit)
+    }
+
     private fun reproposed(proposal: ItineraryProposal, edit: ItineraryEdit): Step {
         val changed = applied(proposal, edit)
         state = State.Proposed(changed)
@@ -213,7 +226,7 @@ class ItineraryConversation {
             val anchorAt = without.indexOf(edit.anchor)
             ItineraryDesigner.moved(proposal, edit.place, if (edit.before) anchorAt else anchorAt + 1)
         }
-        is ItineraryEdit.Add -> ItineraryDesigner.added(proposal, edit.place)
+        is ItineraryEdit.Add -> if (edit.atEnd) ItineraryDesigner.appended(proposal, edit.place) else ItineraryDesigner.added(proposal, edit.place)
         is ItineraryEdit.Stay -> ItineraryDesigner.restayed(proposal, edit.place, if (edit.longer) LONGER_FACTOR else SHORTER_FACTOR)
         is ItineraryEdit.Remove -> ItineraryDesigner.without(proposal, edit.place)
     }
@@ -223,6 +236,7 @@ class ItineraryConversation {
         is VoiceCommand.TellMeAbout -> place
         is VoiceCommand.ChooseAction -> place
         is VoiceCommand.TakeMeThere -> place
+        is VoiceCommand.AddToItinerary -> place
         is VoiceCommand.WhichOne -> places.firstOrNull()
         else -> null
     }
@@ -251,7 +265,7 @@ class ItineraryConversation {
      * se entendió. Cualquier otra orden sí: el conductor pasó a otra cosa.
      */
     private fun VoiceCommand.keepsPending(): Boolean =
-        isAside() || this == VoiceCommand.Stop || this is VoiceCommand.NotUnderstood
+        isAside() || this == VoiceCommand.Stop || this is VoiceCommand.NotUnderstood || this is VoiceCommand.AddToItinerary
 
     /**
      * Contar un sitio, o más de él, o preguntar cuál o qué hacer con él: un

@@ -640,6 +640,22 @@ object Phrasebook {
         )
     }
 
+    /** Armándolo a mano, aún sin nada: cómo elegir. */
+    fun draftItinerary(c: Context): String = c.say(
+        en = "Let's build it. Tap the places you want on the map, or tell me \"add…\".",
+        es = "Vale, armémoslo. Toca en el mapa los sitios que quieras, o dime «añade…».",
+        it = "Va bene, costruiamolo. Tocca sulla mappa i posti che vuoi, o dimmi «aggiungi…».",
+    )
+
+    /** El primer sitio de uno armado a mano. */
+    fun itineraryStartedWith(c: Context, place: Place): String = shortName(place).let { name ->
+        c.say(
+            en = "We start with $name. Add more, or say \"save it\".",
+            es = "Empezamos con $name. Añade más, o di «guárdalo».",
+            it = "Si parte da $name. Aggiungine altri, o di «salvalo».",
+        )
+    }
+
     fun itineraryDeleted(c: Context): String = c.say(en = "Deleted.", es = "Borrado.", it = "Cancellato.")
 
     fun noSavedItinerary(c: Context): String = c.say(

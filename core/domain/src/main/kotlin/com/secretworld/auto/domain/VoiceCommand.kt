@@ -97,6 +97,15 @@ sealed interface VoiceCommand {
     /** "Empieza mi itinerario" → arranca el itinerario guardado. */
     data object StartItinerary : VoiceCommand
 
+    /**
+     * "Añade el castillo" → al itinerario a la vista o, sin ninguno, a uno nuevo
+     * que empieza por él.
+     */
+    data class AddToItinerary(val place: Place) : VoiceCommand
+
+    /** "Quiero armar mi propio itinerario" → el mapa para ir eligiendo, sin planificar nada. */
+    data object BuildItinerary : VoiceCommand
+
     /** "Mis itinerarios" → la ventana con los guardados, para elegir uno. */
     data object ShowItineraries : VoiceCommand
 
@@ -173,6 +182,12 @@ object VoiceGrammar {
         if (words.size <= 2 && words.hasAny(NO)) return VoiceCommand.No
 
         if (words.hasAny(FORGET_PROFILE)) return VoiceCommand.ForgetProfile
+        // Armarlo a mano y añadir, antes que pedir uno: "añade el castillo al
+        // itinerario" lleva "itinerario" y no es planificar otro.
+        if (words.hasExactly(BUILD_ITINERARY)) return VoiceCommand.BuildItinerary
+        if (ItineraryRequests.adds(heard)) {
+            resolve(heard, (listed + candidates).distinctBy { it.id })?.let { return VoiceCommand.AddToItinerary(it) }
+        }
         // Empezar antes que ver: "empieza mi itinerario" no es abrir la lista.
         if (words.hasAny(START_ITINERARY)) return VoiceCommand.StartItinerary
         // Al pie de la letra: "hazme mi itinerario" se parece a "mis itinerarios"
@@ -742,6 +757,12 @@ object VoiceGrammar {
         "empieza mi itinerario", "empieza el itinerario", "empezar el itinerario", "empecemos el itinerario", "arranca el itinerario",
         "inizia il mio itinerario", "inizia l itinerario", "iniziamo l itinerario", "parti con l itinerario",
         "start my itinerary", "start the itinerary", "begin my itinerary",
+    )
+    private val BUILD_ITINERARY = listOf(
+        "mi propio itinerario", "itinerario a mano", "itinerario vacio", "itinerario a mi manera", "yo elijo los sitios",
+        "armarlo yo", "lo armo yo", "itinerario personalizado",
+        "il mio itinerario personale", "itinerario a mano", "itinerario vuoto", "scelgo io i posti",
+        "my own itinerary", "build my own", "empty itinerary", "i ll pick the places",
     )
     private val SHOW_ITINERARIES = listOf(
         "mis itinerarios", "itinerarios guardados", "muestra los itinerarios", "muestrame los itinerarios", "ver los itinerarios",
