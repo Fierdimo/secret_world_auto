@@ -41,4 +41,6 @@
     <string name="library_edit">Edit</string>
     <string name="tab_around">Sights</string>
     <string name="nothing_within">Nothing within %1$d km</string>
+    <string name="add_to_title">Add %1$s to…</string>
+    <string name="add_to_new">New itinerary</string>
 </resources>

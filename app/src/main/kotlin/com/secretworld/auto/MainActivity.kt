@@ -119,6 +119,7 @@ import com.secretworld.auto.feature.discover.NowPlaying
 import com.secretworld.auto.feature.discover.PermissionNotice
 import com.secretworld.auto.feature.discover.RoutePanel
 import com.secretworld.auto.feature.discover.AssistantScreen
+import com.secretworld.auto.feature.discover.AddToPicker
 import com.secretworld.auto.feature.discover.HomeOverlay
 import com.secretworld.auto.feature.discover.ItineraryLibraryOverlay
 import com.secretworld.auto.feature.discover.ItineraryOverlay
@@ -781,6 +782,29 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // Eligiendo a qué itinerario va un sitio: "al primero", "al del
+                    // castillo" o "a uno nuevo".
+                    val pendingPlace = adding.value
+                    if (pendingPlace != null) {
+                        val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
+                        val choice = ItineraryLibrary.choose(order, addingSaved)
+                        val wantsNew = ItineraryRequests.wantsNew(order)
+                        val reply = when {
+                            choice != null -> addToSaved(choice.index, c)
+                            wantsNew -> startNewWith(pendingPlace, c)
+                            grammarFirst == VoiceCommand.No || ItineraryRequests.refuses(order) -> {
+                                adding.value = null
+                                ""
+                            }
+                            else -> null
+                        }
+                        if (reply != null) {
+                            answer = reply.ifEmpty { null }
+                            voiceInput.acknowledge()
+                            return@LaunchedEffect
+                        }
+                    }
+
                     // Un "sí" o un "no" justo después de «¿te llevo o te la cuento?»
                     // contestan a eso, no al itinerario: con uno guardado, el "sí"
                     // lo arrancaba.
@@ -1134,6 +1158,18 @@ class MainActivity : ComponentActivity() {
                             navigation = navigationUi,
                             notices = notices,
                             onPanel = { panel = it },
+                        )
+                    }
+
+                    val addingNow by adding.collectAsState()
+                    if (!inPip) {
+                        val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
+                        AddToPicker(
+                            place = addingNow,
+                            saved = addingSaved.map(::savedUiOf),
+                            onPick = { answer = addToSaved(it, c).ifEmpty { null } },
+                            onNew = { addingNow?.let { place -> answer = startNewWith(place, c) } },
+                            onDismiss = { adding.value = null },
                         )
                     }
 
@@ -1773,6 +1809,44 @@ class MainActivity : ComponentActivity() {
             }
             return itineraryStep(step, c)
         }
+        // Sin ninguno abierto pero con guardados: se pregunta a cuál. Antes siempre
+        // empezaba uno nuevo, y no había forma de añadir a uno que ya existía.
+        val saved = savedList()
+        if (saved.isNotEmpty()) {
+            savedCount.value = saved.size
+            addingSaved = saved
+            adding.value = place
+            val reply = Phrasebook.whichItineraryFor(c, place)
+            narration.say(reply) { voiceInput.listenForAnswer() }
+            return reply
+        }
+        return startNewWith(place, c)
+    }
+
+    /** El sitio que espera a que se elija a qué itinerario va. */
+    private val adding = MutableStateFlow<Place?>(null)
+    private var addingSaved: List<SavedItinerary> = emptyList()
+
+    /** A uno de los guardados, al final, y se abre para seguir con él. */
+    private fun addToSaved(index: Int, c: Phrasebook.Context): String {
+        val place = adding.value ?: return ""
+        val item = addingSaved.getOrNull(index) ?: return ""
+        adding.value = null
+        library.value = null
+        drafting.value = false
+        editingId = item.id
+        offered = null
+        itinerary.resumed(item.proposal)
+        val step = itinerary.edited(ItineraryEdit.Add(place, atEnd = true)) ?: return ""
+        (step as? ItineraryConversation.Step.Repropose)?.let { change ->
+            showItinerary(change.proposal)
+            lifecycleScope.launch { flyover.value = flyoverOf(change.proposal, intro = false, route = false) }
+        }
+        return itineraryStep(step, c)
+    }
+
+    private fun startNewWith(place: Place, c: Phrasebook.Context): String {
+        adding.value = null
         planJob?.cancel()
         editingId = null
         drafting.value = false

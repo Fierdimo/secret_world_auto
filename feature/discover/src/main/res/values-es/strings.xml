@@ -41,4 +41,6 @@
     <string name="library_edit">Editar</string>
     <string name="tab_around">Qué ver</string>
     <string name="nothing_within">Nada a menos de %1$d km</string>
+    <string name="add_to_title">Añadir %1$s a…</string>
+    <string name="add_to_new">Itinerario nuevo</string>
 </resources>

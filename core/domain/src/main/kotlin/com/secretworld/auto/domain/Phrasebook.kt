@@ -630,6 +630,15 @@ object Phrasebook {
         )
     }
 
+    /** Un sitio tocado sin itinerario abierto: a cuál va. */
+    fun whichItineraryFor(c: Context, place: Place): String = shortName(place).let { name ->
+        c.say(
+            en = "Which itinerary should $name go to?",
+            es = "¿A qué itinerario añado $name?",
+            it = "A quale itinerario aggiungo $name?",
+        )
+    }
+
     fun itineraryDeleted(c: Context): String = c.say(en = "Deleted.", es = "Borrado.", it = "Cancellato.")
 
     fun noSavedItinerary(c: Context): String = c.say(

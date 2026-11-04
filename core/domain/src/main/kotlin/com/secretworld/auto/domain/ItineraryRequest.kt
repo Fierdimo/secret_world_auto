@@ -185,6 +185,9 @@ object ItineraryRequests {
         return null
     }
 
+    /** "A uno nuevo", "uno nuovo", "a new one": empezar otro itinerario. */
+    fun wantsNew(heard: String): Boolean = words(heard).let { it.hasAny(NEW_ONE) }
+
     /** "Añade el castillo", "aggiungi il teatro", "add the cathedral". */
     fun adds(heard: String): Boolean = words(heard).any { it in ADD_VERBS } && !words(heard).hasAny(MEAL)
 
@@ -399,6 +402,7 @@ object ItineraryRequests {
     /** "No, vale": la negación gana. */
     private val REFUSALS = setOf("no", "nope", "non", "nah", "mejor", "meglio")
     private const val MAX_REPLY_WORDS = 8
+    private val NEW_ONE = listOf("nuevo", "nueva", "otro", "nuovo", "nuova", "altro", "new", "another")
     private val TELL_WORDS = setOf(
         "cuentame", "cuenta", "cuentanos", "hablame", "habla", "hablanos", "dime", "explicame",
         "raccontami", "racconta", "parlami", "parla", "dimmi", "spiegami",
