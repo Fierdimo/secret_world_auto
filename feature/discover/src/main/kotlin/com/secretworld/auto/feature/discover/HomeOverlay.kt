@@ -233,7 +233,7 @@ private fun PlaceLine(
 
 /**
  * Una sección de la lista, sencilla para que quepan muchas: un icono suelto; la
- * activa, con su nombre al lado y la raya debajo.
+ * activa, su nombre con la raya debajo.
  */
 @Composable
 private fun Tab(glyph: Glyph, label: String, active: Boolean, onClick: () -> Unit) {
@@ -248,18 +248,17 @@ private fun Tab(glyph: Glyph, label: String, active: Boolean, onClick: () -> Uni
             .padding(horizontal = 4.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            GlyphIcon(glyph, if (active) accent else ink, TAB_ICON)
-            if (active) {
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = label.replaceFirstChar { it.uppercase() },
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = ink,
-                    maxLines = 1,
-                )
-            }
+        // La activa, solo su nombre: el icono ya no hace falta para saber cuál es.
+        if (active) {
+            Text(
+                text = label.replaceFirstChar { it.uppercase() },
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = ink,
+                maxLines = 1,
+            )
+        } else {
+            GlyphIcon(glyph, ink, TAB_ICON)
         }
         Spacer(Modifier.height(4.dp))
         Box(Modifier.height(2.dp).width(24.dp).clip(RoundedCornerShape(1.dp)).background(if (active) accent else Color.Transparent))
