@@ -64,9 +64,12 @@ class MapboxPlaceSearch(
         val proximity = "${near.longitude},${near.latitude}"
         // En un barrio grande, por cuartos: una sola petición devuelve como mucho
         // 25, y se amontonan en una parte. Así salen repartidos por todo él.
+        // Un área grande —el radio de acción a 10 km— en más partes: si no, ampliar
+        // el radio solo esparcía los mismos resultados.
         val boxes = when {
             within == null -> listOf(null)
-            within.sizeMeters > SPLIT_3_ABOVE_M -> within.split(3)
+            within.sizeMeters > SPLIT_3_ABOVE_M ->
+                within.split(kotlin.math.ceil(within.sizeMeters / CELL_M).toInt().coerceIn(3, MAX_SPLIT))
             within.sizeMeters > TILE_ABOVE_M -> within.split(2)
             else -> listOf(within)
         }
@@ -157,6 +160,9 @@ private const val TILE_ABOVE_M = 1_200.0
 private const val SPLIT_3_ABOVE_M = 2_000.0
 /** Lo más que devuelve el buscador por petición. */
 private const val MAX_PER_REQUEST = 25
+/** El lado de cada parte en un área grande, y en cuántas por lado como mucho. */
+private const val CELL_M = 2_500.0
+private const val MAX_SPLIT = 4
 
 /** `[lon, lat]` de GeoJSON a coordenadas del dominio. */
 private fun List<Double>.toCoordinates(): Coordinates? =

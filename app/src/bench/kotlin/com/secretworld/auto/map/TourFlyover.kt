@@ -242,10 +242,10 @@ fun TourFlyover(
             scaleBar = {},
             compass = {},
         ) {
-            com.mapbox.maps.extension.compose.MapEffect(state.stops, state.intro, state.candidates.map { it.id }, state.radiusMeters) { mapView ->
+            com.mapbox.maps.extension.compose.MapEffect(state.stops, state.intro, state.candidates.map { it.id }, state.radiusMeters, state.ringCenter) { mapView ->
                 // Sin paradas, lo que hay para elegir: que se vea todo lo tocable; con
                 // un radio de acción, el anillo entero.
-                val ring = state.me?.let { me -> state.radiusMeters?.let { ringOf(me, it, RING_FRAME_POINTS) } }
+                val ring = (state.ringCenter ?: state.me)?.let { me -> state.radiusMeters?.let { ringOf(me, it, RING_FRAME_POINTS) } }
                 val framed = when {
                     state.stops.isNotEmpty() -> state.stops.map { it.position }
                     ring != null -> ring
@@ -253,7 +253,7 @@ fun TourFlyover(
                 }
                 // Con el anillo, casi cenital: inclinado, el círculo se veía elipse.
                 val pitch = if (ring != null && state.stops.isEmpty()) RING_PITCH else FINAL_PITCH
-                val me = state.me
+                val me = state.ringCenter ?: state.me
                 val radius = state.radiusMeters
                 val camera = if (me != null && radius != null && state.stops.isEmpty()) {
                     // El radio de acción, justo: el zoom con el que el anillo llena el
@@ -324,7 +324,7 @@ fun TourFlyover(
                 }
             }
             // El radio de acción: un anillo dorado, como el de un radar.
-            state.me?.let { me ->
+            (state.ringCenter ?: state.me)?.let { me ->
                 state.radiusMeters?.let { radius ->
                     val circle = ringOf(me, radius, RING_POINTS).map { it.point() }
                     PolylineAnnotation(points = circle) {

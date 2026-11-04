@@ -909,11 +909,19 @@ class MainActivity : ComponentActivity() {
                 val menu = rememberMenuRailState()
                 val radiusKm by homeRadiusKm.collectAsState()
                 // Lo de alrededor, dentro del radio y del más cercano al más lejano:
-                // no la ciudad entera.
-                val around = remember(places, positionKey, radiusKm) {
-                    places.filter { vehicleState.position.distanceTo(it.position) <= radiusKm * 1000.0 }
-                        .sortedBy { vehicleState.position.distanceTo(it.position) }
+                // no la ciudad entera. Si dentro hay muy poco, el radio se amplía solo
+                // —un rastreo, como en las búsquedas— hasta que haya algo que ver.
+                val sights = remember(places, positionKey, radiusKm) {
+                    val sorted = places.sortedBy { vehicleState.position.distanceTo(it.position) }
+                    var reach = radiusKm * 1000.0
+                    var inside = sorted.filter { vehicleState.position.distanceTo(it.position) <= reach }
+                    while (inside.size < FEW_SIGHTS && reach < SCAN_MAX_M && inside.size < sorted.size) {
+                        reach *= 2
+                        inside = sorted.filter { vehicleState.position.distanceTo(it.position) <= reach }
+                    }
+                    inside to reach
                 }
+                val around = sights.first
                 Box(Modifier.fillMaxSize().collapseMenuOnOutsideTap(menu)) {
                     val shelf by library.collectAsState()
                     val shelfAt by librarySelected.collectAsState()
@@ -942,6 +950,7 @@ class MainActivity : ComponentActivity() {
                             itineraryMap?.let { picture(it.stops + it.candidates) }
                         }
                         val places = searchUi?.places ?: around.pictured(imgs)
+                        val scan = searchScan.collectAsState().value?.takeIf { searchUi != null }
                         val selectedPlace = homeAt?.takeIf { chosen -> places.any { it.id == chosen.id } }
                         val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
                         val screen = when {
@@ -964,10 +973,14 @@ class MainActivity : ComponentActivity() {
                                 summary = "",
                                 intro = false,
                                 focus = toldAt ?: selectedPlace,
-                                candidates = places,
+                                candidates = spreadOut(places, MAP_MARKERS_MAX),
                                 pickable = true,
                                 me = vehicleState.position,
-                                radiusMeters = radiusKm * 1000.0,
+                                // Buscando, el anillo es el del rastreo y el mapa se
+                                // centra en él —en la zona pedida, aunque esté lejos—;
+                                // si no, el radio de "Qué ver" alrededor del coche.
+                                radiusMeters = scan?.radiusM ?: sights.second,
+                                ringCenter = scan?.center,
                             ),
                             mapboxToken = mapboxToken,
                             onIntroDone = { flyover.value = flyover.value?.copy(intro = false) },
@@ -1016,8 +1029,6 @@ class MainActivity : ComponentActivity() {
                                                 shortcuts = shortcutsUi,
                                                 activeSearch = searchShown,
                                                 radiusKm = radiusKm,
-                                                widerRadiusKm = RADII_KM.firstOrNull { it > radiusKm },
-                                                onWiden = ::setRadius,
                                                 selected = selectedPlace,
                                                 onSelect = { homeSelected.value = it },
                                                 onDetails = { panel = Panel.Detail(it) },
@@ -1821,6 +1832,17 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Salir de "Mis itinerarios": al inicio, sin nada a medias. */
+    /**
+     * Como mucho [max] de [places], repartidos por todo el radio y no los más
+     * cercanos: en una ciudad, los cercanos caían todos a dos kilómetros y
+     * ampliar el radio parecía no cambiar nada.
+     */
+    private fun spreadOut(places: List<Place>, max: Int): List<Place> {
+        if (places.size <= max) return places
+        val step = places.size.toDouble() / max
+        return (0 until max).map { places[(it * step).toInt()] }
+    }
+
     private fun boundsAround(center: Coordinates, meters: Double): Bounds {
         val dLat = meters / 111_320.0
         val dLon = meters / (111_320.0 * kotlin.math.cos(Math.toRadians(center.latitude)))
@@ -2219,46 +2241,25 @@ class MainActivity : ComponentActivity() {
                 narration.say(Phrasebook.areaNotFound(c, name))
                 return@launch
             }
-            // Sin zona dicha, dentro del radio de acción: lo mismo que "Alrededor".
-            val radiusM = homeRadiusKm.value * 1000.0
+            // Un rastreo, como un radar: empieza cerca —lo que cada cosa suele tener
+            // a mano: un restaurante, a un kilómetro; una gasolinera, a dos— y
+            // duplica el radio hasta encontrar bastante. No depende del radio de
+            // Ajustes, que es para "Qué ver". En una zona dicha, el rastreo sale de
+            // ella y no del coche: si en ese barrio no hay, se busca a su alrededor.
+            val center = where?.position ?: here
+            val natural = naturalSearchOf(category)
             lastSearch = (query to category).takeIf { where == null }
-            val results = search.search(
-                query,
-                where?.position ?: here,
-                limit = if (where != null) SEARCH_AREA_SHOWN else SEARCH_RADIUS_SHOWN,
-                category = category,
-                within = where?.bounds ?: boundsAround(here, radiusM),
-            )
-                .filter { where != null || here.distanceTo(it.position) <= radiusM }
-                .let { mixed ->
-                    // Donde el buscador mezcla lo que no es —tiendas de dentro de
-                    // un centro comercial marcadas como centro comercial—, solo lo
-                    // que lo dice en el nombre, más lo que OpenStreetMap sabe que es.
-                    val strict = VoiceGrammar.strictness(category) ?: return@let mixed
-                    val center = where?.position ?: here
-                    val tagged = coroutineScope {
-                        strict.osmQueries.map { q -> async { areas.findTagged(strict.osmTag, q, center, where?.bounds, language) } }.awaitAll().flatten()
-                    }
-                    (mixed.filter { VoiceGrammar.nameSays(it.name, strict) } + tagged)
-                        .distinctBy { it.name.lowercase().trim() }
-                }
-                .let { inside ->
-                    // Pocos dentro del barrio —lo escaso, como la comida oriental—:
-                    // se completa con lo más cercano a él, aunque caiga justo fuera.
-                    if (where == null || inside.size >= FEW_IN_AREA) {
-                        inside
-                    } else {
-                        (inside + search.search(query, where.position, limit = SEARCH_SHOWN, category = category)).distinctBy { it.id }
-                    }
-                }
-                // Lo que el complemento de arriba añadió pasa por el mismo filtro.
-                .filter { place ->
-                    val strict = VoiceGrammar.strictness(category) ?: return@filter true
-                    place.id.startsWith("osm:") || VoiceGrammar.nameSays(place.name, strict)
-                }
-                // En la lista, por cercanía al coche: es la distancia que se enseña.
-                .sortedBy { here.distanceTo(it.position) }
-            Log.i("SWSearch", "«$query» [$category]${where?.let { " en ${it.name}" }.orEmpty()}: ${results.size} resultados · ${results.joinToString { it.name }}")
+            var radiusM = where?.bounds?.let { maxOf(it.sizeMeters / 2, natural.startM) } ?: natural.startM
+            var results: List<Place>
+            while (true) {
+                searchScan.value = SearchScan(center, radiusM)
+                results = scanOnce(query, category, center, radiusM, natural.max)
+                if (results.size >= natural.enough || radiusM >= SCAN_MAX_M) break
+                radiusM = (radiusM * 2).coerceAtMost(SCAN_MAX_M)
+            }
+            // En la lista, por cercanía a donde se busca; la distancia que se enseña es al coche.
+            results = results.sortedBy { center.distanceTo(it.position) }.take(natural.max)
+            Log.i("SWSearch", "«$query» [$category]${where?.let { " en ${it.name}" }.orEmpty()}: ${results.size} resultados · ${results.take(LOGGED_NAMES).joinToString { it.name }}")
             searchResults.value = results
             searchQuery.value = listOfNotNull(query, where?.name).joinToString(" · ")
             if (results.isEmpty()) {
@@ -2273,6 +2274,54 @@ class MainActivity : ComponentActivity() {
     }
 
     private var searchJob: kotlinx.coroutines.Job? = null
+
+    /** Dónde y hasta dónde está buscando el rastreo: el mapa lo enseña como el anillo. */
+    data class SearchScan(val center: Coordinates, val radiusM: Double)
+
+    private val searchScan = MutableStateFlow<SearchScan?>(null)
+
+    /**
+     * Por dónde empieza el rastreo de cada cosa, cuántas bastan para no seguir y
+     * cuántas se enseñan como mucho: de lo que abunda, más; de lo que no, menos.
+     */
+    private data class NaturalSearch(val startM: Double, val enough: Int, val max: Int)
+
+    private fun naturalSearchOf(category: String?): NaturalSearch = when (category) {
+        "restaurant" -> NaturalSearch(1_000.0, enough = 12, max = 60)
+        "gas_station" -> NaturalSearch(2_000.0, enough = 5, max = 20)
+        "parking_lot" -> NaturalSearch(1_000.0, enough = 6, max = 30)
+        "hotel" -> NaturalSearch(2_000.0, enough = 8, max = 40)
+        "pharmacy" -> NaturalSearch(1_000.0, enough = 5, max = 20)
+        "atm" -> NaturalSearch(1_000.0, enough = 5, max = 20)
+        else -> NaturalSearch(1_500.0, enough = 6, max = 40)
+    }
+
+    /** Una vuelta del rastreo: lo de [category] a menos de [radiusM] de [center]. */
+    private suspend fun scanOnce(query: String, category: String?, center: Coordinates, radiusM: Double, max: Int): List<Place> {
+        val wide = search.search(query, center, limit = maxOf(max, SEARCH_SHOWN * 3), category = category, within = boundsAround(center, radiusM))
+        // Un radio grande se busca por partes, y cada una trae lo más cercano a su
+        // propio centro: lo de al lado del centro se quedaba fuera. Lo cercano, aparte.
+        val near = if (radiusM > NEAR_SEARCH_M) {
+            search.search(query, center, limit = SEARCH_SHOWN * 3, category = category, within = boundsAround(center, NEAR_SEARCH_M))
+        } else {
+            emptyList()
+        }
+        return (near + wide).distinctBy { it.id }
+            .filter { center.distanceTo(it.position) <= radiusM }
+            .let { mixed ->
+                // Donde el buscador mezcla lo que no es —tiendas de dentro de un
+                // centro comercial marcadas como centro comercial—, solo lo que lo
+                // dice en el nombre, más lo que OpenStreetMap sabe que es.
+                val strict = VoiceGrammar.strictness(category) ?: return@let mixed
+                val tagged = coroutineScope {
+                    strict.osmQueries.map { q -> async { areas.findTagged(strict.osmTag, q, center, boundsAround(center, radiusM), language) } }.awaitAll().flatten()
+                }
+                (mixed.filter { VoiceGrammar.nameSays(it.name, strict) } + tagged)
+                    .distinctBy { it.name.lowercase().trim() }
+                    .filter { center.distanceTo(it.position) <= radiusM }
+            }
+            .also { Log.i("SWSearch", "rastreo «$query» a ${radiusM.toInt()} m: ${it.size}") }
+    }
 
     /**
      * Lleva a un sitio dicho por su nombre o su dirección. Si el buscador
@@ -2324,6 +2373,7 @@ class MainActivity : ComponentActivity() {
     private fun clearSearch() {
         searchResults.value = emptyList()
         searchQuery.value = null
+        searchScan.value = null
     }
 
     // ------------------------------------------------------------------ navegación
@@ -2703,15 +2753,18 @@ class MainActivity : ComponentActivity() {
         /** El nuevo entra cuando el de antes ya va saliendo: se reemplazan, no se pisan. */
         const val HUD_ENTER_DELAY_MS = 120
         const val IMAGE_USER_AGENT = "SecretWorldAuto/0.1 (https://sworld.co.uk; bench build)"
-        /** Dentro del radio de acción: todos los que haya, hasta un tope razonable. */
-        const val SEARCH_RADIUS_SHOWN = 40
+        /** Menos que esto en "Qué ver", y el radio se amplía solo. */
+        const val FEW_SIGHTS = 3
+        /** En el mapa, como mucho estos, repartidos; la lista los tiene todos. */
+        const val MAP_MARKERS_MAX = 200
+        const val LOGGED_NAMES = 12
+        /** Lo de alrededor del coche, buscado aparte cuando el radio es mayor. */
+        const val NEAR_SEARCH_M = 1_500.0
+        /** Hasta dónde llega el rastreo antes de rendirse. */
+        const val SCAN_MAX_M = 32_000.0
         const val RADIUS_KEY = "radius_km"
         const val DEFAULT_RADIUS_KM = 3
         val RADII_KM = listOf(1, 3, 5, 10)
-        /** En un barrio se enseña más: se busca por todo él, no solo lo cercano. */
-        const val SEARCH_AREA_SHOWN = 30
-        /** Menos que esto dentro de un barrio y se completa con lo de al lado. */
-        const val FEW_IN_AREA = 5
         /** Marca, invisible, de una lista de parecidos: su título va tal cual. */
         const val SIMILAR_MARK = "\u200B"
         const val SEARCH_SPOKEN = 3

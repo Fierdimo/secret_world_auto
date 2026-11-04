@@ -90,4 +90,6 @@ data class FlyoverState(
     val me: Coordinates? = null,
     /** El radio de acción alrededor de [me], dibujado como un anillo y encuadrado entero. */
     val radiusMeters: Double? = null,
+    /** Dónde está el centro del anillo si no es el coche: una zona buscada. */
+    val ringCenter: Coordinates? = null,
 )

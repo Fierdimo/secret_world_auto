@@ -53,7 +53,11 @@ class PlaceCache(root: File) {
     /** Un [PlaceSearch] que pasa por aquí. */
     fun caching(delegate: PlaceSearch, language: VoiceLanguage): PlaceSearch = object : PlaceSearch {
         override suspend fun search(query: String, near: Coordinates, limit: Int, category: String?, within: Bounds?): List<Place> =
-            around(near, "q:${category ?: query.lowercase().trim()}${if (within != null) ":zona" else ""}", language) { delegate.search(query, near, limit, category, within) }
+            // El tamaño del área va en la clave: con el radio de acción a 10 km se
+            // devolvía lo guardado con 3, y ampliarlo no traía nada nuevo.
+            around(near, "q:${category ?: query.lowercase().trim()}${within?.let { ":zona${(it.sizeMeters / 1000).roundToInt()}km" }.orEmpty()}", language) {
+                delegate.search(query, near, limit, category, within)
+            }
                 // También lo guardado: una semana de caché podía conservar resultados de otro continente.
                 // (findByName no se guarda: se delega tal cual, ver abajo.)
                 .filter { near.distanceTo(it.position) <= PlaceSearch.MAX_DISTANCE_M }

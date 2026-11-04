@@ -41,5 +41,4 @@
     <string name="library_edit">Edit</string>
     <string name="tab_around">Sights</string>
     <string name="nothing_within">Nothing within %1$d km</string>
-    <string name="widen_radius">Widen to %1$d km</string>
 </resources>
