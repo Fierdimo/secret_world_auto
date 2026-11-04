@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.secretworld.auto.core.designsystem.CarButton
 import com.secretworld.auto.core.designsystem.CarSecondaryButton
 import com.secretworld.auto.core.designsystem.CarTheme
+import com.secretworld.auto.core.designsystem.Motion
 import com.secretworld.auto.core.designsystem.panelInsetsPadding
 import com.secretworld.auto.domain.Place
 import kotlin.math.cos
@@ -172,7 +173,7 @@ private fun LibraryRow(
             .border(1.dp, if (selected) accent else Color.Transparent, shape)
             .clickable(onClick = onClick)
             .padding(d.spaceXs)
-            .animateContentSize(),
+            .animateContentSize(Motion.settle(Motion.reduced)),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(

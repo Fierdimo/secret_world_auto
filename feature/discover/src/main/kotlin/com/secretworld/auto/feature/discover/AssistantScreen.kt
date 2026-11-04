@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.secretworld.auto.core.designsystem.CarSecondaryButton
 import com.secretworld.auto.core.designsystem.CarTheme
+import com.secretworld.auto.core.designsystem.Motion
 import com.secretworld.auto.core.designsystem.panelInsetsPadding
 import com.secretworld.auto.domain.Coordinates
 import com.secretworld.auto.domain.DrivingMode
@@ -844,8 +845,9 @@ fun androidx.compose.foundation.layout.BoxScope.ItineraryOverlay(
     val toast = voice.answer ?: voice.heard?.let { "“$it”" }
     androidx.compose.animation.AnimatedVisibility(
         visible = toast != null,
-        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { it / 2 },
-        exit = androidx.compose.animation.fadeOut(),
+        enter = androidx.compose.animation.fadeIn(Motion.settle(Motion.reduced)) +
+            androidx.compose.animation.slideInVertically(Motion.settle(Motion.reduced)) { it / 2 },
+        exit = androidx.compose.animation.fadeOut(Motion.exit(Motion.reduced)),
         modifier = Modifier
             .align(Alignment.BottomEnd)
             .fillMaxWidth(1f - OVERLAY_SHARE)

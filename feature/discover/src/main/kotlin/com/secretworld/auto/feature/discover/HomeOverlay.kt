@@ -4,9 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -52,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.secretworld.auto.core.designsystem.CarTheme
+import com.secretworld.auto.core.designsystem.Motion
 import com.secretworld.auto.core.designsystem.panelInsetsPadding
 import com.secretworld.auto.domain.Coordinates
 import com.secretworld.auto.domain.Place
@@ -119,7 +118,7 @@ fun BoxScope.HomeOverlay(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = d.spaceXs).animateContentSize(),
+                modifier = Modifier.padding(top = d.spaceXs).animateContentSize(Motion.settle(Motion.reduced)),
             )
         }
         Spacer(Modifier.height(d.spaceS))
@@ -230,7 +229,7 @@ private fun PlaceLine(
             .border(1.dp, if (selected) accent else Color.Transparent, shape)
             .clickable(onClick = onClick)
             .padding(d.spaceXs)
-            .animateContentSize(),
+            .animateContentSize(Motion.settle(Motion.reduced)),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             PlaceThumb(place, THUMB)
@@ -284,18 +283,19 @@ private fun Tab(glyph: Glyph, label: String, active: Boolean, onClick: () -> Uni
         // La activa, solo su nombre: el icono ya no hace falta para saber cuál es.
         // Icono y nombre entran y salen cada uno por su lado, con la misma curva:
         // el que se va se recoge mientras el nuevo se despliega, sin saltos.
+        val reduced = Motion.reduced
         Row(Modifier.height(TAB_LINE), verticalAlignment = Alignment.CenterVertically) {
             AnimatedVisibility(
                 visible = !active,
-                enter = fadeIn(tween(TAB_RESIZE_MS)) + expandHorizontally(tween(TAB_RESIZE_MS, easing = FastOutSlowInEasing)),
-                exit = fadeOut(tween(TAB_FADE_OUT_MS)) + shrinkHorizontally(tween(TAB_RESIZE_MS, easing = FastOutSlowInEasing)),
+                enter = fadeIn(Motion.settle(reduced)) + expandHorizontally(Motion.settle(reduced)),
+                exit = fadeOut(Motion.exit(reduced)) + shrinkHorizontally(Motion.settle(reduced)),
             ) {
                 GlyphIcon(glyph, ink, TAB_ICON)
             }
             AnimatedVisibility(
                 visible = active,
-                enter = fadeIn(tween(TAB_FADE_IN_MS)) + expandHorizontally(tween(TAB_RESIZE_MS, easing = FastOutSlowInEasing), expandFrom = Alignment.Start),
-                exit = fadeOut(tween(TAB_FADE_OUT_MS)) + shrinkHorizontally(tween(TAB_RESIZE_MS, easing = FastOutSlowInEasing), shrinkTowards = Alignment.Start),
+                enter = fadeIn(Motion.settle(reduced)) + expandHorizontally(Motion.settle(reduced), expandFrom = Alignment.Start),
+                exit = fadeOut(Motion.exit(reduced)) + shrinkHorizontally(Motion.settle(reduced), shrinkTowards = Alignment.Start),
             ) {
                 Text(
                     text = label.replaceFirstChar { it.uppercase() },
@@ -308,7 +308,7 @@ private fun Tab(glyph: Glyph, label: String, active: Boolean, onClick: () -> Uni
             }
         }
         Spacer(Modifier.height(4.dp))
-        val underline by animateFloatAsState(if (active) 1f else 0f, tween(TAB_RESIZE_MS, easing = FastOutSlowInEasing), label = "raya")
+        val underline by animateFloatAsState(if (active) 1f else 0f, Motion.settle(reduced), label = "raya")
         Box(Modifier.height(2.dp).width(24.dp * underline).clip(RoundedCornerShape(1.dp)).background(accent.copy(alpha = underline)))
     }
 }
@@ -332,8 +332,7 @@ private val ACTION = 36.dp
 private val TAB_ICON = 20.dp
 /** El alto de una línea de texto: icono y nombre ocupan lo mismo y la fila no salta. */
 private val TAB_LINE = 22.dp
-private const val TAB_FADE_OUT_MS = 160
-private const val TAB_FADE_IN_MS = 360
-private const val TAB_RESIZE_MS = 360
+/** Lo que tarda en asentarse la pestaña: la búsqueda espera a que termine. */
+private const val TAB_RESIZE_MS = 380
 /** Lo mínimo que se toca bien con el dedo; nada más, para que quepan. */
 private val TAB_TOUCH = 36.dp

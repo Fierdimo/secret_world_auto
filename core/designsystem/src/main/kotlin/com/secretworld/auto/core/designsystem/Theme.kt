@@ -81,7 +81,8 @@ fun SecretWorldTheme(
     }
 
     val colors = if (darkTheme) DarkColors else LightColors
-    CompositionLocalProvider(LocalCarMetrics provides metrics, LocalDarkTheme provides darkTheme) {
+    val reducedMotion = remember { systemReducesMotion() }
+    CompositionLocalProvider(LocalCarMetrics provides metrics, LocalDarkTheme provides darkTheme, LocalReducedMotion provides reducedMotion) {
         MaterialTheme(
             colorScheme = colors,
             typography = typographyFor(metrics.text),

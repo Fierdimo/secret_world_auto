@@ -38,6 +38,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.secretworld.auto.core.designsystem.CarTheme
+import com.secretworld.auto.core.designsystem.Motion
 import kotlinx.coroutines.delay
 
 /** Lo que hay en la barra de iconos de arriba a la derecha. */
@@ -111,8 +112,8 @@ private fun MenuButton(entry: MenuEntry, expanded: Boolean, onClick: () -> Unit)
     ) {
         AnimatedVisibility(
             visible = expanded,
-            enter = expandHorizontally(expandFrom = Alignment.End) + fadeIn(),
-            exit = shrinkHorizontally(shrinkTowards = Alignment.End) + fadeOut(),
+            enter = expandHorizontally(Motion.settle(Motion.reduced), expandFrom = Alignment.End) + fadeIn(Motion.settle(Motion.reduced)),
+            exit = shrinkHorizontally(Motion.settle(Motion.reduced), shrinkTowards = Alignment.End) + fadeOut(Motion.exit(Motion.reduced)),
         ) {
             Text(
                 text = entry.label,
