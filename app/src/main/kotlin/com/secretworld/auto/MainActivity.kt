@@ -1675,6 +1675,9 @@ class MainActivity : ComponentActivity() {
             reply
         }
         is ItineraryConversation.Step.Repropose -> {
+            // Un cambio a uno ya guardado se guarda al momento: es ese mismo, y
+            // añadir un sitio sin que quedara guardado parecía no haber hecho nada.
+            editingId?.let { savedItineraries.save(it, step.proposal.copy(stops = step.proposal.stops.pictured())) }
             // Un cambio a uno de la lista: pasa a su vista para seguir con él.
             library.value = null
             showItinerary(step.proposal)
