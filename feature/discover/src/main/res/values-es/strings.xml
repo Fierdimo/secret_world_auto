@@ -39,4 +39,5 @@
     <string name="library_suggested">Sugerido</string>
     <string name="library_manual">A mano</string>
     <string name="library_edit">Editar</string>
+    <string name="tab_around">Alrededor</string>
 </resources>

@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -232,7 +233,7 @@ fun TourFlyover(
             scaleBar = {},
             compass = {},
         ) {
-            com.mapbox.maps.extension.compose.MapEffect(state.stops, state.intro, state.candidates.isEmpty()) { mapView ->
+            com.mapbox.maps.extension.compose.MapEffect(state.stops, state.intro, state.candidates.map { it.id }) { mapView ->
                 // Sin paradas, lo que hay para elegir: que se vea todo lo tocable.
                 val framed = if (state.stops.isEmpty()) state.candidates.map { it.position } + state.start else state.stops.map { it.position }
                 val camera = if (framed.size < 2) {
@@ -300,10 +301,21 @@ fun TourFlyover(
                                     allowOverlap(false)
                                 },
                             ) {
-                                CandidateMarker(candidate) { onAddPlace(candidate) }
+                                CandidateMarker(candidate, adds = !state.pickable) { onAddPlace(candidate) }
                             }
                         }
                     }
+            }
+            // El coche: un punto que late.
+            state.me?.let { me ->
+                ViewAnnotation(
+                    options = viewAnnotationOptions {
+                        geometry(me.point())
+                        allowOverlap(true)
+                    },
+                ) {
+                    MeMarker()
+                }
             }
             // Lo que se cuenta y no es una parada: su marcador, solo mientras se cuenta.
             state.focus?.takeIf { target -> state.stops.none { it.id == target.id } }?.let { target ->
@@ -375,7 +387,7 @@ fun TourFlyover(
 
 /** Un sitio de alrededor: pequeño, con un "+" y el nombre, para añadirlo tocándolo. */
 @Composable
-private fun CandidateMarker(place: Place, onClick: () -> Unit) {
+private fun CandidateMarker(place: Place, adds: Boolean, onClick: () -> Unit) {
     val accent = MaterialTheme.colorScheme.primary
     Row(
         Modifier
@@ -386,7 +398,11 @@ private fun CandidateMarker(place: Place, onClick: () -> Unit) {
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("+", color = accent, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        if (adds) {
+            Text("+", color = accent, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        } else {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(accent))
+        }
         Spacer(Modifier.width(6.dp))
         Text(
             Phrasebook.shortName(place),
@@ -396,6 +412,23 @@ private fun CandidateMarker(place: Place, onClick: () -> Unit) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.widthIn(max = 150.dp),
         )
+    }
+}
+
+/** Donde está el coche: un punto con un halo que late. */
+@Composable
+private fun MeMarker() {
+    val color = MaterialTheme.colorScheme.secondary
+    val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "yo")
+    val halo by pulse.animateFloat(
+        initialValue = 0.6f,
+        targetValue = 1.4f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(tween(1_400), androidx.compose.animation.core.RepeatMode.Reverse),
+        label = "halo",
+    )
+    Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(22.dp).scale(halo).clip(CircleShape).background(color.copy(alpha = 0.25f)))
+        Box(Modifier.size(14.dp).clip(CircleShape).border(2.dp, Color.White, CircleShape).background(color))
     }
 }
 

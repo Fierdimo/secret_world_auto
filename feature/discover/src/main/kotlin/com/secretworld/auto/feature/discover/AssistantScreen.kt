@@ -265,7 +265,7 @@ private fun AssistantColumn(
  * justo lo que importa.
  */
 @Composable
-private fun WhereHeader(city: String?, offline: Boolean) {
+internal fun WhereHeader(city: String?, offline: Boolean) {
     val d = CarTheme.dimens
     val name = city ?: stringResource(R.string.finding_where)
     val (area, town) = splitArea(name)
@@ -309,7 +309,7 @@ private fun splitArea(name: String): Pair<String?, String> {
 
 /** Sugerencias de lo que se le puede pedir: tocar una es como decirla. */
 @Composable
-private fun SuggestionRow(suggestions: List<SearchShortcut>) {
+internal fun SuggestionRow(suggestions: List<SearchShortcut>) {
     val d = CarTheme.dimens
     Row(
         Modifier.horizontalScroll(rememberScrollState()),
@@ -534,7 +534,7 @@ private fun Subtitles(voice: VoiceUi, compact: Boolean) {
 
 /** En compacto: la parada en curso y la siguiente, con su foto. */
 @Composable
-private fun CurrentStops(tour: TourUi) {
+internal fun CurrentStops(tour: TourUi) {
     val d = CarTheme.dimens
     val now = tour.stops.getOrNull(tour.current.coerceAtLeast(0)) ?: return
     val next = tour.stops.getOrNull(tour.current.coerceAtLeast(0) + 1)

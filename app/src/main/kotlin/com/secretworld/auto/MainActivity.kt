@@ -106,11 +106,16 @@ import com.secretworld.auto.feature.discover.NowPlaying
 import com.secretworld.auto.feature.discover.PermissionNotice
 import com.secretworld.auto.feature.discover.RoutePanel
 import com.secretworld.auto.feature.discover.AssistantScreen
+import com.secretworld.auto.feature.discover.HomeOverlay
 import com.secretworld.auto.feature.discover.ItineraryLibraryOverlay
 import com.secretworld.auto.feature.discover.ItineraryOverlay
 import com.secretworld.auto.feature.discover.SavedItineraryUi
 import com.secretworld.auto.feature.discover.FlyoverState
-import com.secretworld.auto.feature.discover.SettingsButton
+import com.secretworld.auto.feature.discover.MenuEntry
+import com.secretworld.auto.feature.discover.MenuIcon
+import com.secretworld.auto.feature.discover.MenuRail
+import com.secretworld.auto.feature.discover.collapseMenuOnOutsideTap
+import com.secretworld.auto.feature.discover.rememberMenuRailState
 import com.secretworld.auto.feature.parked.SettingAction
 import com.secretworld.auto.map.TourFlyover
 import com.secretworld.auto.feature.discover.TourStopUi
@@ -209,6 +214,12 @@ class MainActivity : ComponentActivity() {
     private val lateReply = MutableStateFlow<String?>(null)
     /** La presentación cinemática del itinerario recién propuesto. */
     private val flyover = MutableStateFlow<FlyoverState?>(null)
+
+    /** El sitio elegido en la lista o el mapa del inicio: la cámara vuela a él. */
+    private val homeSelected = MutableStateFlow<Place?>(null)
+
+    /** Lo que se está contando con el inicio delante: la cámara se acerca mientras dura. */
+    private val homeFocus = MutableStateFlow<Place?>(null)
 
     /** Lo que devuelve la cámara al itinerario cuando se acaba de contar un sitio. */
     private var focusJob: kotlinx.coroutines.Job? = null
@@ -787,8 +798,86 @@ class MainActivity : ComponentActivity() {
 
                 val inPip by pip.collectAsState()
                 LaunchedEffect(Unit) { refreshSaved() }
-                Box(Modifier.fillMaxSize()) {
-                    if (panel is Panel.Home || inPip) {
+                val searchUi = searchShown?.let { query ->
+                    SearchUi(
+                        title = if (query.endsWith(SIMILAR_MARK)) {
+                            query.removeSuffix(SIMILAR_MARK)
+                        } else if (" · " in query) {
+                            query.replaceFirstChar { it.uppercase() }
+                        } else {
+                            stringResource(com.secretworld.auto.feature.discover.R.string.search_nearby, query.replaceFirstChar { it.uppercase() })
+                        },
+                        places = results,
+                    )
+                }
+                // Tocar una sugerencia es decirla: pasa por el mismo camino que la voz.
+                // "Mis itinerarios" siempre: también es donde se empieza uno nuevo.
+                val suggestionsUi = (listOf(myItineraries(language)) + suggestionsFor(language)).map { text ->
+                                SearchShortcut(label = text) { voiceInput.inject(text) }
+                            }
+                val shortcutsUi = SHORTCUTS.map { (category, label) ->
+                                val text = label(language)
+                                SearchShortcut(label = text.replaceFirstChar { it.uppercase() }) { findPlaces(text, category, announce = true) }
+                            }
+                val flyNow by flyover.collectAsState()
+                val homeAt by homeSelected.collectAsState()
+                val toldAt by homeFocus.collectAsState()
+                val menu = rememberMenuRailState()
+                Box(Modifier.fillMaxSize().collapseMenuOnOutsideTap(menu)) {
+                    if (panel is Panel.Home && !inPip && !compact) {
+                        // El inicio sobre el mapa: lo de alrededor —o lo buscado— al
+                        // fondo, y el panel a la izquierda. Con un itinerario a la vista,
+                        // su mapa lo tapa todo y este no se dibuja.
+                        if (flyNow == null) {
+                            val places = searchUi?.places ?: upcoming
+                            val selectedPlace = homeAt?.takeIf { chosen -> places.any { it.id == chosen.id } }
+                            val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
+                            TourFlyover(
+                                state = FlyoverState(
+                                    start = vehicleState.position,
+                                    stops = emptyList(),
+                                    times = emptyList(),
+                                    path = emptyList(),
+                                    legEnds = emptyList(),
+                                    summary = "",
+                                    intro = false,
+                                    focus = toldAt ?: selectedPlace,
+                                    candidates = places,
+                                    pickable = true,
+                                    me = vehicleState.position,
+                                ),
+                                mapboxToken = mapboxToken,
+                                onIntroDone = {},
+                                onAddPlace = { place -> homeSelected.value = place },
+                                overlay = {
+                                    HomeOverlay(
+                                        city = where ?: upcoming.firstOrNull()?.city,
+                                        offline = catalogueResult?.source == CatalogueRepository.Source.FALLBACK,
+                                        voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
+                                        nowPlaying = (nowPlayingOf(narrationState, tick) ?: installingOf(modelsPercentNow))
+                                            ?.takeUnless { narrationState is NarrationController.State.Speaking },
+                                        notices = notices,
+                                        tour = tourUi,
+                                        search = searchUi,
+                                        nearby = upcoming,
+                                        origin = vehicleState.position,
+                                        navigation = navigationUi,
+                                        shortcuts = shortcutsUi,
+                                        activeSearch = searchShown,
+                                        selected = selectedPlace,
+                                        onSelect = { homeSelected.value = it },
+                                        onDetails = { panel = Panel.Detail(it) },
+                                        onListen = { play(it) },
+                                        onNavigate = { navigateTo(it) },
+                                        onAdd = { place -> answer = addToItinerary(place, c) },
+                                        onStopNarration = { narration.stop() },
+                                        onStopNavigation = { endNavigation() },
+                                        onClearSearch = ::clearSearch,
+                                    )
+                                },
+                            )
+                        }
+                    } else if (panel is Panel.Home || inPip) {
                         AssistantScreen(
                             mini = inPip,
                             compact = compact,
@@ -803,30 +892,14 @@ class MainActivity : ComponentActivity() {
                                 ?.takeUnless { narrationState is NarrationController.State.Speaking },
                             notices = notices,
                             tour = tourUi,
-                            search = searchShown?.let { query ->
-                                SearchUi(
-                                    title = if (query.endsWith(SIMILAR_MARK)) {
-                                        query.removeSuffix(SIMILAR_MARK)
-                                    } else if (" · " in query) {
-                                        query.replaceFirstChar { it.uppercase() }
-                                    } else {
-                                        stringResource(com.secretworld.auto.feature.discover.R.string.search_nearby, query.replaceFirstChar { it.uppercase() })
-                                    },
-                                    places = results,
-                                )
-                            },
+                            search = searchUi,
                             nearby = upcoming,
                             origin = vehicleState.position,
                             navigation = navigationUi,
                             // Tocar una sugerencia es decirla: pasa por el mismo camino que la voz.
                             // "Mis itinerarios" siempre: también es donde se empieza uno nuevo.
-                            suggestions = (listOf(myItineraries(language)) + suggestionsFor(language)).map { text ->
-                                SearchShortcut(label = text) { voiceInput.inject(text) }
-                            },
-                            shortcuts = SHORTCUTS.map { (category, label) ->
-                                val text = label(language)
-                                SearchShortcut(label = text.replaceFirstChar { it.uppercase() }) { findPlaces(text, category, announce = true) }
-                            },
+                            suggestions = suggestionsUi,
+                            shortcuts = shortcutsUi,
                             onSelect = { panel = Panel.Detail(it) },
                             onListen = { play(it) },
                             onNavigate = { navigateTo(it) },
@@ -852,9 +925,18 @@ class MainActivity : ComponentActivity() {
 
                     // Un solo botón discreto para los ajustes —simulador y silencio
                     // incluidos—, en vez de una barra fija que estorbaba.
+                    // Arriba a la derecha, la barra de iconos: un toque enseña qué es,
+                    // otro lo abre. Con la vista de un itinerario delante, solo los ajustes.
                     if (panel is Panel.Home && !inPip) {
-                        SettingsButton(
-                            onClick = { panel = Panel.Settings },
+                        val ctx = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
+                        MenuRail(
+                            entries = listOfNotNull(
+                                MenuEntry(MenuIcon.ITINERARIES, myItineraries(language)) {
+                                    answer = openLibrary(ctx).ifEmpty { null }
+                                }.takeIf { flyNow == null },
+                                MenuEntry(MenuIcon.SETTINGS, settingsLabel(language)) { panel = Panel.Settings },
+                            ),
+                            state = menu,
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .panelInsetsPadding()
@@ -1444,8 +1526,9 @@ class MainActivity : ComponentActivity() {
      * entre ellas: solo cuenta como final un silencio que dura.
      */
     private fun focusMapOn(place: Place) {
-        if (flyover.value?.intro != false) return
-        flyover.value = flyover.value?.copy(focus = place)
+        val onHome = flyover.value == null
+        if (!onHome && flyover.value?.intro != false) return
+        if (onHome) homeFocus.value = place else flyover.value = flyover.value?.copy(focus = place)
         focusJob?.cancel()
         focusJob = lifecycleScope.launch {
             withTimeoutOrNull(SPEECH_START_MS) { narration.state.first { it !is NarrationController.State.Idle } }
@@ -1455,7 +1538,7 @@ class MainActivity : ComponentActivity() {
                 val now = narration.state.value
                 if (now is NarrationController.State.Idle || now is NarrationController.State.Failed) break
             }
-            flyover.value = flyover.value?.copy(focus = null)
+            if (onHome) homeFocus.value = null else flyover.value = flyover.value?.copy(focus = null)
         }
     }
 
@@ -1789,6 +1872,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun clock(minute: Int) = "%d:%02d".format((minute / 60) % 24, minute % 60)
+
+    private fun settingsLabel(language: VoiceLanguage): String =
+        language.say(en = "Settings", es = "Ajustes", it = "Impostazioni")
 
     private fun myItineraries(language: VoiceLanguage): String =
         language.say(en = "My itineraries", es = "Mis itinerarios", it = "I miei itinerari")

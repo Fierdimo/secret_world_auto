@@ -84,4 +84,8 @@ data class FlyoverState(
      * para añadirlo tocándolo. Armándolo a mano, es todo lo que hay.
      */
     val candidates: List<Place> = emptyList(),
+    /** Tocar un sitio de alrededor es elegirlo (el inicio), no añadirlo: sin "+". */
+    val pickable: Boolean = false,
+    /** Dónde está el coche, si se enseña. */
+    val me: Coordinates? = null,
 )

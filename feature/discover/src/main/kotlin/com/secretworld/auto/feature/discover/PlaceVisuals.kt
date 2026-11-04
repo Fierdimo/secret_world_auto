@@ -2,6 +2,7 @@ package com.secretworld.auto.feature.discover
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -134,19 +135,10 @@ internal fun PlaceThumb(place: Place, size: Dp, modifier: Modifier = Modifier) {
     PlaceImage(place, modifier.size(size).clip(RoundedCornerShape(size / 4)))
 }
 
-internal enum class Glyph { LISTEN, GO, SETTINGS, ADD, DELETE }
+internal enum class Glyph { LISTEN, GO, SETTINGS, ADD, DELETE, ROUTE }
 
 /** Los botones de una tarjeta: visibles sin tapar la foto. */
 private val ACTION: Dp = 40.dp
-
-/**
- * Los ajustes: un solo botón discreto, en una esquina. Sustituye a la barra que
- * había al pie —simulador, silencio—, que ahora vive dentro de los ajustes.
- */
-@Composable
-fun SettingsButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Box(modifier) { RoundAction(Glyph.SETTINGS, onClick, filled = false, diameter = CarTheme.dimens.minTouchTarget * 0.8f) }
-}
 
 /** Un botón redondo con icono dibujado: escuchar (triángulo) o ir (flecha). */
 @Composable
@@ -162,51 +154,69 @@ internal fun RoundAction(glyph: Glyph, onClick: () -> Unit, filled: Boolean, dia
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(diameter * 0.42f)) {
-            when (glyph) {
-                Glyph.LISTEN -> {
-                    val path = Path().apply {
-                        moveTo(size.width * 0.18f, 0f)
-                        lineTo(size.width, size.height / 2)
-                        lineTo(size.width * 0.18f, size.height)
-                        close()
-                    }
-                    drawPath(path, ink)
+        GlyphIcon(glyph, ink, diameter * 0.42f)
+    }
+}
+
+
+/** El icono dibujado de [glyph], en [ink]: en los botones redondos y en la barra de arriba. */
+@Composable
+internal fun GlyphIcon(glyph: Glyph, ink: Color, extent: Dp) {
+    // "extent" y no "size": dentro del Canvas, size es el del lienzo.
+    Canvas(Modifier.size(extent)) {
+        when (glyph) {
+            Glyph.LISTEN -> {
+                val path = Path().apply {
+                    moveTo(size.width * 0.18f, 0f)
+                    lineTo(size.width, size.height / 2)
+                    lineTo(size.width * 0.18f, size.height)
+                    close()
                 }
-                Glyph.SETTINGS -> {
-                    // Un engranaje: el aro y ocho dientes.
-                    val c = Offset(size.width / 2, size.height / 2)
-                    val r = size.minDimension / 2
-                    for (tooth in 0 until 8) {
-                        val a = Math.toRadians(tooth * 45.0)
-                        val dir = Offset(kotlin.math.cos(a).toFloat(), kotlin.math.sin(a).toFloat())
-                        drawLine(ink, c + dir * (r * 0.62f), c + dir * r, strokeWidth = r * 0.32f)
-                    }
-                    drawCircle(ink, radius = r * 0.58f, center = c, style = Stroke(width = r * 0.26f))
+                drawPath(path, ink)
+            }
+            Glyph.SETTINGS -> {
+                // Un engranaje: el aro y ocho dientes.
+                val c = Offset(size.width / 2, size.height / 2)
+                val r = size.minDimension / 2
+                for (tooth in 0 until 8) {
+                    val a = Math.toRadians(tooth * 45.0)
+                    val dir = Offset(kotlin.math.cos(a).toFloat(), kotlin.math.sin(a).toFloat())
+                    drawLine(ink, c + dir * (r * 0.62f), c + dir * r, strokeWidth = r * 0.32f)
                 }
-                Glyph.ADD -> {
-                    // Un "+": añadir al itinerario.
-                    val w = size.minDimension * 0.16f
-                    drawLine(ink, Offset(size.width / 2, 0f), Offset(size.width / 2, size.height), strokeWidth = w)
-                    drawLine(ink, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = w)
+                drawCircle(ink, radius = r * 0.58f, center = c, style = Stroke(width = r * 0.26f))
+            }
+            Glyph.ADD -> {
+                // Un "+": añadir al itinerario.
+                val w = size.minDimension * 0.16f
+                drawLine(ink, Offset(size.width / 2, 0f), Offset(size.width / 2, size.height), strokeWidth = w)
+                drawLine(ink, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = w)
+            }
+            Glyph.ROUTE -> {
+                // Tres paradas unidas: un itinerario.
+                val a = Offset(size.width * 0.12f, size.height * 0.82f)
+                val b = Offset(size.width * 0.5f, size.height * 0.3f)
+                val c = Offset(size.width * 0.88f, size.height * 0.62f)
+                val w = size.minDimension * 0.11f
+                drawLine(ink, a, b, strokeWidth = w)
+                drawLine(ink, b, c, strokeWidth = w)
+                listOf(a, b, c).forEach { drawCircle(ink, radius = size.minDimension * 0.16f, center = it) }
+            }
+            Glyph.DELETE -> {
+                // Una "×": quitar.
+                val w = size.minDimension * 0.14f
+                drawLine(ink, Offset(0f, 0f), Offset(size.width, size.height), strokeWidth = w)
+                drawLine(ink, Offset(size.width, 0f), Offset(0f, size.height), strokeWidth = w)
+            }
+            Glyph.GO -> {
+                // Una flecha de navegación, inclinada hacia arriba a la derecha.
+                val path = Path().apply {
+                    moveTo(size.width, 0f)
+                    lineTo(size.width * 0.58f, size.height)
+                    lineTo(size.width * 0.44f, size.height * 0.56f)
+                    lineTo(0f, size.height * 0.42f)
+                    close()
                 }
-                Glyph.DELETE -> {
-                    // Una "×": quitar.
-                    val w = size.minDimension * 0.14f
-                    drawLine(ink, Offset(0f, 0f), Offset(size.width, size.height), strokeWidth = w)
-                    drawLine(ink, Offset(size.width, 0f), Offset(0f, size.height), strokeWidth = w)
-                }
-                Glyph.GO -> {
-                    // Una flecha de navegación, inclinada hacia arriba a la derecha.
-                    val path = Path().apply {
-                        moveTo(size.width, 0f)
-                        lineTo(size.width * 0.58f, size.height)
-                        lineTo(size.width * 0.44f, size.height * 0.56f)
-                        lineTo(0f, size.height * 0.42f)
-                        close()
-                    }
-                    drawPath(path, ink)
-                }
+                drawPath(path, ink)
             }
         }
     }
