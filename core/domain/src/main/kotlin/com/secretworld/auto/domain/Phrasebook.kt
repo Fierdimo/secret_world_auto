@@ -604,32 +604,6 @@ object Phrasebook {
         it = "Lo tengo salvato. Quando vuoi, di «i miei itinerari».",
     )
 
-    /** Los guardados, en orden, para elegir de viva voz. */
-    fun listItineraries(c: Context, saved: List<SavedItinerary>): String {
-        if (saved.size == 1) {
-            val one = saved.first().proposal
-            return c.say(
-                en = "You have one itinerary, from ${shortName(one.stops.first())}, ${one.stops.size} stops. Shall we start?",
-                es = "Tienes un itinerario, desde ${shortName(one.stops.first())}, de ${one.stops.size} paradas. ¿Lo empezamos?",
-                it = "Hai un itinerario, da ${shortName(one.stops.first())}, di ${one.stops.size} tappe. Partiamo?",
-            )
-        }
-        val ordinals = c.say(
-            en = listOf("the first", "the second", "the third", "the fourth", "the fifth"),
-            es = listOf("el primero", "el segundo", "el tercero", "el cuarto", "el quinto"),
-            it = listOf("il primo", "il secondo", "il terzo", "il quarto", "il quinto"),
-        )
-        val options = saved.take(ordinals.size).mapIndexed { i, item ->
-            "${ordinals[i]}, " + c.say(en = "from ", es = "desde ", it = "da ") + shortName(item.proposal.stops.first())
-        }
-        val list = joined(c, options)
-        return c.say(
-            en = "You have ${saved.size} itineraries: $list. Which one?",
-            es = "Tienes ${saved.size} itinerarios: $list. ¿Cuál quieres?",
-            it = "Hai ${saved.size} itinerari: $list. Quale vuoi?",
-        )
-    }
-
     /** Abierto uno de los guardados: cómo es ahora y si empezar. */
     fun resumeItinerary(c: Context, proposal: ItineraryProposal): String {
         val duration = spokenDuration(proposal.minutes * 60.0, c.language)

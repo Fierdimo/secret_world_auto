@@ -19,5 +19,4 @@
         <item quantity="other">%d paradas</item>
     </plurals>
     <string name="itinerary_draft">Tu itinerario</string>
-    <string name="itinerary_draft_hint">Toca sitios en el mapa, o di «añade…»</string>
 </resources>

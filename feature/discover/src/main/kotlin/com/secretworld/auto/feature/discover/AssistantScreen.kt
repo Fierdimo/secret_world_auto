@@ -517,15 +517,18 @@ private fun Subtitles(voice: VoiceUi, compact: Boolean) {
             )
             Spacer(Modifier.height(d.spaceXs))
         }
-        Text(
-            text = voice.answer ?: stringResource(R.string.assistant_hint, voice.wakeWord),
-            style = if (compact || voice.answer == null) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
-            fontWeight = if (voice.answer != null) FontWeight.Medium else FontWeight.Normal,
-            color = if (voice.answer != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            maxLines = if (compact) 3 else 4,
-            overflow = TextOverflow.Ellipsis,
-        )
+        // Solo lo que contesta: un subtítulo de instrucciones no sirve de ayuda.
+        voice.answer?.let { said ->
+            Text(
+                text = said,
+                style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                maxLines = if (compact) 3 else 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -600,7 +603,9 @@ private fun ContextColumn(
     val d = CarTheme.dimens
     val driving = mode == DrivingMode.DRIVING
     Column(modifier) {
-        if (tour != null) {
+        // Solo un recorrido en marcha: lo propuesto o guardado se ve en el mapa,
+        // y aquí era una vista de paso, sin manera de cerrarla.
+        if (tour != null && !tour.proposed && !tour.saved) {
             TourPanel(tour, Modifier.fillMaxSize())
             return@Column
         }
@@ -691,13 +696,6 @@ private fun TourPanel(tour: TourUi, modifier: Modifier) {
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White,
                 )
-                if (tour.proposed) {
-                    Text(
-                        text = stringResource(R.string.tour_say_yes),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.8f),
-                    )
-                }
             }
         }
         LazyColumn(
@@ -841,15 +839,9 @@ fun androidx.compose.foundation.layout.BoxScope.ItineraryOverlay(
         CarSecondaryButton(label = stringResource(R.string.close_view), onClick = onClose, compact = true)
     }
 
-    // Lo dicho y lo contestado, como un aviso sobre el mapa que se va solo; la
-    // ayuda, una vez al abrir la vista y unos segundos. No le quita sitio al
-    // itinerario.
-    var hint by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(true) }
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(HINT_MS)
-        hint = false
-    }
-    val toast = voice.answer ?: voice.heard?.let { "“$it”" } ?: if (hint) stringResource(R.string.tour_edit_hint) else null
+    // Lo dicho y lo contestado, como un aviso sobre el mapa que se va solo. Sin
+    // instrucciones: como ayuda no funcionaban.
+    val toast = voice.answer ?: voice.heard?.let { "“$it”" }
     androidx.compose.animation.AnimatedVisibility(
         visible = toast != null,
         enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { it / 2 },
@@ -917,7 +909,6 @@ private fun OverlayStopRow(stop: TourStopUi, first: Boolean, last: Boolean) {
 private const val OVERLAY_SHARE = 0.40f
 private val TOAST_CORE: Dp = 28.dp
 /** Lo que se queda la ayuda al abrir la vista del itinerario. */
-private const val HINT_MS = 6_000L
 
 /** Cuánto del ancho se lleva la columna del asistente con pantalla completa. */
 private const val ASSISTANT_WEIGHT = 0.36f

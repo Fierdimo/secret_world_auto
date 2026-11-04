@@ -79,13 +79,17 @@ fun ItineraryLibraryView(
             Spacer(Modifier.weight(1f))
             CarSecondaryButton(label = stringResource(R.string.close_view), onClick = onClose, compact = true)
         }
-        Text(
-            text = voice.answer ?: voice.heard?.let { "“$it”" } ?: stringResource(R.string.library_hint),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        // Sin subtítulo de instrucciones: como ayuda no funciona. Solo lo que se
+        // contesta, si se contesta algo ("Borrado.").
+        voice.answer?.let { said ->
+            Text(
+                text = said,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         Spacer(Modifier.height(d.spaceM))
         if (items.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

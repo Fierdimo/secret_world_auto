@@ -732,7 +732,13 @@ class MainActivity : ComponentActivity() {
                     }
                     Log.i("SWVoice", "dice: «$reply»")
                     memory.remember(order, reply)
-                    answer = reply
+                    // Una orden que se atiende en silencio —abrir "Mis itinerarios"— no
+                    // deja subtítulo ni se queda "pensando": ya está hecha.
+                    answer = reply.ifEmpty { null }
+                    if (reply.isEmpty()) {
+                        thinking = false
+                        heard = null
+                    }
                     voiceInput.acknowledge()
                 }
 
@@ -878,7 +884,6 @@ class MainActivity : ComponentActivity() {
                         current = -1,
                         summary = "",
                         title = stringResource(R.string.itinerary_draft),
-                        duration = stringResource(R.string.itinerary_draft_hint),
                     )
                     // Si al abrir la app no hubo red, la clave del mapa no llegó: se
                     // vuelve a pedir al enseñar un itinerario, o el mapa sale negro.
@@ -899,10 +904,7 @@ class MainActivity : ComponentActivity() {
                                         voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
                                         speaking = narrationState is NarrationController.State.Speaking && !(narrationState as NarrationController.State.Speaking).preparing ||
                                             narrationState is NarrationController.State.Playing,
-                                        onClose = {
-                                            flyover.value = null
-                                            drafting.value = false
-                                        },
+                                        onClose = ::closeItineraryView,
                                     )
                                 }
                             },
@@ -1440,6 +1442,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Cerrar la vista del itinerario es dejarlo y volver a "Mis itinerarios",
+     * en silencio, para elegir otro; sin ninguno guardado, al inicio. Lo
+     * propuesto y sin guardar se descarta. Un recorrido en marcha no se toca.
+     */
+    private fun closeItineraryView() {
+        flyover.value = null
+        drafting.value = false
+        focusJob?.cancel()
+        if (tour.value != null) return
+        planJob?.cancel()
+        itinerary.reset()
+        shownPlan.value = null
+        editingId = null
+        val saved = savedList()
+        savedCount.value = saved.size
+        library.value = saved.takeIf { it.isNotEmpty() }
+    }
+
     // ------------------------------------------------------------------ a mano
 
     /** Lo que se puede añadir tocándolo en el mapa: lo que hay alrededor de [center]. */
@@ -1517,7 +1538,10 @@ class MainActivity : ComponentActivity() {
         refreshSaved()
     }
 
-    /** La ventana de los guardados, y cuáles son dichos en voz alta para elegir. */
+    /**
+     * La ventana de los guardados, en silencio: se ven, y no hace falta leerlos
+     * ni quedarse esperando. Se elige tocando o con la palabra de activación.
+     */
     private fun openLibrary(c: Phrasebook.Context): String {
         val all = savedList()
         savedCount.value = all.size
@@ -1527,9 +1551,7 @@ class MainActivity : ComponentActivity() {
         flyover.value = null
         shownPlan.value = null
         library.value = all
-        val reply = Phrasebook.listItineraries(c, all)
-        narration.say(reply) { voiceInput.listenForAnswer() }
-        return reply
+        return ""
     }
 
     /** Lo elegido de los guardados: empezarlo, verlo en el mapa o borrarlo. */
@@ -1558,7 +1580,7 @@ class MainActivity : ComponentActivity() {
                 if (editingId == item.id) editingId = null
                 refreshSaved()
                 if (savedCount.value == 0) library.value = null
-                Phrasebook.itineraryDeleted(c).also { narration.say(it) { if (library.value != null) voiceInput.listenForAnswer() } }
+                Phrasebook.itineraryDeleted(c).also { narration.say(it) }
             }
         }
     }

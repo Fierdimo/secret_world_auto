@@ -22,5 +22,4 @@
         <item quantity="other">%d stops</item>
     </plurals>
     <string name="itinerary_draft">Your itinerary</string>
-    <string name="itinerary_draft_hint">Tap places on the map, or say “add…”</string>
 </resources>
