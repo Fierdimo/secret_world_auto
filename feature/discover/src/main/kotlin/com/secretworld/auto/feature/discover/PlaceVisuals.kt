@@ -134,7 +134,7 @@ internal fun PlaceThumb(place: Place, size: Dp, modifier: Modifier = Modifier) {
     PlaceImage(place, modifier.size(size).clip(RoundedCornerShape(size / 4)))
 }
 
-internal enum class Glyph { LISTEN, GO, SETTINGS, ADD }
+internal enum class Glyph { LISTEN, GO, SETTINGS, ADD, DELETE }
 
 /** Los botones de una tarjeta: visibles sin tapar la foto. */
 private val ACTION: Dp = 40.dp
@@ -189,6 +189,12 @@ internal fun RoundAction(glyph: Glyph, onClick: () -> Unit, filled: Boolean, dia
                     val w = size.minDimension * 0.16f
                     drawLine(ink, Offset(size.width / 2, 0f), Offset(size.width / 2, size.height), strokeWidth = w)
                     drawLine(ink, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = w)
+                }
+                Glyph.DELETE -> {
+                    // Una "×": quitar.
+                    val w = size.minDimension * 0.14f
+                    drawLine(ink, Offset(0f, 0f), Offset(size.width, size.height), strokeWidth = w)
+                    drawLine(ink, Offset(size.width, 0f), Offset(0f, size.height), strokeWidth = w)
                 }
                 Glyph.GO -> {
                     // Una flecha de navegación, inclinada hacia arriba a la derecha.

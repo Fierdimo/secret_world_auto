@@ -1592,12 +1592,11 @@ class MainActivity : ComponentActivity() {
             .format(java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.forLanguageTag(language.code)))
         return SavedItineraryUi(
             id = item.id,
-            title = if (stops.size == 1) stops.first().name else "${Phrasebook.shortName(stops.first())} → ${Phrasebook.shortName(stops.last())}",
-            subtitle = listOf(
-                resources.getQuantityString(R.plurals.itinerary_stops, stops.size, stops.size),
-                Phrasebook.spokenDuration(item.proposal.minutes * 60.0, language),
-                date,
-            ).joinToString(" · "),
+            title = stops.first().name,
+            destination = stops.last().name.takeIf { stops.size > 1 },
+            count = resources.getQuantityString(R.plurals.itinerary_stops, stops.size, stops.size),
+            duration = Phrasebook.spokenDuration(item.proposal.minutes * 60.0, language),
+            date = date,
             stops = stops,
         )
     }

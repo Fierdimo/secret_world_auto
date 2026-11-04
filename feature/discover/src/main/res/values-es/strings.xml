@@ -35,6 +35,6 @@
     <string name="library_title">Mis itinerarios</string>
     <string name="library_empty">Aún no hay itinerarios guardados. Pídeme que te arme uno.</string>
     <string name="library_start">Empezar</string>
-    <string name="library_view">Ver</string>
     <string name="library_delete">Borrar</string>
+    <string name="library_until">hasta %1$s</string>
 </resources>
