@@ -49,6 +49,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.secretworld.auto.core.designsystem.CarSecondaryButton
 import com.secretworld.auto.core.designsystem.CarTheme
 import com.secretworld.auto.core.designsystem.Motion
 import com.secretworld.auto.core.designsystem.panelInsetsPadding
@@ -80,6 +81,9 @@ fun BoxScope.HomeOverlay(
     activeSearch: String?,
     /** El radio de acción, para decir que no hay nada dentro. */
     radiusKm: Int,
+    /** El radio siguiente, para ofrecer ampliarlo cuando hay poco; `null` en el máximo. */
+    widerRadiusKm: Int? = null,
+    onWiden: (Int) -> Unit = {},
     selected: Place?,
     onSelect: (Place) -> Unit,
     onDetails: (Place) -> Unit,
@@ -190,6 +194,17 @@ fun BoxScope.HomeOverlay(
                     onAdd = { onAdd(place) },
                     onNavigate = { onNavigate(place) },
                 )
+            }
+            // Con poco dentro del radio, ampliarlo de un toque: lo mismo que en Ajustes.
+            if (places.size < FEW_PLACES && widerRadiusKm != null) {
+                item(key = "ampliar") {
+                    CarSecondaryButton(
+                        label = stringResource(R.string.widen_radius, widerRadiusKm),
+                        onClick = { onWiden(widerRadiusKm) },
+                        dense = true,
+                        modifier = Modifier.fillMaxWidth().padding(top = d.spaceXs),
+                    )
+                }
             }
         }
         notices.forEach { notice ->
@@ -325,6 +340,8 @@ private fun glyphOf(category: String?): Glyph = when (category) {
 }
 
 private const val PANEL_SHARE = 0.40f
+/** Menos que esto en la lista, y se ofrece ampliar el radio. */
+private const val FEW_PLACES = 3
 /** La pestaña de "Qué ver", que no es una búsqueda. */
 private const val AROUND = "\u0000around"
 private val THUMB = 44.dp

@@ -1016,6 +1016,8 @@ class MainActivity : ComponentActivity() {
                                                 shortcuts = shortcutsUi,
                                                 activeSearch = searchShown,
                                                 radiusKm = radiusKm,
+                                                widerRadiusKm = RADII_KM.firstOrNull { it > radiusKm },
+                                                onWiden = ::setRadius,
                                                 selected = selectedPlace,
                                                 onSelect = { homeSelected.value = it },
                                                 onDetails = { panel = Panel.Detail(it) },
