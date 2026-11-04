@@ -49,6 +49,7 @@ import androidx.lifecycle.lifecycleScope
 import com.secretworld.auto.core.data.CatalogueRepository
 import com.secretworld.auto.core.data.DeviceIdentity
 import com.secretworld.auto.core.data.MapCredentials
+import com.secretworld.auto.core.data.PlaceImages
 import com.secretworld.auto.core.data.SecretWorldApi
 import com.secretworld.auto.core.designsystem.CarSecondaryButton
 import com.secretworld.auto.core.designsystem.CarTheme
@@ -149,6 +150,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -226,6 +228,43 @@ class MainActivity : ComponentActivity() {
 
     /** La última búsqueda de una pestaña, para repetirla si cambia el radio. */
     private var lastSearch: Pair<String, String?>? = null
+
+    // ------------------------------------------------------------------ imágenes
+
+    private val imagePrefs by lazy { getSharedPreferences("place_images", MODE_PRIVATE) }
+    private val placeImages by lazy {
+        PlaceImages(object : PlaceImages.Memory {
+            override fun get(id: String): String? = imagePrefs.getString(id, null)
+            override fun put(id: String, url: String) = imagePrefs.edit().putString(id, url).apply()
+        })
+    }
+
+    /** Las imágenes encontradas para sitios que no traían la suya, por id. */
+    private val images = MutableStateFlow<Map<String, String>>(emptyMap())
+    private val picturing = mutableSetOf<String>()
+    private val pictureGate = kotlinx.coroutines.sync.Semaphore(PICTURE_PARALLEL)
+
+    /**
+     * Busca, en segundo plano y de pocas en pocas, la imagen de cada sitio: la
+     * suya si responde, otra si no la tiene o no carga.
+     */
+    private fun picture(places: List<Place>) {
+        places.filter { it.id !in images.value && picturing.add(it.id) }.forEach { place ->
+            lifecycleScope.launch {
+                val url = pictureGate.withPermit { placeImages.find(place, language, mapKeys.mapboxToken()) }
+                if (url != null) images.value = images.value + (place.id to url)
+            }
+        }
+    }
+
+    /** Con la imagen comprobada o encontrada; mientras tanto, la que traiga. */
+    private fun Place.pictured(known: Map<String, String> = images.value): Place =
+        known[id]?.takeIf { it != imageUrl }?.let { copy(imageUrl = it) } ?: this
+
+    private fun List<Place>.pictured(known: Map<String, String> = images.value): List<Place> = map { it.pictured(known) }
+
+    private fun FlyoverState.pictured(known: Map<String, String>): FlyoverState =
+        copy(stops = stops.pictured(known), candidates = candidates.pictured(known), focus = focus?.pictured(known))
 
     /** El sitio elegido en la lista o el mapa del inicio: la cámara vuela a él. */
     private val homeSelected = MutableStateFlow<Place?>(null)
@@ -414,6 +453,25 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Las imágenes, identificándose: Wikimedia devuelve 403 a quien no lo hace,
+        // y las fotos de Wikipedia se quedaban en la inicial.
+        coil3.SingletonImageLoader.setSafe { context ->
+            coil3.ImageLoader.Builder(context)
+                .components {
+                    add(
+                        coil3.network.okhttp.OkHttpNetworkFetcherFactory(
+                            callFactory = {
+                                okhttp3.OkHttpClient.Builder()
+                                    .addInterceptor { chain ->
+                                        chain.proceed(chain.request().newBuilder().header("User-Agent", IMAGE_USER_AGENT).build())
+                                    }
+                                    .build()
+                            },
+                        ),
+                    )
+                }
+                .build()
+        }
         // De borde a borde: el mapa llega hasta el filo de la pantalla. Cualquier
         // franja del sistema que quede encima la dibuja el vehículo, no nosotros.
         // El tono lo decide el sabor, no el sistema: los iconos de las barras
@@ -809,7 +867,11 @@ class MainActivity : ComponentActivity() {
                 val results = searchResults.collectAsState().value
 
                 val inPip by pip.collectAsState()
+                val imgs by images.collectAsState()
                 LaunchedEffect(Unit) { refreshSaved() }
+                // Las imágenes de lo que se enseña, en cuanto se enseña.
+                LaunchedEffect(upcoming.map { it.id }) { picture(upcoming) }
+                LaunchedEffect(results.map { it.id }) { picture(results) }
                 val searchUi = searchShown?.let { query ->
                     SearchUi(
                         title = if (query.endsWith(SIMILAR_MARK)) {
@@ -819,7 +881,7 @@ class MainActivity : ComponentActivity() {
                         } else {
                             stringResource(com.secretworld.auto.feature.discover.R.string.search_nearby, query.replaceFirstChar { it.uppercase() })
                         },
-                        places = results,
+                        places = results.pictured(imgs),
                     )
                 }
                 // Tocar una sugerencia es decirla: pasa por el mismo camino que la voz.
@@ -848,7 +910,8 @@ class MainActivity : ComponentActivity() {
                         // fondo, y el panel a la izquierda. Con un itinerario a la vista,
                         // su mapa lo tapa todo y este no se dibuja.
                         if (flyNow == null) {
-                            val places = searchUi?.places ?: around
+                            LaunchedEffect(around.map { it.id }) { picture(around) }
+                            val places = searchUi?.places ?: around.pictured(imgs)
                             val selectedPlace = homeAt?.takeIf { chosen -> places.any { it.id == chosen.id } }
                             val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
                             TourFlyover(
@@ -879,7 +942,7 @@ class MainActivity : ComponentActivity() {
                                         notices = notices,
                                         tour = tourUi,
                                         search = searchUi,
-                                        nearby = around,
+                                        nearby = around.pictured(imgs),
                                         origin = vehicleState.position,
                                         navigation = navigationUi,
                                         shortcuts = shortcutsUi,
@@ -914,7 +977,7 @@ class MainActivity : ComponentActivity() {
                             notices = notices,
                             tour = tourUi,
                             search = searchUi,
-                            nearby = upcoming,
+                            nearby = upcoming.pictured(imgs),
                             origin = vehicleState.position,
                             navigation = navigationUi,
                             // Tocar una sugerencia es decirla: pasa por el mismo camino que la voz.
@@ -984,8 +1047,9 @@ class MainActivity : ComponentActivity() {
                     LaunchedEffect(flying) { if (flying && mapboxToken == null) mapboxToken = mapKeys.mapboxToken() }
                     // Con "Mis itinerarios" abierta, también en compacto: es su fondo.
                     fly?.takeIf { (!compact || shelf != null) && !inPip }?.let { state ->
+                        LaunchedEffect(state.stops.map { it.id }, state.candidates.map { it.id }) { picture(state.stops + state.candidates) }
                         TourFlyover(
-                            state = state,
+                            state = state.pictured(imgs),
                             mapboxToken = mapboxToken,
                             onIntroDone = { flyover.value = flyover.value?.copy(intro = false) },
                             onAddPlace = { place ->
@@ -1653,7 +1717,8 @@ class MainActivity : ComponentActivity() {
     /** Guarda lo confirmado: encima del que se estaba cambiando, o como uno nuevo. */
     private fun saveCurrent(proposal: ItineraryProposal) {
         val id = editingId ?: savedItineraries.newId().also { editingId = it }
-        savedItineraries.save(id, proposal)
+        // Con las imágenes encontradas: así el guardado las trae al abrirlo.
+        savedItineraries.save(id, proposal.copy(stops = proposal.stops.pictured()))
         refreshSaved()
     }
 
@@ -1672,6 +1737,7 @@ class MainActivity : ComponentActivity() {
      */
     private fun showLibrary(selectId: String?) {
         val all = savedList()
+        all.forEach { picture(it.proposal.stops) }
         savedCount.value = all.size
         planJob?.cancel()
         drafting.value = false
@@ -1762,7 +1828,7 @@ class MainActivity : ComponentActivity() {
 
     /** Lo que enseña la ventana de cada guardado. */
     private fun savedUiOf(item: SavedItinerary): SavedItineraryUi {
-        val stops = item.proposal.stops
+        val stops = item.proposal.stops.pictured()
         val date = java.time.Instant.ofEpochMilli(item.savedAt).atZone(java.time.ZoneId.systemDefault())
             .format(java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.forLanguageTag(language.code)))
         return SavedItineraryUi(
@@ -1930,7 +1996,7 @@ class MainActivity : ComponentActivity() {
             val arrival = plan.arrivals.getOrNull(index)
             val stay = plan.stays.getOrNull(index)
             TourStopUi(
-                place = place,
+                place = place.pictured(),
                 time = arrival?.let(::clock).orEmpty(),
                 lunchAfter = plan.mealAfter == index && index < plan.stops.lastIndex,
                 until = if (arrival != null && stay != null) clock(arrival + stay) else "",
@@ -2581,6 +2647,9 @@ class MainActivity : ComponentActivity() {
 
         /** Cuántos resultados de búsqueda se enseñan, y cuántos se dicen. */
         const val SEARCH_SHOWN = 8
+        /** Búsquedas de imágenes a la vez: más, y Wikipedia limita. */
+        const val PICTURE_PARALLEL = 4
+        const val IMAGE_USER_AGENT = "SecretWorldAuto/0.1 (https://sworld.co.uk; bench build)"
         /** Dentro del radio de acción: todos los que haya, hasta un tope razonable. */
         const val SEARCH_RADIUS_SHOWN = 40
         const val RADIUS_KEY = "radius_km"
