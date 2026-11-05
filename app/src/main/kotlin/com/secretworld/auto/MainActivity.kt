@@ -152,6 +152,8 @@ import com.secretworld.auto.feature.voice.SharedLanguageModel
 import com.secretworld.auto.feature.voice.VoiceInstaller
 import com.secretworld.auto.feature.voice.NarrationController
 import com.secretworld.auto.feature.voice.OnDeviceVoiceInput
+import com.secretworld.auto.feature.voice.PleosLanguageModel
+import com.secretworld.auto.feature.voice.PleosSpeaker
 import com.secretworld.auto.feature.voice.SystemVoiceInput
 import com.secretworld.auto.feature.voice.TranslatingNarrationTexts
 import com.secretworld.auto.feature.voice.VoiceInput
@@ -388,6 +390,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var handsFree: HandsFree
     private lateinit var resolver: IntentResolver
     private val voiceInstaller by lazy { VoiceInstaller(this) }
+
+    /** Con la voz de Pleos, cualquiera: lo que no sepa decir lo dirá la plataforma. */
+    private fun availableLanguages(): List<VoiceLanguage> =
+        if (BuildConfig.PLEOS_SERVICES) VoiceLanguage.entries.toList() else voiceInstaller.availableLanguages()
     private val areas = NominatimAreas()
     private val whereAmI by lazy { WhereAmI(this) }
     private val grammar by lazy { GrammarIntentResolver(language) }
@@ -450,6 +456,9 @@ class MainActivity : ComponentActivity() {
     private val modelsStage = MutableStateFlow(LoadingStage.LISTENING)
     private var onDevice: OnDeviceVoiceInput? = null
     private var gemma: GemmaLanguageModel? = null
+
+    /** El LLM de la plataforma, en la versión para Pleos. */
+    private var pleosLlm: PleosLanguageModel? = null
 
     /**
      * Si el micrófono está listo para escuchar. Los modelos en el dispositivo
@@ -542,7 +551,13 @@ class MainActivity : ComponentActivity() {
         // narración traduce con él lo que el catálogo no tenga en el idioma.
         setUpVoice()
         val texts = gemma?.let { TranslatingNarrationTexts(this, catalogue, it) } ?: catalogue
-        narration = NarrationController(this, texts, lifecycleScope, language)
+        narration = NarrationController(
+            this,
+            texts,
+            lifecycleScope,
+            language,
+            speaker = if (BuildConfig.PLEOS_SERVICES) PleosSpeaker(this) else null,
+        )
         val modeController = DrivingModeController(vehicle, lifecycleScope)
 
         setContent {
@@ -1304,7 +1319,7 @@ class MainActivity : ComponentActivity() {
             Panel.Settings -> SettingsPanel(
                 // Cada idioma con su propio nombre: quien no entiende el actual
                 // tiene que poder encontrar el suyo.
-                languages = voiceInstaller.availableLanguages().map { available ->
+                languages = availableLanguages().map { available ->
                     LanguageOption(
                         code = available.code,
                         label = available.say(en = "English", es = "Español", it = "Italiano"),
@@ -1560,7 +1575,7 @@ class MainActivity : ComponentActivity() {
             }
 
             is VoiceCommand.SwitchLanguage -> {
-                if (command.language !in voiceInstaller.availableLanguages()) {
+                if (command.language !in availableLanguages()) {
                     // Sin voz en ese idioma no se puede hablar en él: se dice, no se finge.
                     val reply = language.say(
                         en = "I don't have that language on this device.",
@@ -2053,7 +2068,7 @@ class MainActivity : ComponentActivity() {
         // Una palabra suelta no se le pregunta: "para" llegó a leerse como
         // "guárdalo" y, ya guardado, arrancó la ruta.
         if (heard.trim().split(Regex("\\s+")).size < MODEL_MIN_WORDS) return false
-        val model = gemma?.takeIf { it.ready } ?: return false
+        val model: com.secretworld.auto.domain.LanguageModel = (gemma ?: pleosLlm)?.takeIf { it.ready } ?: return false
         itinerary.restore(pending)
         lifecycleScope.launch {
             val heardAs = try {
@@ -2600,6 +2615,7 @@ class MainActivity : ComponentActivity() {
      * que [ModelStore] encuentra (SPEC RF-1.8.7–1.8.9).
      */
     private fun setUpVoice() {
+        if (BuildConfig.PLEOS_SERVICES) return setUpPleosVoice()
         val models = ModelStore(this)
         val local = OnDeviceVoiceInput(this, models, language)
         val llm = SharedLanguageModel.get(this)
@@ -2640,6 +2656,35 @@ class MainActivity : ComponentActivity() {
             gemma?.load()?.onFailure { Log.e("SWVoice", "LLM", it) }
             gemma?.warm(IntentPrompt.PREFIX)
         }
+    }
+
+    /**
+     * La versión para Pleos: nada propio. Escucha con el reconocedor estándar de
+     * Android, que en Pleos es el de la plataforma (`ai.umos.ambientai`), y lo
+     * que la gramática no entiende va al LLM de la caas. La voz la pone
+     * [PleosSpeaker], en el [NarrationController].
+     */
+    private fun setUpPleosVoice() {
+        voiceInput = SystemVoiceInput(this, language)
+        handsFree = HandsFree(voiceInput, lifecycleScope)
+        val llm = PleosLanguageModel(this).also { pleosLlm = it }
+        resolver = LayeredIntentResolver(
+            grammar = grammar,
+            fallback = LlmIntentResolver(llm, position = { vehicle.state.value.position }, language = language) {
+                Log.e("SWVoice", "el LLM de Pleos no contestó", it)
+            },
+        )
+        // Para quien lo pruebe: qué reconocedor resuelve el sistema y si está la caas.
+        val recognizers = packageManager.queryIntentServices(android.content.Intent(android.speech.RecognitionService.SERVICE_INTERFACE), 0)
+            .joinToString { "${it.serviceInfo.packageName}/${it.serviceInfo.name}" }
+        Log.i(
+            "SWPleos",
+            "reconocedores: ${recognizers.ifEmpty { "ninguno" }} · " +
+                "disponible: ${android.speech.SpeechRecognizer.isRecognitionAvailable(this)} · " +
+                "caas: ${runCatching { packageManager.getPackageInfo("ai.pleos.playground.caas", 0).versionName }.getOrNull() ?: "no instalada"}",
+        )
+        llm.load()
+        voiceReady.value = true
     }
 
     /**
@@ -2806,6 +2851,7 @@ class MainActivity : ComponentActivity() {
         // Solo al salir de verdad: al reabrirse —cambio de idioma— el modelo se
         // queda cargado para la actividad nueva.
         if (isFinishing) gemma?.release()
+        pleosLlm?.release()
     }
 
     private sealed interface Panel {

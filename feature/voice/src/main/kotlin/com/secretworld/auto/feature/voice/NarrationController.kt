@@ -33,6 +33,11 @@ class NarrationController(
     private val textSource: NarrationTextSource,
     private val scope: CoroutineScope,
     private val language: VoiceLanguage = VoiceLanguage.ENGLISH,
+    /**
+     * La voz de la plataforma, si la hay: habla ella misma. Entonces no se
+     * sintetiza ni se guarda nada, y el motor propio ni se carga.
+     */
+    private val speaker: LiveSpeaker? = null,
 ) {
 
     sealed interface State {
@@ -54,17 +59,21 @@ class NarrationController(
     private val replies = File(context.cacheDir, "replies").apply { mkdirs() }
 
     private val installer = VoiceInstaller(context)
-    private val synthesizer = PiperSpeechSynthesizer(installer)
+    // Perezosos: con la voz de la plataforma no se llegan a crear, y así no se
+    // cargan los motores nativos, que en esa versión ni van en el APK.
+    private val synthesizer by lazy { PiperSpeechSynthesizer(installer) }
     private val store = DiskNarrationStore(context.filesDir)
     private val player = NarrationPlayer(context)
 
-    private val prefetcher = NarrationPrefetcher(
+    private val prefetcher by lazy {
+        NarrationPrefetcher(
         store = store,
         synthesizer = synthesizer,
         textSource = textSource,
         budgetBytes = 30L * 1024 * 1024,
         lookahead = 2,
-    )
+        )
+    }
 
     /** Evita que varias recomposiciones disparen prefetches simultaneos. */
     private val prefetching = AtomicBoolean(false)
@@ -81,11 +90,11 @@ class NarrationController(
     private val _state = MutableStateFlow<State>(State.Idle)
     val state: StateFlow<State> = _state.asStateFlow()
 
-    val voiceInstalled: Boolean get() = installer.isInstalled(language)
+    val voiceInstalled: Boolean get() = speaker != null || installer.isInstalled(language)
 
     /** Instala la voz si falta. Idempotente. */
     fun ensureVoice() {
-        if (installer.isInstalled(language)) return
+        if (speaker != null || installer.isInstalled(language)) return
         scope.launch(Dispatchers.IO) {
             // El avance de verdad, fase a fase: antes saltaba a 100 % al empezar a
             // descomprimir y se quedaba ahí veinte segundos.
@@ -112,7 +121,7 @@ class NarrationController(
 
     /** Prepara por delante los siguientes lugares de la cola. */
     fun prefetch(queue: List<Place>) {
-        if (queue.isEmpty()) return
+        if (queue.isEmpty() || speaker != null) return
         lastQueue = queue
         if (!installer.isInstalled(language)) return
         if (!prefetching.compareAndSet(false, true)) return
@@ -129,7 +138,7 @@ class NarrationController(
     }
 
     /** Si la narración de [place] ya está sintetizada y suena al instante. */
-    fun isPrepared(place: Place): Boolean = store.has(place.id, language)
+    fun isPrepared(place: Place): Boolean = speaker == null && store.has(place.id, language)
 
     /**
      * Narra [place]. Si ya estaba sintetizado suena al instante; si no, se
@@ -139,6 +148,19 @@ class NarrationController(
     fun listen(place: Place) {
         Log.i(TAG, "listen: ${place.id} ${place.name}")
         saying?.cancel()
+        speaker?.let { live ->
+            saying = scope.launch(Dispatchers.IO) {
+                val text = textSource.textFor(place, language)
+                if (text.isNullOrBlank()) {
+                    _state.value = State.Failed("no hay texto para ${place.name}")
+                    return@launch
+                }
+                _state.value = State.Playing(place.name, durationMs = 0)
+                speakLive(live, text)
+                _state.value = State.Idle
+            }
+            return
+        }
         saying = scope.launch(Dispatchers.IO) {
             if (!installer.isInstalled(language)) {
                 _state.value = State.Failed("todavia no hay voz instalada")
@@ -198,6 +220,15 @@ class NarrationController(
      */
     fun say(text: String, onDone: (() -> Unit)? = null) {
         saying?.cancel()
+        speaker?.let { live ->
+            saying = scope.launch(Dispatchers.IO) {
+                _state.value = State.Speaking(text, preparing = false)
+                speakLive(live, text)
+                _state.value = State.Idle
+                withContext(Dispatchers.Main) { onDone?.invoke() }
+            }
+            return
+        }
         saying = scope.launch(Dispatchers.IO) {
             if (!installer.isInstalled(language)) {
                 _state.value = State.Failed("todavia no hay voz instalada")
@@ -229,6 +260,21 @@ class NarrationController(
             // ejemplo— va aquí y no antes: abrir el micrófono mientras suena la
             // respuesta es transcribirse a uno mismo.
             withContext(Dispatchers.Main) { onDone?.invoke() }
+        }
+    }
+
+    /** Con la voz de la plataforma, frase a frase: así "para" corta enseguida. */
+    private suspend fun speakLive(live: LiveSpeaker, text: String) {
+        try {
+            for (sentence in sentences(text)) {
+                if (!live.speak(sentence, language)) {
+                    Log.w(TAG, "la voz de la plataforma no pudo decir: «$sentence»")
+                    break
+                }
+            }
+        } catch (e: CancellationException) {
+            live.stop()
+            throw e
         }
     }
 
@@ -278,7 +324,7 @@ class NarrationController(
      * primera vez que hagan falta ya estén. Se llama cuando la voz está instalada.
      */
     fun prewarm(texts: List<String>) {
-        if (!installer.isInstalled(language)) return
+        if (speaker != null || !installer.isInstalled(language)) return
         scope.launch(Dispatchers.IO) {
             // La voz, cargada ya: la primera frase que no esté preparada no
             // debe pagar además la carga del modelo.
@@ -302,6 +348,7 @@ class NarrationController(
 
     fun stop() {
         saying?.cancel()
+        speaker?.stop()
         player.stop()
         _state.value = State.Idle
     }
@@ -312,7 +359,7 @@ class NarrationController(
      */
     fun release() {
         stop()
-        synthesizer.release()
+        if (speaker != null) speaker.release() else synthesizer.release()
     }
 
     /** Posicion actual de la reproduccion, para que la pantalla no mienta. */

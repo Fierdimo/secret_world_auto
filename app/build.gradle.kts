@@ -24,6 +24,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     flavorDimensions += "target"
@@ -31,6 +32,7 @@ android {
         // El producto, para Pleos Connect.
         create("vehicle") {
             dimension = "target"
+            buildConfigField("boolean", "PLEOS_SERVICES", "false")
         }
         // Banco de pruebas para tablet o movil: mismo codigo, sin exigir
         // hardware de automocion, y con la voz inglesa dentro del APK para
@@ -39,6 +41,7 @@ android {
             dimension = "target"
             applicationIdSuffix = ".bench"
             versionNameSuffix = "-bench"
+            buildConfigField("boolean", "PLEOS_SERVICES", "false")
         }
         // La demo para el cliente: el banco de pruebas en un movil, con tema
         // claro, en italiano y con todo dentro del APK (ver sourceSets).
@@ -46,9 +49,24 @@ android {
             dimension = "target"
             applicationIdSuffix = ".demo"
             versionNameSuffix = "-demo"
+            buildConfigField("boolean", "PLEOS_SERVICES", "false")
             // Se envia como APK suelto, no por tienda: el release va firmado con
             // la clave de depuracion para que se pueda instalar sin mas. Release
             // y no debug porque Compose en debug va a tirones.
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        // Para probar en el emulador de Pleos —la imagen Connect-W, x86_64—: la
+        // demo sin nada de voz ni de IA dentro. Habla, escucha y piensa con los
+        // servicios de la plataforma (ver docs/PLEOS-SDK-SURFACE.md), así que el
+        // APK no lleva modelos ni los motores nativos que los ejecutan.
+        create("pleos") {
+            dimension = "target"
+            applicationIdSuffix = ".pleos"
+            versionNameSuffix = "-pleos"
+            buildConfigField("boolean", "PLEOS_SERVICES", "true")
+            ndk {
+                abiFilters += "x86_64"
+            }
             signingConfig = signingConfigs.getByName("debug")
         }
         // Mapbox se enlaza SOLO en el banco de pruebas y la demo. El APK del vehículo no lo
@@ -63,6 +81,10 @@ android {
         getByName("demo") {
             kotlin.directories += "src/bench/kotlin"
             manifest.srcFile("src/bench/AndroidManifest.xml")
+        }
+        // El mismo código que la demo, con su propio manifiesto: el de un coche.
+        getByName("pleos") {
+            kotlin.directories += "src/bench/kotlin"
         }
     }
 
@@ -94,8 +116,26 @@ dependencies {
     "benchImplementation"(libs.mapbox.compose)
     "demoImplementation"(libs.mapbox.maps)
     "demoImplementation"(libs.mapbox.compose)
+    "pleosImplementation"(libs.mapbox.maps)
+    "pleosImplementation"(libs.mapbox.compose)
 
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.kotlinx.coroutines.core)
+}
+
+// Sin los motores nativos de voz y de LLM en el sabor pleos: allí no se usan y
+// son la mayor parte del peso. Sus clases siguen en el APK, pero nunca se cargan.
+androidComponents {
+    onVariants(selector().withFlavor("target" to "pleos")) { variant ->
+        variant.packaging.jniLibs.excludes.addAll(
+            listOf(
+                "**/libllm_inference_engine_jni.so",
+                "**/libonnxruntime.so",
+                "**/libsherpa-onnx-jni.so",
+                "**/libsherpa-onnx-c-api.so",
+                "**/libsherpa-onnx-cxx-api.so",
+            ),
+        )
+    }
 }
