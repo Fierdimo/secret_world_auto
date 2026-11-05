@@ -56,7 +56,7 @@ class VoiceInstaller(private val context: Context) {
      * Descarga, verifica e instala. Bloquea: llamar desde un hilo de fondo.
      * Informa por [onProgress] para que la UI pueda enseñar algo honesto.
      */
-    fun install(language: VoiceLanguage, onProgress: (Progress) -> Unit = {}): Result<File> {
+    fun install(language: VoiceLanguage, onFraction: (Float) -> Unit = {}, onProgress: (Progress) -> Unit = {}): Result<File> {
         val pack = VoiceCatalog.packFor(language)
             ?: return Result.failure(IllegalArgumentException("no hay voz para ${language.code}"))
 
@@ -78,6 +78,7 @@ class VoiceInstaller(private val context: Context) {
             target = target,
             workName = "voice-${language.code}",
             onProgress = onProgress,
+            onFraction = onFraction,
         )
     }
 }

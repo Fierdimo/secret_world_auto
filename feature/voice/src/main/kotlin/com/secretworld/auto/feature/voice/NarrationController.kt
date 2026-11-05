@@ -87,13 +87,13 @@ class NarrationController(
     fun ensureVoice() {
         if (installer.isInstalled(language)) return
         scope.launch(Dispatchers.IO) {
-            installer.install(language) { progress ->
+            // El avance de verdad, fase a fase: antes saltaba a 100 % al empezar a
+            // descomprimir y se quedaba ahí veinte segundos.
+            installer.install(language, onFraction = { f -> _state.value = State.InstallingVoice((f * 100).toInt().coerceAtMost(99)) }) { progress ->
                 when (progress) {
-                    is VoiceInstaller.Progress.Downloading ->
-                        _state.value = State.InstallingVoice((progress.fraction * 100).toInt())
+                    is VoiceInstaller.Progress.Downloading,
                     VoiceInstaller.Progress.Verifying,
-                    VoiceInstaller.Progress.Extracting ->
-                        _state.value = State.InstallingVoice(100)
+                    VoiceInstaller.Progress.Extracting -> Unit
                     is VoiceInstaller.Progress.Done -> {
                         // Voz nueva: lo sintetizado con la anterior sonaría
                         // con otra voz. Se tira y se vuelve a preparar.

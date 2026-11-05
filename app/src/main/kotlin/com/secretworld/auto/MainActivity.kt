@@ -121,6 +121,8 @@ import com.secretworld.auto.feature.discover.RoutePanel
 import com.secretworld.auto.feature.discover.AssistantScreen
 import com.secretworld.auto.feature.discover.AddToPicker
 import com.secretworld.auto.feature.discover.HomeOverlay
+import com.secretworld.auto.feature.discover.LoadingScreen
+import com.secretworld.auto.feature.discover.LoadingStage
 import com.secretworld.auto.feature.discover.ItineraryLibraryOverlay
 import com.secretworld.auto.feature.discover.ItineraryOverlay
 import com.secretworld.auto.feature.discover.SavedItineraryUi
@@ -440,6 +442,9 @@ class MainActivity : ComponentActivity() {
      * `null` si no hay nada que instalar. Solo ocurre en el primer arranque.
      */
     private val modelsPercent = MutableStateFlow<Int?>(null)
+
+    /** Qué modelo se está descomprimiendo, para la pantalla de carga. */
+    private val modelsStage = MutableStateFlow(LoadingStage.LISTENING)
     private var onDevice: OnDeviceVoiceInput? = null
     private var gemma: GemmaLanguageModel? = null
 
@@ -1194,6 +1199,24 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+
+                    // El primer arranque, a pantalla completa como la carga de un juego:
+                    // mientras se descomprimen la voz y los modelos. Se va con un
+                    // fundido que se aleja, y debajo ya está la app.
+                    val stageNow by modelsStage.collectAsState()
+                    val voicePercent = (narrationState as? NarrationController.State.InstallingVoice)?.percent
+                    val loadingPercent = modelsPercentNow ?: voicePercent
+                    val loadingStage = if (modelsPercentNow == null) LoadingStage.VOICE else stageNow
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = loadingPercent != null && !inPip,
+                        enter = androidx.compose.animation.fadeIn(snap()),
+                        exit = androidx.compose.animation.fadeOut(tween(LOADING_EXIT_MS)) +
+                            androidx.compose.animation.scaleOut(tween(LOADING_EXIT_MS), targetScale = 1.08f),
+                    ) {
+                        var lastPercent by remember { mutableStateOf(0) }
+                        loadingPercent?.let { lastPercent = it }
+                        LoadingScreen(stage = loadingStage, percent = lastPercent)
+                    }
                 }
             }
         }
@@ -2625,7 +2648,13 @@ class MainActivity : ComponentActivity() {
         val packs = models.listening(language) + ModelCatalog.DENOISER + ModelCatalog.LLM
         if (packs.none { !models.isAvailable(it) && models.isBundled(it) }) return
         withContext(Dispatchers.IO) {
-            val failed = models.installBundled(packs) { modelsPercent.value = it }
+            val failed = models.installBundled(
+                packs,
+                onPack = { pack ->
+                    modelsStage.value = if (pack.id.contains("llm")) LoadingStage.ASSISTANT else LoadingStage.LISTENING
+                },
+                onPercent = { modelsPercent.value = it },
+            )
             failed.forEach { Log.e("SWVoice", "no se pudo instalar ${it.id} desde el APK") }
         }
         modelsPercent.value = null
@@ -2852,6 +2881,7 @@ class MainActivity : ComponentActivity() {
         const val SEARCH_SHOWN = 8
         /** Búsquedas de imágenes a la vez: más, y Wikipedia limita. */
         const val PICTURE_PARALLEL = 4
+        const val LOADING_EXIT_MS = 600
         const val SAY_ACTION = "com.secretworld.auto.SAY"
         /** Fuera de escena: el panel ocupa el 40 % izquierdo, y un poco más para que no asome. */
         const val HUD_OFFSTAGE = 0.45f

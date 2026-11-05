@@ -43,4 +43,7 @@
     <string name="nothing_within">Niente entro %1$d km</string>
     <string name="add_to_title">Aggiungi %1$s a…</string>
     <string name="add_to_new">Nuovo itinerario</string>
+    <string name="loading_voice">Preparo la voce</string>
+    <string name="loading_listening">Affino l\'udito</string>
+    <string name="loading_assistant">Sveglio l\'assistente</string>
 </resources>

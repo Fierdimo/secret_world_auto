@@ -31,6 +31,8 @@ internal class PackInstaller(private val context: Context) {
         target: File,
         workName: String,
         onProgress: (VoiceInstaller.Progress) -> Unit,
+        /** Lo hecho de este paquete, de 0 a 1, en las tres fases: copiar, comprobar y descomprimir. */
+        onFraction: (Float) -> Unit = {},
     ): Result<File> {
         val work = File(context.cacheDir, workName)
         work.deleteRecursively()
@@ -40,20 +42,20 @@ internal class PackInstaller(private val context: Context) {
         return runCatching {
             if (bundledAsset != null) {
                 Log.i(TAG, "instalando $workName desde el propio APK")
-                copyAsset(bundledAsset, archive, expectedBytes, onProgress)
+                copyAsset(bundledAsset, archive, expectedBytes, onProgress) { onFraction(COPY_SHARE * it) }
             } else {
                 download(url, archive, expectedBytes, onProgress)
             }
 
             onProgress(VoiceInstaller.Progress.Verifying)
-            val actual = sha256Of(archive)
+            val actual = sha256Of(archive) { onFraction(COPY_SHARE + VERIFY_SHARE * it) }
             require(actual.equals(sha256, ignoreCase = true)) {
                 "checksum no coincide: esperado ${sha256.take(16)}, obtenido ${actual.take(16)}"
             }
 
             onProgress(VoiceInstaller.Progress.Extracting)
             val staging = File(work, "out")
-            unzip(archive, staging)
+            unzip(archive, staging) { onFraction(COPY_SHARE + VERIFY_SHARE + (1 - COPY_SHARE - VERIFY_SHARE) * it) }
 
             // Instalacion atomica: se monta aparte y se mueve al final, para que
             // nunca exista un directorio a medias.
@@ -87,6 +89,7 @@ internal class PackInstaller(private val context: Context) {
         into: File,
         expectedBytes: Long,
         onProgress: (VoiceInstaller.Progress) -> Unit,
+        onFraction: (Float) -> Unit = {},
     ) {
         var read = 0L
         context.assets.open(assetName).use { input ->
@@ -97,6 +100,7 @@ internal class PackInstaller(private val context: Context) {
                     if (n < 0) break
                     output.write(buffer, 0, n)
                     read += n
+                    onFraction((read.toFloat() / expectedBytes.coerceAtLeast(1)).coerceAtMost(1f))
                 }
             }
         }
@@ -137,23 +141,38 @@ internal class PackInstaller(private val context: Context) {
         }
     }
 
-    private fun sha256Of(file: File): String {
+    private fun sha256Of(file: File, onFraction: (Float) -> Unit = {}): String {
         val digest = MessageDigest.getInstance("SHA-256")
+        val total = file.length().coerceAtLeast(1)
+        var read = 0L
         file.inputStream().buffered().use { input ->
             val buffer = ByteArray(64 * 1024)
             while (true) {
                 val n = input.read(buffer)
                 if (n < 0) break
                 digest.update(buffer, 0, n)
+                read += n
+                onFraction((read.toFloat() / total).coerceAtMost(1f))
             }
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private fun unzip(archive: File, into: File) {
+    private fun unzip(archive: File, into: File, onFraction: (Float) -> Unit = {}) {
         into.mkdirs()
         val root = into.canonicalPath
-        ZipInputStream(archive.inputStream().buffered()).use { zip ->
+        val total = archive.length().coerceAtLeast(1)
+        var read = 0L
+        // Cuenta lo leído del zip, no lo escrito: el total que se conoce es el del archivo.
+        val counting = object : java.io.FilterInputStream(archive.inputStream()) {
+            override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { n ->
+                if (n > 0) {
+                    read += n
+                    onFraction((read.toFloat() / total).coerceAtMost(1f))
+                }
+            }
+        }
+        ZipInputStream(counting.buffered()).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
                 val out = File(into, entry.name)
@@ -172,5 +191,8 @@ internal class PackInstaller(private val context: Context) {
 
     private companion object {
         const val TAG = "SWVoice"
+        /** Lo que pesa cada fase en la barra: copiar del APK, comprobar y descomprimir. */
+        const val COPY_SHARE = 0.35f
+        const val VERIFY_SHARE = 0.15f
     }
 }

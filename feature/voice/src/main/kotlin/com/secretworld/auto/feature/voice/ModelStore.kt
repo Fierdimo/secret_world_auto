@@ -152,7 +152,7 @@ class ModelStore(private val context: Context) {
      * Un paquete sin `sha256` no se descarga, se rechaza: no se instala nada
      * que no se pueda verificar.
      */
-    fun install(pack: ModelPack, onProgress: (VoiceInstaller.Progress) -> Unit = {}): Result<File> {
+    fun install(pack: ModelPack, onProgress: (VoiceInstaller.Progress) -> Unit = {}, onFraction: (Float) -> Unit = {}): Result<File> {
         dirFor(pack)?.let {
             onProgress(VoiceInstaller.Progress.Done(it))
             return Result.success(it)
@@ -172,6 +172,7 @@ class ModelStore(private val context: Context) {
             target = installDir(pack),
             workName = "model-${pack.id}",
             onProgress = onProgress,
+            onFraction = onFraction,
         )
     }
 
@@ -207,13 +208,23 @@ class ModelStore(private val context: Context) {
      * la demo funcione sola, sin adb ni CDN. Bloquea: llamar desde un hilo de
      * fondo. Informa del avance total, por bytes, de 0 a 100.
      */
-    fun installBundled(packs: List<ModelPack>, onPercent: (Int) -> Unit = {}): List<ModelPack> {
+    fun installBundled(packs: List<ModelPack>, onPack: (ModelPack) -> Unit = {}, onPercent: (Int) -> Unit = {}): List<ModelPack> {
         val pending = packs.filter { !isAvailable(it) && isBundled(it) }
         val total = pending.sumOf { it.bytes }.coerceAtLeast(1)
         var done = 0L
         val failed = pending.filter { pack ->
+            onPack(pack)
             onPercent((done * 100 / total).toInt())
-            val ok = install(pack).isSuccess
+            // Dentro de cada paquete también avanza: uno de cien megas dejaba la
+            // barra quieta medio minuto.
+            var last = -1
+            val ok = install(pack, onFraction = { f ->
+                val now = ((done + (pack.bytes * f).toLong()) * 100 / total).toInt()
+                if (now != last) {
+                    last = now
+                    onPercent(now)
+                }
+            }).isSuccess
             done += pack.bytes
             !ok
         }
