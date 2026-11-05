@@ -9,7 +9,7 @@ suggests them or the user builds them by hand; they are reviewed on an animated
 map, and when the trip starts the route goes to the user's navigation app while
 Secret World keeps guiding by voice.
 
-There are **two APKs**, because we have not been able to test the app on Pleos's
+There are **two APKs**, because I have not been able to test the app on Pleos's
 real services:
 
 | APK | For | Voice, listening and AI | Size |
@@ -21,27 +21,27 @@ real services:
 
 ## Background: why there are two versions
 
-There was some confusion about the environment at first. Testing was done on
-the **Pleos Connect v2.1.5** emulator, which runs on an Apple Silicon Mac (arm64).
-That image **does not have working versions of the Pleos services** we need:
+I was confused about the environment at first. I was testing on the
+**Pleos Connect v2.1.5** emulator, which runs on my Apple Silicon Mac (arm64).
+That image **does not have working versions of the Pleos services** I need:
 
 - Its on-device speech synthesis **only speaks Korean**; in Spanish, Italian and
   English it returns "Unsupported locale".
 - Its on-device LLM is a 0.5B model that answers in the wrong language and makes
   up facts.
-- The server mode of these services needs credentials (`registerApp`) that we do
+- The server mode of these services needs credentials (`registerApp`) that I do
   not have.
 
-So the app was developed with **its own voice, speech recognition and LLM**
-bundled in the APK, and it has been tested on a phone (Motorola moto g75 5G).
+So I developed the app with **its own voice, speech recognition and LLM**
+bundled in the APK, and I have tested it on a phone (Motorola moto g75 5G).
 
 The emulator that does represent the current platform is **Connect Waterfall**
 (`POIP_EMULATOR_33_2685.JG.CW.SYS.KOR.033.005.260810.030000-x86_64`, shared under
 *Shared with me › Pleos connect emulator › connect waterfall_emulator*). But it
-**only runs on x86_64**, and we have nowhere to run it: it does not boot on an
+**only runs on x86_64**, and I have nowhere to run it: it does not boot on an
 Apple Silicon Mac. It needs a Windows or Linux PC with hardware virtualization.
 
-So that someone with that setup can test it, we prepared the **Pleos version**:
+So that someone with that setup can test it, I prepared the **Pleos version**:
 the same app, but speaking, listening and thinking with the platform's services.
 
 ## Itinerary progress
@@ -111,15 +111,15 @@ the same app, but speaking, listening and thinking with the platform's services.
 ## Android APK (`app-demo-release.apk`)
 
 The full version, with voice, speech recognition and LLM bundled. This is the
-one that has been tested.
+one I have tested.
 
 ### Requirements
 
-Those of the device it was tested on, a **Motorola moto g75 5G**:
+Those of the device I tested it on, a **Motorola moto g75 5G**:
 
 | | Requirement |
 |---|---|
-| System | Android 16 (as on the moto g75). It starts on Android 8.1 or later, but it has only been tested on Android 16 |
+| System | Android 16 (as on the moto g75). It starts on Android 8.1 or later, but I have only tested it on Android 16 |
 | Processor | 64-bit ARM (**arm64‑v8a**). It does not run on 32-bit or x86 processors |
 | Memory | **8 GB of RAM**, as on the moto g75. The LLM (Gemma 3 1B) needs several GB free while loading |
 | Storage | **3 GB free**: the APK takes ~750 MB, and on first launch it unpacks voices and models into ~1.5 GB more |
@@ -148,13 +148,13 @@ The same app, with no voice or AI of its own:
 | LLM | The caas on-device LLM, only for what the grammar does not understand |
 | Map | Mapbox (the emulator needs internet) |
 
-Pleos has not published the client libraries for these services yet. The clients
-were written by hand from the contract read out of the caas 4.2.9 in the
+Pleos has not published the client libraries for these services yet. I wrote the
+clients by hand from the contract I read out of the caas 4.2.9 in the
 Connect‑W image: they may break with another version.
 
-**Not yet tested on Connect‑W.** On the v2.1.5 emulator it was confirmed that the
+**Not yet tested on Connect‑W.** On the v2.1.5 emulator I confirmed that the
 APK installs, receives the Pleos permissions and finds the services, but the
-emulator was so slow that we could not see it speak or listen.
+emulator was so slow that I could not see it speak or listen.
 
 How to install it, what to check and which logs to send:
 [PLEOS-TEST.md](PLEOS-TEST.md).
@@ -164,6 +164,6 @@ How to install it, what to check and which logs to send:
 - **Test the Pleos APK on Connect‑W**: confirm whether its voice speaks Spanish or
   Italian and whether the speech recognizer responds.
 - **Pleos's official libraries** (NaviHelper, `sdk.tts`, `sdk.stt` and the LLM
-  client) and the `registerApp` credentials, to replace the hand-written clients.
+  client) and the `registerApp` credentials, so I can replace the hand-written clients.
 - **The source for business photos** (Google Places or Mapillary), pending
   approval.
