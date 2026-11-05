@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Primer plano: los anillos del radar y, encima, un pin de ubicación con una
+  cerradura recortada: el sitio secreto que la app descubre. Todo dentro de la
+  zona segura del icono adaptativo (66 dp centrados de 108).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Radar -->
+    <path
+        android:pathData="M54,54m-31,0a31,31 0,1 1,62 0a31,31 0,1 1,-62 0"
+        android:strokeWidth="1.2"
+        android:strokeColor="#55E8B04B"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M54,54m-22,0a22,22 0,1 1,44 0a22,22 0,1 1,-44 0"
+        android:strokeWidth="1.2"
+        android:strokeColor="#40E8B04B"
+        android:fillColor="#00000000" />
+    <!-- Haz del radar -->
+    <path android:pathData="M54,54 L54,23 A31,31 0,0 1,81.9 40.2 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="54"
+                android:startY="54"
+                android:endX="72"
+                android:endY="26">
+                <item android:offset="0" android:color="#00E8B04B" />
+                <item android:offset="1" android:color="#55E8B04B" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Pin con la cerradura recortada (evenOdd: el hueco atraviesa el pin) -->
+    <path
+        android:fillType="evenOdd"
+        android:pathData="M54,30 C44.6,30 37,37.6 37,47 C37,59.5 54,77 54,77 C54,77 71,59.5 71,47 C71,37.6 63.4,30 54,30 Z M54,40.5 C50.7,40.5 48,43.2 48,46.5 C48,48.6 49.1,50.5 50.8,51.6 L49.3,60 L58.7,60 L57.2,51.6 C58.9,50.5 60,48.6 60,46.5 C60,43.2 57.3,40.5 54,40.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="54"
+                android:startY="30"
+                android:endX="54"
+                android:endY="77">
+                <item android:offset="0" android:color="#FFF6CF7A" />
+                <item android:offset="0.6" android:color="#FFE8B04B" />
+                <item android:offset="1" android:color="#FFB9822A" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>
