@@ -42,6 +42,8 @@ class DeviceVehicleSource(
     var located: Boolean = false
         private set
 
+    private var lastFix = 0L
+
     private val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     private var listening = false
 
@@ -80,20 +82,29 @@ class DeviceVehicleSource(
             Log.w(TAG, "sin permiso de ubicación: el vehículo se queda en el punto de partida")
             return
         }
-        val provider = when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && manager.isProviderEnabled(LocationManager.FUSED_PROVIDER) -> LocationManager.FUSED_PROVIDER
-            precise && manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
-            manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
-            else -> {
-                Log.w(TAG, "ningún proveedor de ubicación activo")
-                return
-            }
+        // Todos los que haya, no uno: en el emulador —y en algún coche— la
+        // posición llega por el GPS y el fusionado no la reenvía, y la app se
+        // quedaba en el punto de partida. Apagados también: empiezan a dar
+        // posiciones en cuanto se encienden, sin volver a llamar aquí.
+        val providers = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) add(LocationManager.FUSED_PROVIDER)
+            if (precise) add(LocationManager.GPS_PROVIDER)
+            add(LocationManager.NETWORK_PROVIDER)
+        }.filter { it in manager.allProviders }
+        if (providers.isEmpty()) {
+            Log.w(TAG, "ningún proveedor de ubicación")
+            return
         }
-        // La última posición conocida, para no esperar al primer fix.
-        manager.getLastKnownLocation(provider)?.let(::publish)
-        manager.requestLocationUpdates(provider, MIN_INTERVAL_MS, MIN_DISTANCE_M, listener, Looper.getMainLooper())
+        // La última posición conocida más reciente, para no esperar al primer fix.
+        providers.mapNotNull { runCatching { manager.getLastKnownLocation(it) }.getOrNull() }
+            .maxByOrNull { it.time }
+            ?.let(::publish)
+        providers.forEach { provider ->
+            runCatching { manager.requestLocationUpdates(provider, MIN_INTERVAL_MS, MIN_DISTANCE_M, listener, Looper.getMainLooper()) }
+                .onFailure { Log.w(TAG, "no se pudo seguir $provider", it) }
+        }
         listening = true
-        Log.i(TAG, "siguiendo la posición por $provider${if (precise) "" else " (aproximada)"}")
+        Log.i(TAG, "siguiendo la posición por ${providers.joinToString()}${if (precise) "" else " (aproximada)"}")
     }
 
     fun stop() {
@@ -103,6 +114,9 @@ class DeviceVehicleSource(
     }
 
     private fun publish(location: Location) {
+        // Con varios proveedores, uno viejo no pisa a uno nuevo.
+        if (location.time < lastFix) return
+        lastFix = location.time
         val speed = if (location.hasSpeed()) location.speed.toDouble() else 0.0
         val heading = if (location.hasBearing() && speed > MIN_SPEED_FOR_BEARING) location.bearing.toDouble() else _state.value.headingDegrees
         located = true

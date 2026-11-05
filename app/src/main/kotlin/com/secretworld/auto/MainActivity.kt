@@ -350,6 +350,9 @@ class MainActivity : ComponentActivity() {
         // Solo al concederse: si no, volver a primer plano desharía el modo
         // simulado que se hubiera elegido en la barra.
         if (location && !locationGranted.value) useDeviceLocation()
+        // Ya concedido: si iba con la posición real y no llegó a seguirla —la
+        // ubicación del sistema estaba apagada—, se vuelve a intentar al volver.
+        if (location && source.value === device) device?.start()
         locationGranted.value = location
         micGranted.value = isGranted(Manifest.permission.RECORD_AUDIO)
         // La escucha también se apaga en onStop; al volver hay que encenderla.
