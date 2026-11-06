@@ -999,7 +999,10 @@ class MainActivity : ComponentActivity() {
                             itineraryMap?.let { picture(it.stops + it.candidates) }
                         }
                         val places = searchUi?.places ?: around.pictured(imgs)
-                        val scan = searchScan.collectAsState().value?.takeIf { searchUi != null }
+                        val searchingNow by searching.collectAsState()
+                        // El anillo del rastreo desde que empieza: en la primera búsqueda
+                        // aún no hay resultados, y el de "Qué ver" se quedaba puesto.
+                        val scan = searchScan.collectAsState().value?.takeIf { searchUi != null || searchingNow }
                         val selectedPlace = homeAt?.takeIf { chosen -> places.any { it.id == chosen.id } }
                         val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
                         val screen = when {
@@ -1030,6 +1033,7 @@ class MainActivity : ComponentActivity() {
                                 // si no, el radio de "Qué ver" alrededor del coche.
                                 radiusMeters = scan?.radiusM ?: sights.second,
                                 ringCenter = scan?.center,
+                                scanning = searchingNow,
                             ),
                             mapboxToken = mapboxToken,
                             onIntroDone = { flyover.value = flyover.value?.copy(intro = false) },
@@ -1072,6 +1076,7 @@ class MainActivity : ComponentActivity() {
                                                 notices = notices,
                                                 tour = tourUi,
                                                 search = searchUi,
+                                                searching = searchingNow,
                                                 nearby = around.pictured(imgs),
                                                 origin = vehicleState.position,
                                                 navigation = navigationUi,
@@ -2360,6 +2365,7 @@ class MainActivity : ComponentActivity() {
         // lista de barrios, la red—, su respuesta llegaría después y se
         // mezclaría con lo que se está pidiendo ahora.
         searchJob?.cancel()
+        searching.value = true
         searchJob = lifecycleScope.launch {
             val here = vehicle.state.value.position
             val c = Phrasebook.Context(here, memory.listed, memory, language)
@@ -2369,6 +2375,7 @@ class MainActivity : ComponentActivity() {
             val where = area?.let { areas.locate(it, here, language) }
             if (area != null && where == null) {
                 val name = if (area == VoiceGrammar.CITY_CENTRE) Phrasebook.cityCentre(c) else area.replaceFirstChar { it.uppercase() }
+                searching.value = false
                 narration.say(Phrasebook.areaNotFound(c, name))
                 return@launch
             }
@@ -2391,6 +2398,8 @@ class MainActivity : ComponentActivity() {
             // En la lista, por cercanía a donde se busca; la distancia que se enseña es al coche.
             results = results.sortedBy { center.distanceTo(it.position) }.take(natural.max)
             Log.i("SWSearch", "«$query» [$category]${where?.let { " en ${it.name}" }.orEmpty()}: ${results.size} resultados · ${results.take(LOGGED_NAMES).joinToString { it.name }}")
+            // El rastreo acaba con los resultados, no cuando se terminan de decir.
+            searching.value = false
             searchResults.value = results
             searchQuery.value = listOfNotNull(query, where?.name).joinToString(" · ")
             if (results.isEmpty()) {
@@ -2401,10 +2410,17 @@ class MainActivity : ComponentActivity() {
             val reply = Phrasebook.found(c, query, results.take(SEARCH_SPOKEN), area = where?.name)
             memory.remember(query, reply)
             narration.say(reply) { voiceInput.listenForAnswer() }
+        }.also { job ->
+            // Si se cancela o falla. Solo la última: la que se canceló al empezar
+            // otra no apaga el rastreo de esta.
+            job.invokeOnCompletion { if (searchJob === job) searching.value = false }
         }
     }
 
     private var searchJob: kotlinx.coroutines.Job? = null
+
+    /** Si hay un rastreo en marcha: el mapa lanza ondas y la lista espera. */
+    private val searching = MutableStateFlow(false)
 
     /** Dónde y hasta dónde está buscando el rastreo: el mapa lo enseña como el anillo. */
     data class SearchScan(val center: Coordinates, val radiusM: Double)
@@ -2502,6 +2518,8 @@ class MainActivity : ComponentActivity() {
 
     /** Vuelve a la lista de siempre. */
     private fun clearSearch() {
+        // Lo que se estaba buscando ya no se quiere: que no llegue después.
+        searchJob?.cancel()
         searchResults.value = emptyList()
         searchQuery.value = null
         searchScan.value = null

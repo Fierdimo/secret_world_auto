@@ -76,6 +76,8 @@ fun BoxScope.HomeOverlay(
     notices: List<PermissionNotice>,
     tour: TourUi?,
     search: SearchUi?,
+    /** Buscando: la lista se vacía mientras el mapa rastrea; lo anterior confundía. */
+    searching: Boolean,
     nearby: List<Place>,
     origin: Coordinates,
     navigation: NavigationUi?,
@@ -170,13 +172,13 @@ fun BoxScope.HomeOverlay(
             CurrentStops(tour)
         }
         Spacer(Modifier.height(d.spaceS))
-        val places = search?.places ?: nearby
+        val places = if (searching) emptyList() else search?.places ?: nearby
         val list = rememberLazyListState()
         LaunchedEffect(selected?.id) {
             val at = places.indexOfFirst { it.id == selected?.id }
             if (at >= 0) list.animateScrollToItem(at)
         }
-        if (places.isEmpty()) {
+        if (places.isEmpty() && !searching) {
             Text(
                 text = stringResource(R.string.nothing_within, radiusKm),
                 style = MaterialTheme.typography.bodyMedium,
