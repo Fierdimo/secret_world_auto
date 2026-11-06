@@ -109,7 +109,8 @@ private fun MenuButton(entry: MenuEntry, expanded: Boolean, onClick: () -> Unit)
         Modifier
             .pressable(interaction)
             .clip(shape)
-            .background(if (expanded) accent else Color.Black.copy(alpha = 0.55f))
+            // Del color de los paneles: oscuro con el tema oscuro, claro con el claro.
+            .background(if (expanded) accent else MaterialTheme.colorScheme.surface.copy(alpha = 0.84f))
             .border(1.dp, accent.copy(alpha = if (expanded) 1f else 0.4f), shape)
             .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onClick)
             .padding(start = if (expanded) d.spaceM else 0.dp),
@@ -129,7 +130,7 @@ private fun MenuButton(entry: MenuEntry, expanded: Boolean, onClick: () -> Unit)
             )
         }
         Box(Modifier.size(SIZE).clip(CircleShape), contentAlignment = Alignment.Center) {
-            GlyphIcon(entry.icon.glyph, if (expanded) MaterialTheme.colorScheme.onPrimary else Color.White, SIZE * 0.42f)
+            GlyphIcon(entry.icon.glyph, if (expanded) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface, SIZE * 0.42f)
         }
     }
 }

@@ -102,7 +102,8 @@ fun BoxScope.ItineraryLibraryOverlay(
             .fillMaxHeight()
             .fillMaxWidth(PANEL_SHARE)
             .panelInsetsPadding()
-            .padding(d.spaceM)
+            // Del borde de la barra de estado a casi el de la pantalla: todo el alto.
+            .padding(start = d.spaceM, end = d.spaceM, bottom = d.spaceXs)
             .clip(shape)
             .background(glass)
             .border(1.dp, accent.copy(alpha = 0.35f), shape)
@@ -152,7 +153,7 @@ fun BoxScope.ItineraryLibraryOverlay(
             }
         }
     }
-    Box(Modifier.align(Alignment.TopEnd).panelInsetsPadding().padding(d.spaceM)) {
+    Box(Modifier.align(Alignment.TopEnd).panelInsetsPadding().padding(end = d.spaceM)) {
         CarSecondaryButton(label = stringResource(R.string.close_view), onClick = onClose, compact = true)
     }
 }

@@ -107,7 +107,8 @@ fun BoxScope.HomeOverlay(
             .fillMaxHeight()
             .fillMaxWidth(PANEL_SHARE)
             .panelInsetsPadding()
-            .padding(d.spaceM)
+            // Del borde de la barra de estado a casi el de la pantalla: todo el alto.
+            .padding(start = d.spaceM, end = d.spaceM, bottom = d.spaceXs)
             .clip(shape)
             .background(glass)
             .border(1.dp, accent.copy(alpha = 0.35f), shape)

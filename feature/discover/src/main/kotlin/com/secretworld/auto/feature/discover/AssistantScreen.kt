@@ -802,7 +802,8 @@ fun androidx.compose.foundation.layout.BoxScope.ItineraryOverlay(
             .fillMaxHeight()
             .fillMaxWidth(OVERLAY_SHARE)
             .panelInsetsPadding()
-            .padding(d.spaceM)
+            // Del borde de la barra de estado a casi el de la pantalla: todo el alto.
+            .padding(start = d.spaceM, end = d.spaceM, bottom = d.spaceXs)
             .clip(RoundedCornerShape(d.cardCorner))
             .background(glass)
             .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), RoundedCornerShape(d.cardCorner))
@@ -843,7 +844,7 @@ fun androidx.compose.foundation.layout.BoxScope.ItineraryOverlay(
             }
         }
     }
-    Box(Modifier.align(Alignment.TopEnd).panelInsetsPadding().padding(d.spaceM)) {
+    Box(Modifier.align(Alignment.TopEnd).panelInsetsPadding().padding(end = d.spaceM)) {
         CarSecondaryButton(label = stringResource(R.string.close_view), onClick = onClose, compact = true)
     }
 

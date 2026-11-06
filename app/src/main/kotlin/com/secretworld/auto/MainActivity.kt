@@ -258,6 +258,16 @@ class MainActivity : ComponentActivity() {
     private val images = MutableStateFlow<Map<String, String>>(emptyMap())
     private val picturing = mutableSetOf<String>()
 
+    /** El tema elegido en Ajustes; si no se ha elegido, el del sabor. */
+    private fun darkTheme(): Boolean = settingsPrefs.getBoolean(DARK_THEME, resources.getBoolean(R.bool.dark_theme))
+
+    /** Cambia el tema: se guarda y la app se vuelve a abrir en él, como con el idioma. */
+    private fun setDarkTheme(dark: Boolean) {
+        if (dark == darkTheme()) return
+        settingsPrefs.edit().putBoolean(DARK_THEME, dark).apply()
+        recreate()
+    }
+
     /** Si ya se cerró el aviso de que el dispositivo no reconoce la voz. */
     private val voiceNoticeClosed by lazy { MutableStateFlow(settingsPrefs.getBoolean(VOICE_NOTICE_CLOSED, false)) }
 
@@ -524,9 +534,10 @@ class MainActivity : ComponentActivity() {
         }
         // De borde a borde: el mapa llega hasta el filo de la pantalla. Cualquier
         // franja del sistema que quede encima la dibuja el vehículo, no nosotros.
-        // El tono lo decide el sabor, no el sistema: los iconos de las barras
-        // tienen que seguirlo o quedan claros sobre fondo claro.
-        val dark = resources.getBoolean(R.bool.dark_theme)
+        // El tono lo elige quien usa la app en Ajustes —de partida, el del sabor—,
+        // no el sistema: los iconos de las barras tienen que seguirlo o quedan
+        // claros sobre fondo claro.
+        val dark = darkTheme()
         val bars = if (dark) {
             SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         } else {
@@ -1235,7 +1246,8 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .panelInsetsPadding()
-                                .padding(CarTheme.dimens.spaceS),
+                                // Arriba a la altura del panel de la izquierda.
+                                .padding(end = CarTheme.dimens.spaceS),
                         )
                     }
 
@@ -1360,6 +1372,8 @@ class MainActivity : ComponentActivity() {
                 radii = RADII_KM,
                 radiusKm = homeRadiusKm.collectAsState().value,
                 onRadius = ::setRadius,
+                darkTheme = darkTheme(),
+                onDarkTheme = ::setDarkTheme,
                 onRemoveVoice = { },
                 onClose = { onPanel(Panel.Home) },
                 testingStatus = "${stringResource(if (mode == DrivingMode.PARKED) R.string.mode_parked else R.string.mode_driving)} · %.0f km/h"
@@ -2870,6 +2884,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
+        /** En Ajustes: el tema elegido, claro u oscuro. */
+        const val DARK_THEME = "dark_theme"
         /** En Ajustes: si se cerró el aviso de que no hay reconocimiento de voz. */
         const val VOICE_NOTICE_CLOSED = "voice_notice_closed"
         /** Cuánto se queda en pantalla una respuesta del asistente. */

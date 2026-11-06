@@ -19,6 +19,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -48,6 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -111,9 +113,13 @@ fun TourFlyover(
     /** Se tocó un sitio de alrededor: añadirlo. */
     onAddPlace: (Place) -> Unit = {},
 ) {
+    // El mapa sigue al tema: de noche con el oscuro, de día con el claro. Un
+    // panel claro sobre un mapa nocturno era una mezcla de los dos.
+    val ground = MaterialTheme.colorScheme.background
+    val night = ground.luminance() < 0.5f
     if (mapboxToken.isNullOrBlank() || (state.stops.isEmpty() && state.intro)) {
         LaunchedEffect(Unit) { onIntroDone() }
-        Box(modifier.fillMaxSize().background(Color.Black)) { overlay() }
+        Box(modifier.fillMaxSize().background(ground)) { overlay() }
         return
     }
     MapboxOptions.accessToken = mapboxToken
@@ -263,7 +269,7 @@ fun TourFlyover(
     Box(
         modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(ground)
             .then(
                 if (state.intro) {
                     Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onIntroDone)
@@ -279,7 +285,7 @@ fun TourFlyover(
                 MapboxStandardStyle(
                     standardStyleState = rememberStandardStyleState {
                         configurationsState.apply {
-                            lightPreset = LightPresetValue.NIGHT
+                            lightPreset = if (night) LightPresetValue.NIGHT else LightPresetValue.DAY
                             theme = ThemeValue.MONOCHROME
                             showPlaceLabels = BooleanValue(false)
                             showRoadLabels = BooleanValue(false)
@@ -291,6 +297,12 @@ fun TourFlyover(
             },
             scaleBar = {},
             compass = {},
+            // El logo y la atribución, abajo a la derecha: a la izquierda los tapaba
+            // el panel, y Mapbox exige que se vean.
+            logo = { Logo(alignment = Alignment.BottomEnd) },
+            attribution = {
+                Attribution(alignment = Alignment.BottomEnd, contentPadding = PaddingValues(end = ATTRIBUTION_END, bottom = 4.dp))
+            },
         ) {
             com.mapbox.maps.extension.compose.MapEffect(state.stops, state.intro, state.candidates.map { it.id }, state.radiusMeters, state.ringCenter) { mapView ->
                 // Sin paradas, lo que hay para elegir: que se vea todo lo tocable; con
@@ -482,7 +494,8 @@ fun TourFlyover(
                     val radius = maxOf(size.width * (1 - lightX), size.width * lightX, size.height) * VIGNETTE_REACH
                     val vignette = Brush.radialGradient(
                         0.55f to Color.Transparent,
-                        1f to Color.Black.copy(alpha = 0.75f),
+                        // Con el claro, los bordes se aclaran: una bruma, no una sombra.
+                        1f to (if (night) Color.Black.copy(alpha = 0.75f) else ground.copy(alpha = 0.7f)),
                         center = center,
                         radius = radius,
                     )
@@ -510,7 +523,7 @@ fun TourFlyover(
                 text = state.summary,
                 style = MaterialTheme.typography.displayMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onBackground,
             )
         }
 
@@ -530,7 +543,7 @@ fun TourFlyover(
         Text(
             text = "▸▸",
             style = MaterialTheme.typography.titleMedium,
-            color = Color.White.copy(alpha = 0.6f),
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
             modifier = Modifier.align(Alignment.BottomEnd).padding(d.spaceL),
         )
     }
@@ -784,6 +797,9 @@ private const val DOT_STAGGER_MAX = 20
 
 /** Lo que tarda una onda del rastreo en llegar del centro al anillo. */
 private const val WAVE_MS = 1_400
+
+/** Hueco para el logo de Mapbox a la derecha de la "i" de la atribución. */
+private val ATTRIBUTION_END = 96.dp
 
 /** El diámetro más grande que se dibuja: más allá, la onda ya cubre la pantalla entera. */
 private const val WAVE_MAX_DP = 4_000.0
