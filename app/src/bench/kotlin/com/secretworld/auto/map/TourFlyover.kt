@@ -401,7 +401,10 @@ fun TourFlyover(
                             },
                         ) {
                             ScanWave(
-                                diameter = (2 * radius / metersPerDp).dp,
+                                // Con un tope: mientras la cámara aún no se ha acercado
+                                // —al arrancar—, el anillo mide decenas de miles de
+                                // píxeles y Compose no puede medirlo; la app se cerraba.
+                                diameter = (2 * radius / metersPerDp).coerceAtMost(WAVE_MAX_DP).dp,
                                 // Inclinado, el anillo se ve achatado: la onda también.
                                 squash = cos(Math.toRadians(camera?.pitch ?: RING_PITCH)).toFloat(),
                                 progress = { wave.value },
@@ -781,3 +784,6 @@ private const val DOT_STAGGER_MAX = 20
 
 /** Lo que tarda una onda del rastreo en llegar del centro al anillo. */
 private const val WAVE_MS = 1_400
+
+/** El diámetro más grande que se dibuja: más allá, la onda ya cubre la pantalla entera. */
+private const val WAVE_MAX_DP = 4_000.0
