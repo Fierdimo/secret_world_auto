@@ -2,6 +2,11 @@
 
 Actualizado el 2026‑09‑04.
 
+> **2026‑11‑06: decidido.** En el coche no hay mapa propio: la app es un panel
+> junto al navegador nativo, al que se le pasa la ruta por NaviHelper. Mapbox
+> queda para la prueba de concepto en teléfono. Ver
+> [NATIVE-NAV-SPLIT-SCREEN.md](NATIVE-NAV-SPLIT-SCREEN.md).
+
 ## Estado actual · implementado el 2026‑09‑04
 
 **Decisión tomada**: Mapbox **solo para el MVP**; en el vehículo se usará el
