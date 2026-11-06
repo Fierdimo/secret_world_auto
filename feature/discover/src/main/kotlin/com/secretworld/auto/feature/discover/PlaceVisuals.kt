@@ -144,7 +144,7 @@ internal fun PlaceThumb(place: Place, size: Dp, modifier: Modifier = Modifier) {
     PlaceImage(place, modifier.size(size).clip(RoundedCornerShape(size / 4)))
 }
 
-internal enum class Glyph { LISTEN, GO, SETTINGS, ADD, DELETE, ROUTE, SIGHT, FOOD, FUEL, PARKING, BED, CROSS, CASH }
+internal enum class Glyph { LISTEN, GO, SETTINGS, ADD, DELETE, ROUTE, SIGHT, FOOD, FUEL, PARKING, BED, CROSS, CASH, MIC_OFF }
 
 /** Los botones de una tarjeta: visibles sin tapar la foto. */
 private val ACTION: Dp = 40.dp
@@ -290,6 +290,17 @@ internal fun GlyphIcon(glyph: Glyph, ink: Color, extent: Dp) {
                 val h = size.height
                 drawRoundRect(ink, topLeft = Offset(0f, h * 0.2f), size = Size(w, h * 0.6f), cornerRadius = CornerRadius(w * 0.08f), style = Stroke(width = w * 0.09f))
                 drawCircle(ink, radius = w * 0.13f, center = Offset(w / 2, h / 2))
+            }
+            Glyph.MIC_OFF -> {
+                // Un micrófono —la cápsula, el soporte y el pie— tachado.
+                val w = size.width
+                val h = size.height
+                val s = w * 0.1f
+                drawRoundRect(ink, topLeft = Offset(w * 0.34f, 0f), size = Size(w * 0.32f, h * 0.58f), cornerRadius = CornerRadius(w * 0.16f))
+                drawArc(ink, 0f, 180f, false, topLeft = Offset(w * 0.18f, h * 0.22f), size = Size(w * 0.64f, h * 0.52f), style = Stroke(width = s))
+                drawLine(ink, Offset(w / 2, h * 0.74f), Offset(w / 2, h * 0.92f), strokeWidth = s)
+                drawLine(ink, Offset(w * 0.32f, h * 0.95f), Offset(w * 0.68f, h * 0.95f), strokeWidth = s)
+                drawLine(ink, Offset(w * 0.08f, h * 0.06f), Offset(w * 0.92f, h * 0.94f), strokeWidth = s * 1.2f)
             }
             Glyph.DELETE -> {
                 // Una "×": quitar.

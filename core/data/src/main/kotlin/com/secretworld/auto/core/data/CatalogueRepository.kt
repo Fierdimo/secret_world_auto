@@ -72,8 +72,12 @@ class CatalogueRepository(
             .let { catalogue -> withWikipedia(catalogue, position, language) }
 
         result.places.forEach { place -> place.summary?.let { texts[place.id] = it } }
-        lastKey = key
-        lastResult = result
+        // El respaldo no se recuerda: si no, al volver la red se servía otra vez
+        // él en vez de pedir el catálogo de verdad.
+        if (result.source != Source.FALLBACK) {
+            lastKey = key
+            lastResult = result
+        }
         return result
     }
 

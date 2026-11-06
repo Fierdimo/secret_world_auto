@@ -79,11 +79,17 @@ class NarrationPlayer(private val context: Context) {
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
             .setAudioAttributes(attributes)
             .setOnAudioFocusChangeListener { change ->
-                if (change == AudioManager.AUDIOFOCUS_LOSS ||
-                    change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
-                ) {
-                    Log.i(TAG, "foco perdido, se para la narracion")
-                    stop()
+                when (change) {
+                    AudioManager.AUDIOFOCUS_LOSS -> {
+                        Log.i(TAG, "foco perdido, se para la narracion")
+                        stop()
+                    }
+                    // Un aviso, el navegador o el micrófono un momento: se espera y se sigue.
+                    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                        Log.i(TAG, "foco perdido un momento, se pausa la narracion")
+                        player?.runCatching { if (isPlaying) pause() }
+                    }
+                    AudioManager.AUDIOFOCUS_GAIN -> player?.runCatching { start() }
                 }
             }
             .build()

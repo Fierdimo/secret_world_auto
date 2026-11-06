@@ -72,6 +72,7 @@ import com.secretworld.auto.core.data.WikipediaPlaces
 import com.secretworld.auto.core.data.MapboxPlaceSearch
 import com.secretworld.auto.core.data.PlaceCache
 import com.secretworld.auto.core.data.MapboxRouter
+import com.secretworld.auto.core.platform.NetworkWatcher
 import com.secretworld.auto.domain.PlaceSearch
 import com.secretworld.auto.core.platform.DeviceVehicleSource
 import com.secretworld.auto.core.platform.SimulatedVehicleSource
@@ -80,6 +81,7 @@ import com.secretworld.auto.domain.NavigationGuide
 import com.secretworld.auto.domain.Route
 import com.secretworld.auto.domain.Router
 import com.secretworld.auto.feature.discover.NavigationUi
+import com.secretworld.auto.feature.voice.NoVoiceInput
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -152,7 +154,6 @@ import com.secretworld.auto.feature.voice.SharedLanguageModel
 import com.secretworld.auto.feature.voice.VoiceInstaller
 import com.secretworld.auto.feature.voice.NarrationController
 import com.secretworld.auto.feature.voice.OnDeviceVoiceInput
-import com.secretworld.auto.feature.voice.SystemVoiceInput
 import com.secretworld.auto.feature.voice.TranslatingNarrationTexts
 import com.secretworld.auto.feature.voice.VoiceInput
 import kotlinx.coroutines.delay
@@ -256,6 +257,15 @@ class MainActivity : ComponentActivity() {
     /** Las imágenes encontradas para sitios que no traían la suya, por id. */
     private val images = MutableStateFlow<Map<String, String>>(emptyMap())
     private val picturing = mutableSetOf<String>()
+
+    /** Si ya se cerró el aviso de que el dispositivo no reconoce la voz. */
+    private val voiceNoticeClosed by lazy { MutableStateFlow(settingsPrefs.getBoolean(VOICE_NOTICE_CLOSED, false)) }
+
+    /** Si la app está hablando: la escucha del sistema espera a que acabe. */
+    private val appSpeaking = MutableStateFlow(false)
+
+    /** Cuándo vuelve la conexión: lo que falló sin red se vuelve a pedir. */
+    private val network by lazy { NetworkWatcher(this) }
     private val pictureGate = kotlinx.coroutines.sync.Semaphore(PICTURE_PARALLEL)
 
     /**
@@ -485,6 +495,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        network.start()
+        // Las fotos que no se encontraron sin red, otra vez a la cola.
+        lifecycleScope.launch { network.comebacks.collect { picturing.retainAll(images.value.keys) } }
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             androidx.core.content.ContextCompat.registerReceiver(
                 this, sayReceiver, android.content.IntentFilter(SAY_ACTION), androidx.core.content.ContextCompat.RECEIVER_EXPORTED,
@@ -543,6 +556,12 @@ class MainActivity : ComponentActivity() {
         setUpVoice()
         val texts = gemma?.let { TranslatingNarrationTexts(this, catalogue, it) } ?: catalogue
         narration = NarrationController(this, texts, lifecycleScope, language)
+        lifecycleScope.launch {
+            narration.state.collect { state ->
+                appSpeaking.value = state is NarrationController.State.Playing ||
+                    (state is NarrationController.State.Speaking && !state.preparing)
+            }
+        }
         val modeController = DrivingModeController(vehicle, lifecycleScope)
 
         setContent {
@@ -555,6 +574,7 @@ class MainActivity : ComponentActivity() {
                 val modelsPercentNow by modelsPercent.collectAsState()
                 val micOn by micGranted.collectAsState()
                 val locationOn by locationGranted.collectAsState()
+                val noticeClosed by voiceNoticeClosed.collectAsState()
                 val notices = listOfNotNull(
                     PermissionNotice(
                         message = stringResource(R.string.permission_mic_off),
@@ -566,6 +586,15 @@ class MainActivity : ComponentActivity() {
                         action = stringResource(R.string.permission_enable),
                         onClick = { requestPermission(*LOCATION.toTypedArray()) },
                     ).takeIf { !locationOn },
+                    // Se avisa una vez: al cerrarlo no vuelve; queda el micrófono tachado.
+                    PermissionNotice(
+                        message = stringResource(R.string.voice_unavailable),
+                        action = stringResource(com.secretworld.auto.feature.discover.R.string.close_view),
+                        onClick = {
+                            voiceNoticeClosed.value = true
+                            settingsPrefs.edit().putBoolean(VOICE_NOTICE_CLOSED, true).apply()
+                        },
+                    ).takeIf { micOn && !voiceInput.available && !noticeClosed },
                 )
                 val voiceState by voiceInput.state.collectAsState()
                 val hearingNow by voiceInput.hearing.collectAsState()
@@ -586,8 +615,11 @@ class MainActivity : ComponentActivity() {
                 val route by activeRoute.collectAsState()
                 var navigationUi by remember { mutableStateOf<NavigationUi?>(null) }
 
+                // Cada vez que vuelve la conexión, otra vez lo que se pidió sin ella.
+                val comeback by network.comebacks.collectAsState()
+
                 // La clave del mapa se pide al backend, no viaja en el APK.
-                LaunchedEffect(Unit) { mapboxToken = mapKeys.mapboxToken() }
+                LaunchedEffect(comeback) { if (mapboxToken == null) mapboxToken = mapKeys.mapboxToken() }
 
                 // Se pide catálogo cuando el coche se ha movido lo suficiente como
                 // para que valga la pena, no en cada fotograma.
@@ -595,12 +627,12 @@ class MainActivity : ComponentActivity() {
                     vehicleState.position.latitude,
                     vehicleState.position.longitude,
                 )
-                LaunchedEffect(positionKey) {
+                LaunchedEffect(positionKey, comeback) {
                     catalogueResult = catalogue.nearby(vehicleState.position, language = language)
                 }
                 // Dónde está el usuario de verdad, no la "ciudad" del lugar más cercano.
                 var where by remember { mutableStateOf<String?>(null) }
-                LaunchedEffect(positionKey) {
+                LaunchedEffect(positionKey, comeback) {
                     where = whereAmI.describe(vehicleState.position, java.util.Locale.forLanguageTag(language.code))
                 }
 
@@ -930,8 +962,8 @@ class MainActivity : ComponentActivity() {
                 val imgs by images.collectAsState()
                 LaunchedEffect(Unit) { refreshSaved() }
                 // Las imágenes de lo que se enseña, en cuanto se enseña.
-                LaunchedEffect(upcoming.map { it.id }) { picture(upcoming) }
-                LaunchedEffect(results.map { it.id }) { picture(results) }
+                LaunchedEffect(upcoming.map { it.id }, comeback) { picture(upcoming) }
+                LaunchedEffect(results.map { it.id }, comeback) { picture(results) }
                 val searchUi = searchShown?.let { query ->
                     SearchUi(
                         title = if (query.endsWith(SIMILAR_MARK)) {
@@ -994,8 +1026,8 @@ class MainActivity : ComponentActivity() {
                     val itineraryMap = fly?.takeIf { (!compact || shelf != null) && !inPip }
                     val homeMap = itineraryMap == null && panel is Panel.Home && !inPip && !compact
                     if (itineraryMap != null || homeMap) {
-                        LaunchedEffect(around.map { it.id }) { picture(around) }
-                        LaunchedEffect(itineraryMap?.stops?.map { it.id }, itineraryMap?.candidates?.map { it.id }) {
+                        LaunchedEffect(around.map { it.id }, comeback) { picture(around) }
+                        LaunchedEffect(itineraryMap?.stops?.map { it.id }, itineraryMap?.candidates?.map { it.id }, comeback) {
                             itineraryMap?.let { picture(it.stops + it.candidates) }
                         }
                         val places = searchUi?.places ?: around.pictured(imgs)
@@ -1353,6 +1385,7 @@ class MainActivity : ComponentActivity() {
         thinkingNow: Boolean,
     ) = VoiceUi(
         status = when {
+            !voiceInput.available -> VoiceStatus.UNAVAILABLE
             thinkingNow -> VoiceStatus.THINKING
             hearingNow -> VoiceStatus.HEARING
             state is VoiceInput.State.Listening -> VoiceStatus.YOUR_TURN
@@ -2631,8 +2664,10 @@ class MainActivity : ComponentActivity() {
         if (intent.getStringExtra("mic") == "communication") {
             local.source = android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION
         }
-        voiceInput = if (local.available || local.bundled) local.also { onDevice = it } else SystemVoiceInput(this, language)
-        handsFree = HandsFree(voiceInput, lifecycleScope)
+        // Sin los modelos propios, sin escucha: el reconocedor del sistema había
+        // que reabrirlo en cada frase, fallaba y le quitaba el audio a la narración.
+        voiceInput = if (local.available || local.bundled) local.also { onDevice = it } else NoVoiceInput(language)
+        handsFree = HandsFree(voiceInput, lifecycleScope, appSpeaking)
         resolver = LayeredIntentResolver(
             grammar = grammar,
             fallback = if (llm.available || llm.bundled) {
@@ -2817,6 +2852,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         runCatching { unregisterReceiver(sayReceiver) }
+        network.stop()
         super.onDestroy()
         device?.stop()
         onDevice?.release()
@@ -2834,6 +2870,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
+        /** En Ajustes: si se cerró el aviso de que no hay reconocimiento de voz. */
+        const val VOICE_NOTICE_CLOSED = "voice_notice_closed"
         /** Cuánto se queda en pantalla una respuesta del asistente. */
         const val ANSWER_LINGER_MS = 8_000L
         const val REROUTE_EVERY_MS = 15_000L
