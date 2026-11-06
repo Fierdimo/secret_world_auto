@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -41,6 +42,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.secretworld.auto.core.designsystem.CarTheme
 import com.secretworld.auto.core.designsystem.Motion
+import com.secretworld.auto.core.designsystem.entering
+import com.secretworld.auto.core.designsystem.pressable
+import com.secretworld.auto.core.designsystem.rememberListEntrance
 import com.secretworld.auto.domain.Phrasebook
 import com.secretworld.auto.domain.Place
 
@@ -105,13 +109,17 @@ private fun PickerCard(place: Place?, saved: List<SavedItineraryUi>, onPick: (In
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(d.spaceS))
+        val entrance = rememberListEntrance(place?.id)
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = LIST_MAX), verticalArrangement = Arrangement.spacedBy(d.spaceXs)) {
             itemsIndexed(saved, key = { _, it -> it.id }) { index, item ->
+                val interaction = remember { MutableInteractionSource() }
                 Row(
                     Modifier
+                        .entering(entrance, index)
+                        .pressable(interaction, Motion.PRESSED_ROW_SCALE)
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(d.cardCorner * 0.75f))
-                        .clickable { onPick(index) }
+                        .clickable(interactionSource = interaction, indication = LocalIndication.current) { onPick(index) }
                         .padding(d.spaceXs),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -132,12 +140,15 @@ private fun PickerCard(place: Place?, saved: List<SavedItineraryUi>, onPick: (In
             }
         }
         Spacer(Modifier.height(d.spaceS))
+        val interaction = remember { MutableInteractionSource() }
         Row(
             Modifier
+                .entering(entrance, saved.size)
+                .pressable(interaction, Motion.PRESSED_ROW_SCALE)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(d.cardCorner * 0.75f))
                 .border(1.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(d.cardCorner * 0.75f))
-                .clickable(onClick = onNew)
+                .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onNew)
                 .padding(d.spaceS),
             verticalAlignment = Alignment.CenterVertically,
         ) {

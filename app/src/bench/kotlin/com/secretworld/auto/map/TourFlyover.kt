@@ -3,9 +3,8 @@ package com.secretworld.auto.map
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -40,9 +39,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,6 +65,7 @@ import com.mapbox.maps.plugin.animation.MapAnimationOptions
 import com.mapbox.maps.viewannotation.geometry
 import com.mapbox.maps.viewannotation.viewAnnotationOptions
 import com.secretworld.auto.core.designsystem.CarTheme
+import com.secretworld.auto.core.designsystem.Motion
 import com.secretworld.auto.domain.Coordinates
 import com.secretworld.auto.domain.Phrasebook
 import com.secretworld.auto.domain.Place
@@ -344,7 +344,7 @@ fun TourFlyover(
             if (!state.intro) {
                 state.candidates
                     .filter { candidate -> state.stops.none { it.id == candidate.id } && candidate.id != state.focus?.id }
-                    .forEach { candidate ->
+                    .forEachIndexed { index, candidate ->
                         androidx.compose.runtime.key("cand-" + candidate.id) {
                             ViewAnnotation(
                                 options = viewAnnotationOptions {
@@ -354,7 +354,7 @@ fun TourFlyover(
                                 },
                             ) {
                                 if (state.pickable) {
-                                    CandidateDot { onAddPlace(candidate) }
+                                    CandidateDot(index) { onAddPlace(candidate) }
                                 } else {
                                     CandidateMarker(candidate, adds = true) { onAddPlace(candidate) }
                                 }
@@ -454,11 +454,32 @@ fun TourFlyover(
     }
 }
 
-/** Un sitio en el mapa del inicio: un punto, sin nombre, que no tapa a los demás. El elegido lleva el suyo. */
+/**
+ * Un sitio en el mapa del inicio: un punto, sin nombre, que no tapa a los demás.
+ * El elegido lleva el suyo. Aparecen uno tras otro, como un radar que los va
+ * encontrando; [order] es su turno.
+ */
 @Composable
-private fun CandidateDot(onClick: () -> Unit) {
+private fun CandidateDot(order: Int, onClick: () -> Unit) {
     val accent = MaterialTheme.colorScheme.primary
-    Box(Modifier.size(32.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    val reduced = Motion.reduced
+    val pop = remember { Animatable(if (reduced) 1f else 0f) }
+    LaunchedEffect(Unit) {
+        delay(order.coerceAtMost(DOT_STAGGER_MAX) * Motion.STAGGER_MS)
+        pop.animateTo(1f, Motion.reward(reduced))
+    }
+    Box(
+        Modifier
+            .size(32.dp)
+            .graphicsLayer {
+                scaleX = pop.value
+                scaleY = pop.value
+                alpha = pop.value.coerceIn(0f, 1f)
+            }
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
         Box(Modifier.size(20.dp).clip(CircleShape).background(accent.copy(alpha = 0.25f)))
         Box(Modifier.size(11.dp).clip(CircleShape).border(1.5.dp, Color.Black.copy(alpha = 0.6f), CircleShape).background(accent))
     }
@@ -516,7 +537,17 @@ private fun MeMarker() {
         label = "halo",
     )
     Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-        Box(Modifier.size(22.dp).scale(halo).clip(CircleShape).background(color.copy(alpha = 0.25f)))
+        // El latido en la capa de dibujo: el marcador no se recompone en cada fotograma.
+        Box(
+            Modifier
+                .size(22.dp)
+                .graphicsLayer {
+                    scaleX = halo
+                    scaleY = halo
+                }
+                .clip(CircleShape)
+                .background(color.copy(alpha = 0.25f)),
+        )
         Box(Modifier.size(14.dp).clip(CircleShape).border(2.dp, Color.White, CircleShape).background(color))
     }
 }
@@ -525,10 +556,18 @@ private fun MeMarker() {
 @Composable
 private fun StopMarker(number: Int?, place: Place, highlighted: Boolean) {
     val accent = MaterialTheme.colorScheme.primary
-    val pop = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { pop.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)) }
-    val size = if (highlighted) 76.dp else 56.dp
-    Box(Modifier.scale(pop.value), contentAlignment = Alignment.TopEnd) {
+    val reduced = Motion.reduced
+    val pop = remember { Animatable(if (reduced) 1f else 0f) }
+    LaunchedEffect(Unit) { pop.animateTo(1f, Motion.reward(reduced)) }
+    // La parada de la que se habla crece; antes saltaba de golpe.
+    val size by animateDpAsState(if (highlighted) 76.dp else 56.dp, Motion.settle(reduced), label = "parada")
+    Box(
+        Modifier.graphicsLayer {
+            scaleX = pop.value
+            scaleY = pop.value
+        },
+        contentAlignment = Alignment.TopEnd,
+    ) {
         Box(
             Modifier
                 .size(size)
@@ -631,3 +670,6 @@ private const val OVERLAY_SHARE = 0.40f
 private val FRAME_TOP = 170.dp
 private val FRAME_BOTTOM = 160.dp
 private val FRAME_SIDE = 90.dp
+
+/** Hasta cuántos puntos se escalonan: con decenas, los últimos esperarían demasiado. */
+private const val DOT_STAGGER_MAX = 20

@@ -54,7 +54,9 @@ import androidx.compose.ui.unit.dp
 import com.secretworld.auto.core.designsystem.CarSecondaryButton
 import com.secretworld.auto.core.designsystem.CarTheme
 import com.secretworld.auto.core.designsystem.Motion
+import com.secretworld.auto.core.designsystem.entering
 import com.secretworld.auto.core.designsystem.panelInsetsPadding
+import com.secretworld.auto.core.designsystem.rememberListEntrance
 import com.secretworld.auto.domain.Coordinates
 import com.secretworld.auto.domain.DrivingMode
 import com.secretworld.auto.domain.Place
@@ -828,11 +830,16 @@ fun androidx.compose.foundation.layout.BoxScope.ItineraryOverlay(
         // primera quedaba por encima de lo visible y parecía que no había cambiado.
         val list = androidx.compose.foundation.lazy.rememberLazyListState()
         androidx.compose.runtime.LaunchedEffect(tour.stops.map { it.place.id }) { list.animateScrollToItem(0) }
+        // Las paradas entran una tras otra al abrirse; al reordenar, cada una se
+        // desliza a su puesto en vez de saltar.
+        val entrance = rememberListEntrance(tour.stops.isNotEmpty())
         LazyColumn(Modifier.fillMaxWidth().weight(1f), state = list) {
             items(tour.stops.size, key = { tour.stops[it].place.id }) { index ->
                 val stop = tour.stops[index]
-                OverlayStopRow(stop, first = index == 0, last = index == tour.stops.lastIndex && !stop.lunchAfter)
-                if (stop.lunchAfter) TimelineLunch(last = index == tour.stops.lastIndex)
+                Column(Modifier.animateItem().entering(entrance, index)) {
+                    OverlayStopRow(stop, first = index == 0, last = index == tour.stops.lastIndex && !stop.lunchAfter)
+                    if (stop.lunchAfter) TimelineLunch(last = index == tour.stops.lastIndex)
+                }
             }
         }
     }

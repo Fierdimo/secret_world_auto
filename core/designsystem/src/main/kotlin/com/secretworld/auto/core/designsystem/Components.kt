@@ -1,5 +1,6 @@
 package com.secretworld.auto.core.designsystem
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -115,9 +117,11 @@ fun CarButton(
     dense: Boolean = false,
 ) {
     val d = CarTheme.dimens
+    val interaction = remember { MutableInteractionSource() }
     Button(
         onClick = onClick,
-        modifier = modifier.defaultMinSize(
+        interactionSource = interaction,
+        modifier = modifier.pressable(interaction).defaultMinSize(
             minWidth = d.actionMinWidth,
             minHeight = if (dense) d.minTouchTarget * DENSE_TARGET else d.minTouchTarget,
         ),
@@ -151,9 +155,11 @@ fun CarSecondaryButton(
     dense: Boolean = false,
 ) {
     val d = CarTheme.dimens
+    val interaction = remember { MutableInteractionSource() }
     OutlinedButton(
         onClick = onClick,
-        modifier = modifier.defaultMinSize(
+        interactionSource = interaction,
+        modifier = modifier.pressable(interaction).defaultMinSize(
             minWidth = if (compact) d.actionMinWidth * 0.7f else d.actionMinWidth,
             minHeight = when {
                 compact -> d.minTouchTarget * 0.5f

@@ -1,9 +1,11 @@
 package com.secretworld.auto.feature.discover
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +39,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.secretworld.auto.core.designsystem.CarTheme
+import com.secretworld.auto.core.designsystem.Motion
+import com.secretworld.auto.core.designsystem.pressable
 import com.secretworld.auto.domain.Place
 
 /**
@@ -57,10 +62,12 @@ internal fun PhotoCard(
     onAdd: (() -> Unit)? = null,
 ) {
     val d = CarTheme.dimens
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier
+            .pressable(interaction, Motion.PRESSED_ROW_SCALE)
             .clip(RoundedCornerShape(d.cardCorner))
-            .clickable(onClick = onSelect),
+            .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onSelect),
     ) {
         // Sin la inicial de fondo: con el nombre encima, se leían las dos a la vez.
         PlaceImage(place, Modifier.fillMaxSize(), initial = false)
@@ -148,12 +155,14 @@ internal fun RoundAction(glyph: Glyph, onClick: () -> Unit, filled: Boolean, dia
     val primary = MaterialTheme.colorScheme.primary
     val background = if (filled) primary else Color.Black.copy(alpha = 0.45f)
     val ink = if (filled) MaterialTheme.colorScheme.onPrimary else Color.White
+    val interaction = remember { MutableInteractionSource() }
     Box(
         Modifier
+            .pressable(interaction)
             .size(diameter)
             .clip(CircleShape)
             .background(background)
-            .clickable(onClick = onClick),
+            .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         GlyphIcon(glyph, ink, diameter * 0.42f)
