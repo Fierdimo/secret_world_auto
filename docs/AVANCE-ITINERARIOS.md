@@ -17,7 +17,7 @@ real services:
 | `app-demo-release.apk` | An Android phone | Its own, bundled in the APK | ~750 MB |
 | `app-pleos-release.apk` | The Pleos **Connect‑W** emulator (x86_64) | The Pleos platform's | ~60 MB |
 
-**Download:** shared Google Drive folder: `[LINK TO THE DRIVE FOLDER]`
+**Download:** shared Google Drive folder: https://drive.google.com/file/d/11y_rJ5HiwKBaZLXwStc_bR2YinVonA08/view?usp=share_link
 
 ## Background: why there are two versions
 
