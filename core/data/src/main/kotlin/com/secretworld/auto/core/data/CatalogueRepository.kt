@@ -108,7 +108,8 @@ class CatalogueRepository(
         val wiki = wikipedia ?: return catalogue
         val around = cache?.let { store ->
             // Wikipedia también por zona: la ciudad no se mueve de sitio.
-            val places = store.around(position, "wikipedia", language) { wiki.around(position, language).places }
+            // "wikidata": los de antes, uno por Wikipedia, no se mezclan con los de ahora.
+            val places = store.around(position, "wikidata", language) { wiki.around(position, language).places }
             WikipediaPlaces.Around(places, places.firstNotNullOfOrNull { it.city })
         } ?: wiki.around(position, language)
         if (around.places.isEmpty()) return catalogue
