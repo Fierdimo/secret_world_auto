@@ -230,7 +230,7 @@ object VoiceGrammar {
         }
 
         // Qué se busca y dónde: "un restaurante | en el barrio Las Gaviotas".
-        val (what, area) = splitArea(words)
+        val (what, area) = splitArea(words, language)
         categoryIn(what, language)?.let { return VoiceCommand.FindPlaces(it, area) }
         // Lo que sigue a "busca" / "voglio" se busca en el mapa, salvo que sea
         // un lugar que ya conocemos: "voglio la India Catalina" es ese sitio.
@@ -292,6 +292,9 @@ object VoiceGrammar {
      */
     private fun sameWord(heard: String, name: String): Boolean {
         if (heard == name) return true
+        // "The castle" o "il castello" es el "Castillo San Felipe": los nombres
+        // del catálogo vienen en el idioma de su fuente, no en el de quien habla.
+        if (Landmarks.same(heard, name)) return true
         if (heard.length < 5 || name.length < 5) return false
         val allowed = if (name.length >= 8) 2 else 1
         return Script.editDistance(heard, name) <= allowed
@@ -507,11 +510,14 @@ object VoiceGrammar {
      * "in", "nel", "cerca de"… siempre que no sea "aquí" —"cerca de mí" es lo
      * de siempre—. "El centro", "centro storico" o "downtown" son el centro.
      */
-    private fun splitArea(words: List<String>): Pair<List<String>, String?> {
+    private fun splitArea(words: List<String>, language: VoiceLanguage? = null): Pair<List<String>, String?> {
         if (words.hasAny(DOWNTOWN)) return words.filterNot { it == "downtown" } to CITY_CENTRE
+        // En italiano "a" también dice dónde: "ristoranti a Bocagrande". En
+        // español no, que "a" es casi siempre adónde.
+        val markers = if (language == VoiceLanguage.ITALIAN) AREA_MARKERS + "a" else AREA_MARKERS
         // El primer marcador que deje algo detrás; se prueban los largos antes.
         for (start in 1 until words.size) {
-            val marker = AREA_MARKERS.firstOrNull { marker ->
+            val marker = markers.firstOrNull { marker ->
                 val needle = normalise(marker).split(' ')
                 start + needle.size < words.size && words.subList(start, start + needle.size) == needle
             } ?: continue
@@ -683,6 +689,8 @@ object VoiceGrammar {
      */
     private val TELL = listOf(
         "tell me", "tell me about", "what is", "what s", "whats", "who was", "story", "history",
+        // Como lo escribe el reconocedor: «told me about Cerro de la Popa». Medido.
+        "told me", "tel me", "tell us",
         "cuéntame", "cuentame", "cuéntamela", "cuentamela", "háblame", "hablame", "qué es", "que es", "quién fue", "quien fue", "historia",
         "raccontami", "raccontamela", "racconta", "parlami", "cos è", "cosa è", "che cos è", "chi era", "storia", "la storia",
     )
@@ -693,7 +701,7 @@ object VoiceGrammar {
      * suelto no basta.
      */
     private val STORY = listOf(
-        "story", "history", "tell me", "tell me about it",
+        "story", "history", "tell me", "tell me about it", "told me",
         "historia", "su historia", "cuéntamela", "cuentamela", "cuéntame", "cuentame", "háblame", "hablame",
         "storia", "la storia", "raccontamela", "raccontami", "racconta", "parlami",
         // Lo que invita a decir la pregunta "¿te llevo o te la cuento?".
@@ -749,6 +757,11 @@ object VoiceGrammar {
 
     private val END_ROUTE = listOf(
         "end route", "end navigation", "stop navigation", "stop the route", "cancel route",
+        // El viaje entero, no solo la ruta: es lo que se dice al acabar el itinerario.
+        "end the trip", "end trip", "end the tour", "end the itinerary", "finish the trip", "finish the tour",
+        "we re done", "we are done", "trip is over",
+        "acaba el viaje", "acabar el viaje", "acabamos el viaje", "fin del viaje", "fin del recorrido", "se acabo el viaje",
+        "abbiamo finito", "fine del viaggio", "finisci il viaggio", "basta viaggio",
         "fine percorso", "fine navigazione", "fine del percorso", "stop navigazione", "basta navigazione", "esci dalla navigazione",
         "salir de la ruta", "salir de la navegación", "salir de la navegacion", "parar la ruta", "parar navegación", "parar navegacion",
     )
