@@ -111,7 +111,11 @@ class NarrationController(
     }
 
     /** Prepara por delante los siguientes lugares de la cola. */
-    fun prefetch(queue: List<Place>) {
+    fun prefetch(places: List<Place>) {
+        // Lo que habría que traducir no se prepara por delante: traducir ocupa
+        // el modelo y el procesador decenas de segundos, y la voz se arrastraba
+        // sin que nadie hubiera pedido nada. Se traduce cuando se pide, avisando.
+        val queue = places.filterNot { textSource.needsTranslation(it, language) }
         if (queue.isEmpty()) return
         lastQueue = queue
         if (!installer.isInstalled(language)) return
@@ -127,6 +131,9 @@ class NarrationController(
             }
         }
     }
+
+    /** Si contar [place] exige traducirlo antes. */
+    fun needsTranslation(place: Place): Boolean = textSource.needsTranslation(place, language)
 
     /** Si la narración de [place] ya está sintetizada y suena al instante. */
     fun isPrepared(place: Place): Boolean = store.has(place.id, language)
@@ -166,22 +173,25 @@ class NarrationController(
             }
             withContext(Dispatchers.Main) { player.stop() }
             val parts = sentences(text)
-            var next = async { synthesizeReply(parts[0]) }
+            val played = mutableListOf<File>()
+            var next = async { synthesizeReply(parts[0], announce = false) }
             for (index in parts.indices) {
                 val file = next.await() ?: run {
                     _state.value = State.Failed("fallo al sintetizar")
                     return@launch
                 }
-                if (index + 1 < parts.size) next = async { synthesizeReply(parts[index + 1]) }
+                if (index + 1 < parts.size) next = async { synthesizeReply(parts[index + 1], announce = false) }
                 _state.value = State.Playing(place.name, durationMs = 0)
                 if (!playAndAwait(file)) {
                     _state.value = State.Failed("no se pudo reproducir")
                     return@launch
                 }
+                played += file
             }
             _state.value = State.Idle
-            // Para la próxima vez, entera y en la caché de narraciones.
-            runCatching { synthesizer.synthesizeToFile(text, language, path) }
+            // Para la próxima vez, entera y en la caché de narraciones: lo que ya
+            // sonó, unido. Volver a sintetizarla ocupaba el motor más de un minuto.
+            runCatching { Wav.join(played, File(path)) }.onFailure { Log.w(TAG, "no se pudo guardar ${place.id}", it) }
         }
     }
 
@@ -209,14 +219,14 @@ class NarrationController(
             // tardaba siete en sintetizarse antes de sonar. Así la primera frase
             // suena en cuanto está y las demás se preparan mientras tanto.
             val parts = sentences(text)
-            var next = async { synthesizeReply(parts[0]) }
+            var next = async { synthesizeReply(parts[0], announce = true) }
             for (index in parts.indices) {
                 val file = next.await()
                 if (file == null) {
                     _state.value = State.Failed("fallo al sintetizar")
                     return@launch
                 }
-                if (index + 1 < parts.size) next = async { synthesizeReply(parts[index + 1]) }
+                if (index + 1 < parts.size) next = async { synthesizeReply(parts[index + 1], announce = false) }
                 _state.value = State.Speaking(text, preparing = false)
                 val played = playAndAwait(file)
                 if (!played) {
@@ -235,11 +245,16 @@ class NarrationController(
     /** La frase en curso, para poder cortarla si llega otra o un "para". */
     private var saying: Job? = null
 
-    /** Sintetiza una frase a la caché de respuestas, o la toma de ella. */
-    private fun synthesizeReply(sentence: String): File? {
+    /**
+     * Sintetiza una frase a la caché de respuestas, o la toma de ella. Solo la
+     * primera [announce] que se está preparando: las siguientes se preparan
+     * mientras suena la anterior, y avisarlo escondía la tarjeta con el botón
+     * de parar durante toda la narración.
+     */
+    private fun synthesizeReply(sentence: String, announce: Boolean): File? {
         val file = replyFile(sentence)
         if (file.isFile) return file
-        _state.value = State.Speaking(sentence, preparing = true)
+        if (announce) _state.value = State.Speaking(sentence, preparing = true)
         return runCatching { synthesizer.synthesizeToFile(sentence, language, file.absolutePath) }
             .map { file }
             .onFailure { file.delete() }

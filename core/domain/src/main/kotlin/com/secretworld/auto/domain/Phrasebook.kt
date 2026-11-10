@@ -434,6 +434,36 @@ object Phrasebook {
         return c.say(en = "In $distance, $lowered.", es = "En $distance, $lowered.", it = "Tra $distance, $lowered.")
     }
 
+    /** No hay historia en este idioma, pero se puede traducir: se pregunta, que tarda. */
+    fun offerTranslation(c: Context, place: Place): String {
+        val name = shortName(place)
+        return c.say(
+            en = "I don't have the story of $name in English. Shall I translate it for you? It'll take a moment.",
+            es = "No tengo la historia de $name en español. ¿Quieres que te la traduzca? Tardaré un momento.",
+            it = "Non ho la storia di $name in italiano. Vuoi che te la traduca? Ci vorrà un momento.",
+        )
+    }
+
+    /** Traduciendo: que se sepa por qué no suena todavía. */
+    fun translating(c: Context, place: Place): String {
+        val name = shortName(place)
+        return c.say(
+            en = "Translating $name, one moment.",
+            es = "Traduciendo $name, un momento.",
+            it = "Sto traducendo $name, un momento.",
+        )
+    }
+
+    /** No hay historia en este idioma, ni forma de traducirla aquí. */
+    fun noStoryInLanguage(c: Context, place: Place): String {
+        val name = shortName(place)
+        return c.say(
+            en = "I don't have the story of $name in English. I can take you there.",
+            es = "No tengo la historia de $name en español. Puedo llevarte.",
+            it = "Non ho la storia di $name in italiano. Posso portartici.",
+        )
+    }
+
     fun noStory(c: Context, place: Place): String {
         val name = shortName(place)
         return pick(

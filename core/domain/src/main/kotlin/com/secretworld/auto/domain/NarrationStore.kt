@@ -33,4 +33,11 @@ interface NarrationStore {
 /** De dónde sale el texto que se va a narrar. */
 interface NarrationTextSource {
     fun textFor(place: Place, language: VoiceLanguage): String?
+
+    /**
+     * Si contar [place] en [language] exige traducirlo antes, lo que en el
+     * dispositivo tarda. Se avisa y se pregunta en vez de dejar al conductor
+     * esperando sin saber por qué.
+     */
+    fun needsTranslation(place: Place, language: VoiceLanguage): Boolean = false
 }

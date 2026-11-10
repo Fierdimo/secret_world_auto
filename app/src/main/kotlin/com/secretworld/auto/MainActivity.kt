@@ -208,6 +208,13 @@ class MainActivity : ComponentActivity() {
     /** Un sitio que se ha ofrecido llevar; un "sí" lo confirma. */
     private var offered: Place? = null
 
+    /** El sitio cuya historia hay que traducir y se ofreció traducir: un "sí" la traduce y la cuenta. */
+    private var translationOffered: Place? = null
+
+    /** Su historia está en otro idioma y aquí no hay modelo con que traducirla. */
+    private fun untranslatable(place: Place): Boolean =
+        gemma == null && place.contentLanguage != null && place.contentLanguage != language
+
     /** La conversación para armar un itinerario: lo que se preguntó o propuso. */
     private val itinerary = ItineraryConversation()
     private val profiles by lazy { TravellerProfiles(this) }
@@ -650,7 +657,9 @@ class MainActivity : ComponentActivity() {
                 // Una guía de la ciudad entera no es un sitio al que ir ni que enumerar.
                 val places = catalogueResult?.places.orEmpty().filterNot(PlaceKinds::isCityGuide)
                 val upcoming = remember(places, positionKey, mode, skipped) {
-                    queue.next(vehicleState, places, skipped, language, limit = 12)
+                    // Con el modelo, lo que solo tiene texto en otro idioma se traduce
+                    // al narrarlo: la voz ve los mismos sitios que la pantalla.
+                    queue.next(vehicleState, places, skipped, language, limit = 12, translates = gemma != null)
                         .ifEmpty {
                             places.filter { it.id !in skipped }
                                 .sortedBy { vehicleState.position.distanceTo(it.position) }
@@ -1470,6 +1479,20 @@ class MainActivity : ComponentActivity() {
                     narration.say(reply) { voiceInput.listenForAnswer() }
                     return reply
                 }
+                if (untranslatable(command.place)) {
+                    offered = command.place
+                    val reply = Phrasebook.noStoryInLanguage(c, command.place)
+                    narration.say(reply) { voiceInput.listenForAnswer() }
+                    return reply
+                }
+                // Traducir tarda: se dice y se pregunta, y el conductor sabe a qué espera.
+                if (narration.needsTranslation(command.place)) {
+                    translationOffered = command.place
+                    val reply = Phrasebook.offerTranslation(c, command.place)
+                    narration.say(reply) { voiceInput.listenForAnswer() }
+                    focusMapOn(command.place)
+                    return reply
+                }
                 // Una breve introducción y, cuando termine, la narración. Sin
                 // introducción, narrar sin más es la respuesta, como antes.
                 val intro = said ?: if (narration.isPrepared(command.place)) Phrasebook.playing(c, command.place) else Phrasebook.preparing(c, command.place)
@@ -1497,11 +1520,18 @@ class MainActivity : ComponentActivity() {
             }
 
             VoiceCommand.Yes -> {
-                // Lo último ofrecido manda: la historia de la parada a la que se
-                // acaba de llegar, buscar dónde comer, o llevar a un sitio.
+                // Lo último ofrecido manda: traducir una historia, la de la parada
+                // a la que se acaba de llegar, buscar dónde comer, o llevar a un sitio.
+                translationOffered?.let { place ->
+                    translationOffered = null
+                    val intro = Phrasebook.translating(c, place)
+                    narration.say(intro) { narration.listen(place) }
+                    memory.focusOn(place)
+                    return intro
+                }
                 storyOffered?.let { stop ->
                     storyOffered = null
-                    val intro = Phrasebook.playing(c, stop)
+                    val intro = if (narration.needsTranslation(stop)) Phrasebook.translating(c, stop) else Phrasebook.playing(c, stop)
                     narration.say(intro) { narration.listen(stop) }
                     memory.focusOn(stop)
                     return intro
@@ -1540,6 +1570,7 @@ class MainActivity : ComponentActivity() {
 
             VoiceCommand.No -> {
                 offered = null
+                translationOffered = null
                 // No a seguir: sin prisa, se queda.
                 if (moveOnOffered) {
                     moveOnOffered = false
@@ -2109,7 +2140,10 @@ class MainActivity : ComponentActivity() {
         itinerary.restore(pending)
         lifecycleScope.launch {
             val heardAs = try {
-                ItineraryReplyPrompt.parse(model.complete(ItineraryReplyPrompt.PREFIX, ItineraryReplyPrompt.request(heard)))
+                // Sin esperar más de la cuenta: ocupado o lento, la propuesta sigue a la vista.
+                kotlinx.coroutines.withTimeoutOrNull(MODEL_REPLY_TIMEOUT_MS) {
+                    model.complete(ItineraryReplyPrompt.PREFIX, ItineraryReplyPrompt.request(heard))
+                }?.let(ItineraryReplyPrompt::parse)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -2393,6 +2427,16 @@ class MainActivity : ComponentActivity() {
             // es mejor que un "no hay texto" en la pantalla.
             val c = Phrasebook.Context(vehicle.state.value.position, memory.listed, memory, language)
             narration.say(Phrasebook.noStory(c, place))
+            return
+        }
+        val c = Phrasebook.Context(vehicle.state.value.position, memory.listed, memory, language)
+        if (untranslatable(place)) {
+            narration.say(Phrasebook.noStoryInLanguage(c, place))
+            return
+        }
+        // Tocar "Escuchar" ya es pedirlo: no se pregunta, pero se avisa de la espera.
+        if (narration.needsTranslation(place)) {
+            narration.say(Phrasebook.translating(c, place)) { narration.listen(place) }
             return
         }
         narration.listen(place)
@@ -2884,6 +2928,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
+        /** Lo más que se espera al modelo para entender una respuesta a una propuesta. */
+        const val MODEL_REPLY_TIMEOUT_MS = 4_000L
         /** En Ajustes: el tema elegido, claro u oscuro. */
         const val DARK_THEME = "dark_theme"
         /** En Ajustes: si se cerró el aviso de que no hay reconocimiento de voz. */

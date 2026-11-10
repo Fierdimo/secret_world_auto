@@ -32,12 +32,19 @@ class TranslatingNarrationTexts(
 
     private val cache = File(context.filesDir, "translations").apply { mkdirs() }
 
+    override fun needsTranslation(place: Place, language: VoiceLanguage): Boolean {
+        val from = place.contentLanguage ?: return false
+        return from != language && !cached(place, language).isFile
+    }
+
+    private fun cached(place: Place, language: VoiceLanguage) = File(cache, "${place.id.replace(':', '_')}.${language.code}.txt")
+
     override fun textFor(place: Place, language: VoiceLanguage): String? {
         val original = base.textFor(place, language) ?: return null
         val from = place.contentLanguage ?: return original
         if (from == language) return original
 
-        val file = File(cache, "${place.id.replace(':', '_')}.${language.code}.txt")
+        val file = cached(place, language)
         if (file.isFile) return file.readText()
         // El modelo tarda unos segundos en cargar al arrancar, y la preparación
         // por adelantado llega antes. Se espera: sintetizar el original ahora

@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
@@ -148,7 +149,18 @@ class OnDeviceVoiceInput(
     @Volatile
     var bargeIn: Boolean = false
 
-    private val muted: Boolean get() = speaking && !bargeIn
+    private val muted: Boolean get() = speaking && !bargeIn && !headphones()
+
+    /**
+     * Con cascos no hay eco: lo que suena va a los oídos y no vuelve al
+     * micrófono, así que se puede interrumpir sin que la app se oiga a sí misma.
+     * Con el altavoz, no: la cancelación de eco no resta la narración (medido).
+     */
+    private fun headphones(): Boolean = runCatching {
+        context.getSystemService(AudioManager::class.java)
+            .getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            .any { it.type in HEADPHONES }
+    }.getOrDefault(false)
 
     /**
      * La fuente del micrófono. VOICE_RECOGNITION es la que va bien con el
@@ -735,6 +747,11 @@ class OnDeviceVoiceInput(
     )
 
     private companion object {
+        /** Salidas sin eco: lo que suena no vuelve al micrófono. */
+        private val HEADPHONES = setOf(
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLE_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_USB_HEADSET,
+        )
         const val TAG = "SWVoiceInput"
         const val SAMPLE_RATE = 16_000
         /** 100 ms por lectura: bastante para no despertar el hilo sin parar, poco para reaccionar. */
