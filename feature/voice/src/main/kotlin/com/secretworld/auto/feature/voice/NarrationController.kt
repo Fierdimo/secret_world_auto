@@ -119,6 +119,10 @@ class NarrationController(
         if (queue.isEmpty()) return
         lastQueue = queue
         if (!installer.isInstalled(language)) return
+        // Primero lo que hay que poder decir ya: con dos narraciones enteras
+        // por delante, las respuestas fijas tardaron 50 s en estar en vez de 7.
+        // Al terminar ellas se vuelve a pedir esto.
+        if (!_warm.value) return
         if (!prefetching.compareAndSet(false, true)) return
         scope.launch(Dispatchers.IO) {
             try {
@@ -293,6 +297,11 @@ class NarrationController(
      * Sintetiza por adelantado las frases fijas del asistente, para que la
      * primera vez que hagan falta ya estén. Se llama cuando la voz está instalada.
      */
+    private val _warm = MutableStateFlow(false)
+
+    /** Si la voz está cargada y las respuestas fijas, preparadas: hablar ya no espera a nada. */
+    val warm: StateFlow<Boolean> = _warm.asStateFlow()
+
     fun prewarm(texts: List<String>) {
         if (!installer.isInstalled(language)) return
         scope.launch(Dispatchers.IO) {
@@ -307,6 +316,8 @@ class NarrationController(
             }
             Log.i(TAG, "respuestas fijas preparadas: ${texts.size}")
             VoiceTiming.ready("voz")
+            _warm.value = true
+            prefetch(lastQueue)
         }
     }
 

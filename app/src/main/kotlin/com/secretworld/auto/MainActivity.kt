@@ -2766,8 +2766,14 @@ class MainActivity : ComponentActivity() {
             installBundledModels(models)
             onDevice?.load()?.onFailure { Log.e("SWVoice", "modelos de escucha", it) }
             voiceReady.value = true
-            // El LLM se carga después del micrófono: es lo más pesado y lo menos
-            // urgente, y hasta que esté la gramática sigue atendiendo.
+            // El LLM, después de la escucha **y de la voz**: es lo más pesado y lo
+            // menos urgente, y hasta que esté la gramática sigue atendiendo.
+            // Medido en un Snapdragon 685: cargándolo a la vez, la voz tardaba
+            // 57 s en estar lista; sin él, 6,5.
+            if (gemma != null) {
+                kotlinx.coroutines.withTimeoutOrNull(VOICE_FIRST_MS) { narration.warm.first { it } }
+                lastVoiceActivity = SystemClock.elapsedRealtime()
+            }
             gemma?.load()?.onFailure { Log.e("SWVoice", "LLM", it) }
             // Prepararlo ocupa todos los núcleos —en un Snapdragon 685, más de un
             // minuto— y la escucha y la voz se arrastran mientras tanto. Se hace
@@ -2957,6 +2963,8 @@ class MainActivity : ComponentActivity() {
     private companion object {
         /** Lo más que se espera al modelo para entender una respuesta a una propuesta. */
         const val MODEL_REPLY_TIMEOUT_MS = 4_000L
+        /** Lo más que espera el modelo a que la voz esté lista para cargarse. */
+        const val VOICE_FIRST_MS = 60_000L
         /** Sin voz durante esto, se prepara el modelo. */
         const val AI_QUIET_MS = 20_000L
         const val AI_QUIET_POLL_MS = 1_000L
