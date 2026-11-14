@@ -228,6 +228,7 @@ class NarrationController(
                 }
                 if (index + 1 < parts.size) next = async { synthesizeReply(parts[index + 1], announce = false) }
                 _state.value = State.Speaking(text, preparing = false)
+                if (index == 0) VoiceTiming.startedSpeaking()
                 val played = playAndAwait(file)
                 if (!played) {
                     _state.value = State.Failed("no se pudo reproducir")
@@ -305,6 +306,7 @@ class NarrationController(
                     .onFailure { file.delete() }
             }
             Log.i(TAG, "respuestas fijas preparadas: ${texts.size}")
+            VoiceTiming.ready("voz")
         }
     }
 

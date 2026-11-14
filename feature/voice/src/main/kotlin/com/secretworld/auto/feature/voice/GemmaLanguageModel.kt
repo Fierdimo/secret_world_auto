@@ -89,6 +89,7 @@ class GemmaLanguageModel(
                 create(model, FALLBACK_BACKEND).getOrThrow()
             }.getOrThrow()
             Log.i(TAG, "LLM cargado en ${(System.nanoTime() - started) / 1_000_000} ms")
+            VoiceTiming.ready("IA cargada", (System.nanoTime() - started) / 1_000_000)
             lock.withLock {
                 if (engine == null) engine = built else built.close()
             }
@@ -120,7 +121,10 @@ class GemmaLanguageModel(
                     closeWhenIdle(probe)
                 }
             }
-                .onSuccess { Log.i(TAG, "prefijo del LLM preparado en ${(System.nanoTime() - started) / 1_000_000} ms") }
+                .onSuccess {
+                    Log.i(TAG, "prefijo del LLM preparado en ${(System.nanoTime() - started) / 1_000_000} ms")
+                    VoiceTiming.ready("IA lista", (System.nanoTime() - started) / 1_000_000)
+                }
                 .onFailure { Log.w(TAG, "no se pudo preparar el prefijo del LLM", it) }
         }
     }

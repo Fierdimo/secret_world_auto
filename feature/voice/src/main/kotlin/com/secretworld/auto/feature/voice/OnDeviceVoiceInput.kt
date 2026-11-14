@@ -207,6 +207,7 @@ class OnDeviceVoiceInput(
             )
             Log.i(TAG, "reductor de ruido: ${if (built.denoiser != null) "activo" else "no instalado"}")
             Log.i(TAG, "modelos de escucha cargados en ${(System.nanoTime() - started) / 1_000_000} ms")
+            VoiceTiming.ready("escucha", (System.nanoTime() - started) / 1_000_000)
             synchronized(this) {
                 if (engines == null) engines = built else built.release()
             }
@@ -614,6 +615,7 @@ class OnDeviceVoiceInput(
         }
 
         val started = System.nanoTime()
+        VoiceTiming.speechEnded(started)
         // Con música o voces de fondo, lo primero es limpiar la frase: la
         // palabra de activación es corta y rara, y es lo que antes se ensucia
         // («Sigred» por "Sícret", medido en una cafetería).
@@ -623,17 +625,20 @@ class OnDeviceVoiceInput(
                 .getOrNull()
         } ?: audio
         val text = transcribe(engines, clean)
-        // Con reductor se transcribe también el audio original, y no para
-        // comparar: medido en una cafetería, el reductor limpia la orden pero
-        // se come la "S" de "Sícret" —«Igri», «Icre»—, porque una sibilante se
-        // parece al ruido. Cada versión acierta en lo suyo; se usan las dos.
-        val raw = if (clean !== audio) transcribe(engines, audio) else text
+        val afterWake = WakeWord.commandIn(text, language)
+        // El audio original, otra vez, solo si la lectura limpia no basta.
+        // Medido en una cafetería, el reductor limpia la orden pero se come la
+        // "S" de "Sícret" —«Igri», «Icre»—, porque una sibilante se parece al
+        // ruido. Transcribir siempre las dos doblaba lo que tardaba entender
+        // cada frase: en un Snapdragon 685, tres segundos.
+        val needsRaw = clean !== audio && if (capture.transcriptWake) afterWake == null else text.isBlank()
+        val raw = if (needsRaw) transcribe(engines, audio) else text
         val decodeMs = (System.nanoTime() - started) / 1_000_000
         val audioMs = audio.size * 1000L / SAMPLE_RATE
         Log.i(TAG, "oído en ${decodeMs} ms (${audioMs} ms de audio)${if (speaking) " mientras habla" else ""}: «$text»")
         if (raw != text) Log.i(TAG, "sin reductor: «$raw»")
+        VoiceTiming.recognized(decodeMs, text)
 
-        val afterWake = WakeWord.commandIn(text, language)
         val rawAfterWake = WakeWord.commandIn(raw, language)
         if (capture.transcriptWake) {
             // Vigilando por transcripción: sin la palabra delante, no iba con

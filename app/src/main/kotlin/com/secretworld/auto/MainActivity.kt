@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.res.Configuration
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -82,6 +83,7 @@ import com.secretworld.auto.domain.Route
 import com.secretworld.auto.domain.Router
 import com.secretworld.auto.feature.discover.NavigationUi
 import com.secretworld.auto.feature.voice.NoVoiceInput
+import com.secretworld.auto.feature.voice.VoiceTiming
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -273,6 +275,16 @@ class MainActivity : ComponentActivity() {
         if (dark == darkTheme()) return
         settingsPrefs.edit().putBoolean(DARK_THEME, dark).apply()
         recreate()
+    }
+
+    /** La última vez que se habló con la app o habló ella. */
+    @Volatile private var lastVoiceActivity = SystemClock.elapsedRealtime()
+
+    /** Espera a un rato sin voz: ni el conductor hablando ni la app contestando. */
+    private suspend fun awaitQuiet() {
+        while (SystemClock.elapsedRealtime() - lastVoiceActivity < AI_QUIET_MS || appSpeaking.value) {
+            kotlinx.coroutines.delay(AI_QUIET_POLL_MS)
+        }
     }
 
     /** Si ya se cerró el aviso de que el dispositivo no reconoce la voz. */
@@ -512,6 +524,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        VoiceTiming.ready("actividad")
         network.start()
         // Las fotos que no se encontraron sin red, otra vez a la cola.
         lifecycleScope.launch { network.comebacks.collect { picturing.retainAll(images.value.keys) } }
@@ -578,6 +591,7 @@ class MainActivity : ComponentActivity() {
             narration.state.collect { state ->
                 appSpeaking.value = state is NarrationController.State.Playing ||
                     (state is NarrationController.State.Speaking && !state.preparing)
+                if (state !is NarrationController.State.Idle) lastVoiceActivity = SystemClock.elapsedRealtime()
             }
         }
         val modeController = DrivingModeController(vehicle, lifecycleScope)
@@ -647,7 +661,9 @@ class MainActivity : ComponentActivity() {
                 )
                 LaunchedEffect(positionKey, comeback) {
                     catalogueResult = catalogue.nearby(vehicleState.position, language = language)
+                    VoiceTiming.ready("sitios")
                 }
+                LaunchedEffect(Unit) { VoiceTiming.ready("interfaz") }
                 // Dónde está el usuario de verdad, no la "ciudad" del lugar más cercano.
                 var where by remember { mutableStateOf<String?>(null) }
                 LaunchedEffect(positionKey, comeback) {
@@ -800,6 +816,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     heard = order
+                    lastVoiceActivity = SystemClock.elapsedRealtime()
                     val resolvedAt = System.nanoTime()
                     // Primero la gramática con cada lectura de la frase —la
                     // limpia y la original—, que es instantánea; el modelo, que
@@ -911,6 +928,7 @@ class MainActivity : ComponentActivity() {
                         ?: understood.firstOrNull { (it.command as? VoiceCommand.FindPlaces)?.let { find -> VoiceGrammar.searchCategoryOf(find.query) != null } ?: false }
                         ?: understood.firstOrNull()
                         ?: resolver.resolve(order, nameable, memory)
+                    VoiceTiming.understood(resolution.command::class.simpleName.orEmpty(), (System.nanoTime() - resolvedAt) / 1_000_000)
                     Log.i("SWVoice", "«$order» → ${resolution.command::class.simpleName} en ${(System.nanoTime() - resolvedAt) / 1_000_000} ms" +
                         " (LLM ${gemma?.let { when { it.ready -> "listo"; it.failed -> "no disponible"; else -> "cargando" } } ?: "ausente"})" +
                         (resolution.reply?.let { " · dice: «$it»" } ?: ""))
@@ -2728,7 +2746,9 @@ class MainActivity : ComponentActivity() {
         handsFree = HandsFree(voiceInput, lifecycleScope, appSpeaking)
         resolver = LayeredIntentResolver(
             grammar = grammar,
-            fallback = if (llm.available || llm.bundled) {
+            // Sin IA, para medir cuánto pesa al arrancar sin recompilar:
+            // adb shell am start ... --ez llm false
+            fallback = if ((llm.available || llm.bundled) && intent.getBooleanExtra("llm", true)) {
                 LlmIntentResolver(llm.also { gemma = it }, position = { vehicle.state.value.position }, language = language) {
                     Log.e("SWVoice", "el LLM no contestó", it)
                 }
@@ -2749,7 +2769,14 @@ class MainActivity : ComponentActivity() {
             // El LLM se carga después del micrófono: es lo más pesado y lo menos
             // urgente, y hasta que esté la gramática sigue atendiendo.
             gemma?.load()?.onFailure { Log.e("SWVoice", "LLM", it) }
-            gemma?.warm(IntentPrompt.PREFIX)
+            // Prepararlo ocupa todos los núcleos —en un Snapdragon 685, más de un
+            // minuto— y la escucha y la voz se arrastran mientras tanto. Se hace
+            // en un rato quieto: lo esencial lo resuelve la gramática, y el
+            // modelo es solo para lo que ella no entiende.
+            if (gemma != null) {
+                awaitQuiet()
+                gemma?.warm(IntentPrompt.PREFIX)
+            }
         }
     }
 
@@ -2930,6 +2957,9 @@ class MainActivity : ComponentActivity() {
     private companion object {
         /** Lo más que se espera al modelo para entender una respuesta a una propuesta. */
         const val MODEL_REPLY_TIMEOUT_MS = 4_000L
+        /** Sin voz durante esto, se prepara el modelo. */
+        const val AI_QUIET_MS = 20_000L
+        const val AI_QUIET_POLL_MS = 1_000L
         /** En Ajustes: el tema elegido, claro u oscuro. */
         const val DARK_THEME = "dark_theme"
         /** En Ajustes: si se cerró el aviso de que no hay reconocimiento de voz. */
