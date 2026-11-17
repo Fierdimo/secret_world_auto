@@ -91,9 +91,6 @@ class NavigationGuide(private val route: Route) {
     ) {
         val arrived: Boolean get() = remainingMeters < ARRIVAL_METERS
         val offRoute: Boolean get() = offRouteMeters > OFF_ROUTE_METERS
-
-        /** Si toca anunciar la maniobra: cerca de ella y aún no pasada. */
-        val shouldAnnounce: Boolean get() = nextStep != null && metersToNextStep in 0.0..ANNOUNCE_METERS
     }
 
     /** Longitud acumulada hasta cada punto, para no recorrer la línea en cada posición. */
@@ -157,8 +154,6 @@ class NavigationGuide(private val route: Route) {
         const val ARRIVAL_METERS = 40.0
         /** A más de esto de la línea, el vehículo va por otro sitio: recalcular. */
         const val OFF_ROUTE_METERS = 60.0
-        /** Se anuncia una maniobra cuando queda menos de esto. */
-        const val ANNOUNCE_METERS = 250.0
         private const val STEP_SLACK_METERS = 15.0
     }
 }

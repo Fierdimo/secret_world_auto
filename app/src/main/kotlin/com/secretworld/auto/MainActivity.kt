@@ -368,7 +368,6 @@ class MainActivity : ComponentActivity() {
     /** La ruta en curso y su guía. `null` cuando no se navega. */
     private val activeRoute = MutableStateFlow<Route?>(null)
     private var guide: NavigationGuide? = null
-    private val announced = mutableSetOf<String>()
     private var lastReroute = 0L
 
     /**
@@ -715,24 +714,12 @@ class MainActivity : ComponentActivity() {
                         },
                         arrived = progress.arrived,
                     )
-                    val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
+                    // En silencio: la guía hablada es del navegador del sistema. Aquí
+                    // solo se sigue la ruta en pantalla, y la llegada a una parada
+                    // del itinerario la ofrece el itinerario, con su historia.
                     when {
-                        progress.arrived -> {
-                            // Si es una parada del itinerario, la llegada la anuncia
-                            // el itinerario, que además ofrece la historia.
-                            if (tour.value?.current?.id != current.destination.id) {
-                                narration.say(Phrasebook.arrived(c, current.destination))
-                            }
-                            endNavigation()
-                        }
-                        progress.offRoute && vehicleState.speedMetersPerSecond > 1.0 -> reroute(current, vehicleState.position, c)
-                        progress.shouldAnnounce -> {
-                            val step = progress.nextStep ?: return@LaunchedEffect
-                            val key = "${step.at.latitude},${step.at.longitude}"
-                            if (announced.add(key)) {
-                                narration.say(Phrasebook.maneuver(c, progress.metersToNextStep, step.instruction))
-                            }
-                        }
+                        progress.arrived -> endNavigation()
+                        progress.offRoute && vehicleState.speedMetersPerSecond > 1.0 -> reroute(current, vehicleState.position)
                     }
                 }
 
@@ -2689,16 +2676,11 @@ class MainActivity : ComponentActivity() {
                 return@launch
             }
             startNavigation(found)
-            // La primera maniobra va dentro del anuncio: no hace falta que la
-            // guía la repita nada más empezar.
-            found.steps.firstOrNull()?.let { announced.add("${it.at.latitude},${it.at.longitude}") }
-            narration.say(Phrasebook.routeStarted(c, found))
         }
     }
 
     private fun startNavigation(route: Route) {
         guide = NavigationGuide(route)
-        announced.clear()
         activeRoute.value = route
         Log.i("SWNav", "ruta a ${route.destination.name}: %.0f m, %.0f s, ${route.steps.size} maniobras".format(route.distanceMeters, route.durationSeconds))
     }
@@ -2706,17 +2688,15 @@ class MainActivity : ComponentActivity() {
     private fun endNavigation() {
         activeRoute.value = null
         guide = null
-        announced.clear()
     }
 
-    /** Fuera de la ruta y en marcha: se recalcula, como mucho cada quince segundos. */
-    private fun reroute(current: Route, here: Coordinates, c: Phrasebook.Context) {
+    /** Fuera de la ruta y en marcha: se recalcula, en silencio, como mucho cada quince segundos. */
+    private fun reroute(current: Route, here: Coordinates) {
         val now = System.currentTimeMillis()
         if (now - lastReroute < REROUTE_EVERY_MS) return
         lastReroute = now
         lifecycleScope.launch {
             val found = router.route(here, current.destination) ?: return@launch
-            narration.say(Phrasebook.rerouting(c))
             startNavigation(found)
         }
     }
@@ -3021,9 +3001,9 @@ class MainActivity : ComponentActivity() {
          * Tienen que ser **idénticas** a las de [Phrasebook] para que se usen.
          */
         fun fixedReplies(language: VoiceLanguage) = listOf(yes(language), goAhead(language), notCaught(language)) + language.say(
-            en = listOf("Okay.", "Sure.", "Alright, I'll be quiet.", "There's nothing playing to skip.", "Nothing to skip right now.", "Recalculating.", "New route.", "Route ended."),
-            es = listOf("Vale.", "Listo.", "Me callo.", "No hay nada sonando que saltar.", "Nada que saltar ahora mismo.", "Recalculando.", "Nueva ruta.", "Ruta terminada."),
-            it = listOf("Va bene.", "Fatto.", "D'accordo, faccio silenzio.", "Non c'è niente in riproduzione da saltare.", "Niente da saltare adesso.", "Ricalcolo.", "Nuovo percorso.", "Percorso terminato."),
+            en = listOf("Okay.", "Sure.", "Alright, I'll be quiet.", "There's nothing playing to skip.", "Nothing to skip right now.", "Route ended."),
+            es = listOf("Vale.", "Listo.", "Me callo.", "No hay nada sonando que saltar.", "Nada que saltar ahora mismo.", "Ruta terminada."),
+            it = listOf("Va bene.", "Fatto.", "D'accordo, faccio silenzio.", "Non c'è niente in riproduzione da saltare.", "Niente da saltare adesso.", "Percorso terminato."),
         )
         /**
          * Se arranca en Roma porque es donde el catálogo tiene densidad real, y

@@ -329,50 +329,6 @@ object Phrasebook {
         )
     }
 
-    /**
-     * La ruta, presentada como lo haría alguien que va contigo: a dónde, hacia
-     * dónde, cuánto, y qué hacer ahora. Todo en una sola frase larga, para que
-     * el conductor no tenga que esperar tres respuestas.
-     */
-    fun routeStarted(c: Context, route: Route): String {
-        val heading = cardinal(c.here.bearingTo(route.destination.position), c.language)
-        val first = route.steps.firstOrNull()?.instruction?.trimEnd('.')?.replaceFirstChar { it.lowercase() }
-        val name = shortName(route.destination)
-        val distance = spokenDistance(route.distanceMeters, c.language)
-        val duration = spokenDuration(route.durationSeconds, c.language)
-        return buildString {
-            append(
-                pick(
-                    c,
-                    c.say(
-                        en = listOf("Starting your route to ", "Here we go: route to ", "Great, heading to "),
-                        es = listOf("Iniciando ruta hacia ", "Vamos allá: ruta hacia ", "Perfecto, ruta hacia "),
-                        it = listOf("Avvio il percorso verso ", "Si parte: percorso verso ", "Perfetto, percorso verso "),
-                    ),
-                ),
-            )
-            append(
-                c.say(
-                    en = "$name, $heading of here. It's $distance, about $duration.",
-                    es = "$name, dirección $heading. Son $distance, unos $duration.",
-                    it = "$name, direzione $heading. Sono $distance, circa $duration.",
-                ),
-            )
-            if (first != null) append(c.say(en = " Now, $first.", es = " Ahora, $first.", it = " Ora, $first."))
-        }
-    }
-
-    /** "norte", "noreste"… a partir de un rumbo en grados. */
-    fun cardinal(bearing: Double, language: VoiceLanguage): String {
-        val names = language.say(
-            en = listOf("north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"),
-            es = listOf("norte", "noreste", "este", "sureste", "sur", "suroeste", "oeste", "noroeste"),
-            it = listOf("nord", "nord-est", "est", "sud-est", "sud", "sud-ovest", "ovest", "nord-ovest"),
-        )
-        val index = (((bearing % 360 + 360) % 360 + 22.5) / 45).toInt() % 8
-        return names[index]
-    }
-
     fun noRoute(c: Context, place: Place): String {
         val name = shortName(place)
         return pick(
@@ -400,43 +356,11 @@ object Phrasebook {
         it = "Dove andiamo? Dimmi un luogo, oppure chiedimi cosa c'è qui vicino.",
     )
 
-    fun arrived(c: Context, place: Place): String {
-        val name = shortName(place)
-        return pick(
-            c,
-            c.say(
-                en = listOf("You've arrived at $name.", "This is it — $name."),
-                es = listOf("Has llegado a $name.", "Aquí es: $name."),
-                it = listOf("Sei arrivato a $name.", "Eccoci: $name."),
-            ),
-        )
-    }
-
     /** Se dice ya en el idioma nuevo, al volver a abrirse la app en él. */
     fun nowSpeaking(language: VoiceLanguage): String =
         language.say(en = "I'm speaking English now.", es = "Ahora hablo español.", it = "Ora parlo italiano.")
 
     fun routeEnded(c: Context): String = c.say(en = "Route ended.", es = "Ruta terminada.", it = "Percorso terminato.")
-
-    fun rerouting(c: Context): String = pick(
-        c,
-        c.say(
-            en = listOf("Recalculating.", "New route."),
-            es = listOf("Recalculando.", "Nueva ruta."),
-            it = listOf("Ricalcolo.", "Nuovo percorso."),
-        ),
-    )
-
-    /**
-     * "In 200 metres, turn left onto Via Sacra." A menos de cien metros no hay
-     * distancia que decir: "en aquí mismo" no lo dice nadie. Es "ahora".
-     */
-    fun maneuver(c: Context, meters: Double, instruction: String): String {
-        val lowered = instruction.trimEnd('.').replaceFirstChar { it.lowercase() }
-        if (meters < 100) return c.say(en = "Now, $lowered.", es = "Ahora, $lowered.", it = "Ora, $lowered.")
-        val distance = spokenDistance(meters, c.language)
-        return c.say(en = "In $distance, $lowered.", es = "En $distance, $lowered.", it = "Tra $distance, $lowered.")
-    }
 
     /** No hay historia en este idioma, pero se puede traducir: se pregunta, que tarda. */
     fun offerTranslation(c: Context, place: Place): String {

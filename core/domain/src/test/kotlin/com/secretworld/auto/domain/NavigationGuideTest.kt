@@ -38,13 +38,11 @@ class NavigationGuideTest {
         assertEquals(1000.0, p.metersToNextStep, 5.0)
         assertFalse(p.arrived)
         assertFalse(p.offRoute)
-        assertFalse(p.shouldAnnounce)
     }
 
     @Test
     fun `cerca de la maniobra toca anunciarla, y pasada ya no`() {
         val before = guide.progress(at(north(800.0)))
-        assertTrue(before.shouldAnnounce, "a 200 m se anuncia")
         assertEquals(200.0, before.metersToNextStep, 5.0)
 
         val after = guide.progress(at(north(1100.0)))
@@ -73,7 +71,6 @@ class NavigationGuideTest {
         val bare = NavigationGuide(route.copy(steps = emptyList()))
         val p = bare.progress(at(north(900.0)))
         assertNull(p.nextStep)
-        assertFalse(p.shouldAnnounce)
         assertEquals(1100.0, p.remainingMeters, 5.0)
     }
 
