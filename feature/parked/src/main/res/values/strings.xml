@@ -21,5 +21,8 @@
     <string name="listen_minutes">%1$d min to listen</string>
     <string name="testing">Testing</string>
     <string name="action_radius">Action radius</string>
+    <string name="theme">Theme</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
     <string name="radius_km">%1$d km</string>
 </resources>

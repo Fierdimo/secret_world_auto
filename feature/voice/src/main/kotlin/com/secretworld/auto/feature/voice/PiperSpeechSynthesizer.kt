@@ -1,6 +1,7 @@
 package com.secretworld.auto.feature.voice
 
 import android.util.Log
+import com.k2fsa.sherpa.onnx.GeneratedAudio
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
@@ -9,6 +10,8 @@ import com.secretworld.auto.domain.SpeechSynthesizer
 import com.secretworld.auto.domain.Synthesis
 import com.secretworld.auto.domain.VoiceLanguage
 import java.io.File
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * Sintesis embebida con sherpa-onnx y voces Piper VITS.
@@ -21,6 +24,13 @@ class PiperSpeechSynthesizer(private val installer: VoiceInstaller) : SpeechSynt
 
     private val engines = mutableMapOf<VoiceLanguage, OfflineTts>()
     private val enginesLock = Any()
+
+    /**
+     * El turno del motor, por orden de llegada. Con `synchronized` no había
+     * orden: la preparación por adelantado volvía a cogerlo frase tras frase y
+     * una respuesta de una línea esperó 85 s en un Snapdragon 685.
+     */
+    private val turn = ReentrantLock(true)
 
     override val availableLanguages: Set<VoiceLanguage>
         get() = installer.installedLanguages()
@@ -35,7 +45,16 @@ class PiperSpeechSynthesizer(private val installer: VoiceInstaller) : SpeechSynt
         // Una sintesis a la vez por motor. Dos a la vez —una respuesta por
         // frases mientras se prepara la siguiente— no van el doble de lentas:
         // van cuatro veces mas lentas, y el motor no promete ser seguro entre hilos.
-        val audio = synchronized(tts) { tts.generate(text, 0, 1.0f) }
+        // Y un texto largo, frase a frase, soltando el turno entre una y otra:
+        // así lo que hay que decir ya no espera a una narración entera.
+        val pieces = sentences(text).map { sentence -> turn.withLock { tts.generate(sentence, 0, 1.0f) } }
+        val audio = pieces.singleOrNull() ?: GeneratedAudio(
+            FloatArray(pieces.sumOf { it.samples.size }).also { all ->
+                var at = 0
+                pieces.forEach { piece -> piece.samples.copyInto(all, at); at += piece.samples.size }
+            },
+            pieces.first().sampleRate,
+        )
         val elapsed = (System.nanoTime() - started) / 1_000_000_000.0
 
         require(audio.save(outputPath)) { "no se pudo escribir $outputPath" }
@@ -52,6 +71,10 @@ class PiperSpeechSynthesizer(private val installer: VoiceInstaller) : SpeechSynt
     fun warm(language: VoiceLanguage) {
         engineFor(language)
     }
+
+    /** Por frases: corta en puntuación fuerte, no en comas, que romperían la entonación. */
+    private fun sentences(text: String): List<String> =
+        text.split(Regex("(?<=[.!?;])\\s+")).map { it.trim() }.filter { it.isNotEmpty() }.ifEmpty { listOf(text) }
 
     /** Libera los motores. El disco es barato, la RAM del infotainment no. */
     fun release() {

@@ -230,7 +230,7 @@ object VoiceGrammar {
         }
 
         // Qué se busca y dónde: "un restaurante | en el barrio Las Gaviotas".
-        val (what, area) = splitArea(words)
+        val (what, area) = splitArea(words, language)
         categoryIn(what, language)?.let { return VoiceCommand.FindPlaces(it, area) }
         // Lo que sigue a "busca" / "voglio" se busca en el mapa, salvo que sea
         // un lugar que ya conocemos: "voglio la India Catalina" es ese sitio.
@@ -292,6 +292,9 @@ object VoiceGrammar {
      */
     private fun sameWord(heard: String, name: String): Boolean {
         if (heard == name) return true
+        // "The castle" o "il castello" es el "Castillo San Felipe": los nombres
+        // del catálogo vienen en el idioma de su fuente, no en el de quien habla.
+        if (Landmarks.same(heard, name)) return true
         if (heard.length < 5 || name.length < 5) return false
         val allowed = if (name.length >= 8) 2 else 1
         return Script.editDistance(heard, name) <= allowed
@@ -489,8 +492,25 @@ object VoiceGrammar {
             // largas: el reconocedor escribe «picería» o «pilcería» por pizzería.
             ?: CATEGORIES.firstOrNull { category -> category.keys.any { key -> ' ' !in key && words.any { sameKey(it, normalise(key)) } } }
             ?: return null
-        return if (language == VoiceLanguage.ITALIAN) category.italian else category.spanish
+        return when (language) {
+            VoiceLanguage.ITALIAN -> category.italian
+            // En inglés, con su nombre en inglés: contestaba «Looking for restaurante nearby».
+            VoiceLanguage.ENGLISH -> ENGLISH_NAMES[category.searchId] ?: category.spanish
+            VoiceLanguage.SPANISH -> category.spanish
+        }
     }
+
+    /** Cómo se dice en inglés lo que se busca, para contestarlo; lo demás se busca por categoría. */
+    private val ENGLISH_NAMES = mapOf(
+        "restaurant" to "restaurants", "gas_station" to "petrol stations", "parking_lot" to "parking",
+        "hotel" to "hotels", "pharmacy" to "pharmacies", "atm" to "cash machines", "cafe" to "cafés", "bar" to "bars",
+        "supermarket" to "supermarkets", "hospital" to "hospitals", "pizza_restaurant" to "pizza", "ice_cream" to "ice cream",
+        "bakery" to "bakeries", "auto_repair" to "mechanics", "charging_station" to "charging stations", "car_wash" to "car washes",
+        "airport" to "the airport", "bus_station" to "bus stations", "beach" to "beaches", "viewpoint" to "viewpoints",
+        "shopping_mall" to "shopping centres", "convenience_store" to "shops", "cinema" to "cinemas", "police_station" to "police",
+        "seafood_restaurant" to "seafood", "italian_restaurant" to "Italian food", "chinese_restaurant" to "Chinese food",
+        "mexican_restaurant" to "Mexican food", "japanese_restaurant" to "Japanese food", "fast_food" to "fast food",
+    )
 
     private fun sameKey(heard: String, key: String): Boolean {
         // Siete letras o más: con seis, "parque" pasaba por "parquear".
@@ -507,11 +527,14 @@ object VoiceGrammar {
      * "in", "nel", "cerca de"… siempre que no sea "aquí" —"cerca de mí" es lo
      * de siempre—. "El centro", "centro storico" o "downtown" son el centro.
      */
-    private fun splitArea(words: List<String>): Pair<List<String>, String?> {
+    private fun splitArea(words: List<String>, language: VoiceLanguage? = null): Pair<List<String>, String?> {
         if (words.hasAny(DOWNTOWN)) return words.filterNot { it == "downtown" } to CITY_CENTRE
+        // En italiano "a" también dice dónde: "ristoranti a Bocagrande". En
+        // español no, que "a" es casi siempre adónde.
+        val markers = if (language == VoiceLanguage.ITALIAN) AREA_MARKERS + "a" else AREA_MARKERS
         // El primer marcador que deje algo detrás; se prueban los largos antes.
         for (start in 1 until words.size) {
-            val marker = AREA_MARKERS.firstOrNull { marker ->
+            val marker = markers.firstOrNull { marker ->
                 val needle = normalise(marker).split(' ')
                 start + needle.size < words.size && words.subList(start, start + needle.size) == needle
             } ?: continue
@@ -596,6 +619,7 @@ object VoiceGrammar {
         // después palabras sueltas: "negozio di abbigliamento" lleva "negozio",
         // que también es tienda de conveniencia.
         CATEGORIES.firstOrNull { said == normalise(it.spanish) || said == normalise(it.italian) }?.let { return it.searchId }
+        ENGLISH_NAMES.entries.firstOrNull { said == normalise(it.value) }?.let { return it.key }
         return CATEGORIES.firstOrNull { words.hasAny(it.keys) }?.searchId
     }
 
@@ -683,6 +707,8 @@ object VoiceGrammar {
      */
     private val TELL = listOf(
         "tell me", "tell me about", "what is", "what s", "whats", "who was", "story", "history",
+        // Como lo escribe el reconocedor: «told me about Cerro de la Popa». Medido.
+        "told me", "tel me", "tell us",
         "cuéntame", "cuentame", "cuéntamela", "cuentamela", "háblame", "hablame", "qué es", "que es", "quién fue", "quien fue", "historia",
         "raccontami", "raccontamela", "racconta", "parlami", "cos è", "cosa è", "che cos è", "chi era", "storia", "la storia",
     )
@@ -693,7 +719,7 @@ object VoiceGrammar {
      * suelto no basta.
      */
     private val STORY = listOf(
-        "story", "history", "tell me", "tell me about it",
+        "story", "history", "tell me", "tell me about it", "told me",
         "historia", "su historia", "cuéntamela", "cuentamela", "cuéntame", "cuentame", "háblame", "hablame",
         "storia", "la storia", "raccontamela", "raccontami", "racconta", "parlami",
         // Lo que invita a decir la pregunta "¿te llevo o te la cuento?".
@@ -749,6 +775,11 @@ object VoiceGrammar {
 
     private val END_ROUTE = listOf(
         "end route", "end navigation", "stop navigation", "stop the route", "cancel route",
+        // El viaje entero, no solo la ruta: es lo que se dice al acabar el itinerario.
+        "end the trip", "end trip", "end the tour", "end the itinerary", "finish the trip", "finish the tour",
+        "we re done", "we are done", "trip is over",
+        "acaba el viaje", "acabar el viaje", "acabamos el viaje", "fin del viaje", "fin del recorrido", "se acabo el viaje",
+        "abbiamo finito", "fine del viaggio", "finisci il viaggio", "basta viaggio",
         "fine percorso", "fine navigazione", "fine del percorso", "stop navigazione", "basta navigazione", "esci dalla navigazione",
         "salir de la ruta", "salir de la navegación", "salir de la navegacion", "parar la ruta", "parar navegación", "parar navegacion",
     )
@@ -863,7 +894,9 @@ object VoiceGrammar {
     )
 
     /** Verbos tras los que viene lo que se busca. */
-    private val SEARCH_VERBS = listOf("busca", "buscar", "búscame", "buscame", "encuentra", "encuéntrame", "dónde hay", "donde hay", "hay algún", "hay alguna", "quiero", "necesito", "find", "search for", "look for", "where is there", "is there a", "i need", "i want")
+    private val SEARCH_VERBS = listOf("busca", "buscar", "búscame", "buscame", "encuentra", "encuéntrame", "dónde hay", "donde hay", "hay algún", "hay alguna",
+        // "¿Hay un OXXO cerca?": una cadena, por su nombre. Sin esto acababa en "¿qué hay cerca?".
+        "hay un", "hay una", "quiero", "necesito", "find", "search for", "look for", "where is there", "is there a", "is there an", "i need", "i want")
 
     /**
      * Verbos de búsqueda italianos, solo en italiano: "cerca" es "busca" en

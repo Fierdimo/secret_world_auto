@@ -477,6 +477,8 @@ data class VoiceUi(
 enum class VoiceStatus {
     /** Sin micrófono: el aviso de permisos ya lo explica. */
     OFF,
+    /** El dispositivo no puede reconocer la voz: un micrófono tachado, de recordatorio. */
+    UNAVAILABLE,
     /** Micrófono abierto, esperando la palabra de activación. */
     WAITING,
     /** Acaba de preguntar algo: es el turno del conductor. */
@@ -667,8 +669,9 @@ data class SearchShortcut(
 /** Un permiso que falta: qué se pierde sin él y cómo activarlo. */
 data class PermissionNotice(
     val message: String,
-    val action: String,
-    val onClick: () -> Unit,
+    /** Sin acción, solo el aviso: lo que no se arregla tocando. */
+    val action: String? = null,
+    val onClick: () -> Unit = {},
 )
 
 @Composable
@@ -688,8 +691,10 @@ internal fun PermissionCard(notice: PermissionNotice) {
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
-        Spacer(Modifier.width(d.spaceS))
-        CarSecondaryButton(label = notice.action, onClick = notice.onClick, dense = true)
+        notice.action?.let { action ->
+            Spacer(Modifier.width(d.spaceS))
+            CarSecondaryButton(label = action, onClick = notice.onClick, dense = true)
+        }
     }
 }
 
@@ -703,6 +708,14 @@ internal fun PermissionCard(notice: PermissionNotice) {
 internal fun VoiceStatusChip(status: VoiceStatus, labelled: Boolean = true) {
     if (status == VoiceStatus.OFF) return
     val d = CarTheme.dimens
+    if (status == VoiceStatus.UNAVAILABLE) {
+        // Quieto, apagado y pequeño: solo recuerda que no hay voz, sin quitarle
+        // sitio al nombre de la ciudad.
+        Box(Modifier.padding(start = d.spaceXs)) {
+            GlyphIcon(Glyph.MIC_OFF, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f), MIC_OFF_ICON)
+        }
+        return
+    }
     val active = status != VoiceStatus.WAITING
     val color = when (status) {
         VoiceStatus.THINKING, VoiceStatus.YOUR_TURN -> MaterialTheme.colorScheme.primary
@@ -750,3 +763,6 @@ internal fun VoiceStatusChip(status: VoiceStatus, labelled: Boolean = true) {
 }
 
 private const val PULSE_MS = 600
+
+/** El micrófono tachado: del tamaño del punto de escucha al que sustituye, poco más. */
+private val MIC_OFF_ICON = 14.dp

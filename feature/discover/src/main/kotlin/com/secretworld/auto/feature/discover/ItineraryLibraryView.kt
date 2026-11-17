@@ -1,9 +1,11 @@
 package com.secretworld.auto.feature.discover
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -27,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,7 +48,10 @@ import com.secretworld.auto.core.designsystem.CarButton
 import com.secretworld.auto.core.designsystem.CarSecondaryButton
 import com.secretworld.auto.core.designsystem.CarTheme
 import com.secretworld.auto.core.designsystem.Motion
+import com.secretworld.auto.core.designsystem.entering
 import com.secretworld.auto.core.designsystem.panelInsetsPadding
+import com.secretworld.auto.core.designsystem.pressable
+import com.secretworld.auto.core.designsystem.rememberListEntrance
 import com.secretworld.auto.domain.Place
 import kotlin.math.cos
 import kotlin.math.max
@@ -96,7 +102,8 @@ fun BoxScope.ItineraryLibraryOverlay(
             .fillMaxHeight()
             .fillMaxWidth(PANEL_SHARE)
             .panelInsetsPadding()
-            .padding(d.spaceM)
+            // Del borde de la barra de estado a casi el de la pantalla: todo el alto.
+            .padding(start = d.spaceM, end = d.spaceM, bottom = d.spaceXs)
             .clip(shape)
             .background(glass)
             .border(1.dp, accent.copy(alpha = 0.35f), shape)
@@ -129,9 +136,12 @@ fun BoxScope.ItineraryLibraryOverlay(
         Spacer(Modifier.height(d.spaceS))
         val list = rememberLazyListState()
         LaunchedEffect(selected) { if (selected in items.indices) list.animateScrollToItem(selected) }
+        // Como los niveles de un juego: entran uno tras otro al abrir la ventana.
+        val entrance = rememberListEntrance(items.isNotEmpty())
         LazyColumn(Modifier.fillMaxWidth().weight(1f), state = list, verticalArrangement = Arrangement.spacedBy(d.spaceXs)) {
             itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
                 LibraryRow(
+                    modifier = Modifier.animateItem().entering(entrance, index),
                     number = index + 1,
                     item = item,
                     selected = index == selected,
@@ -143,7 +153,7 @@ fun BoxScope.ItineraryLibraryOverlay(
             }
         }
     }
-    Box(Modifier.align(Alignment.TopEnd).panelInsetsPadding().padding(d.spaceM)) {
+    Box(Modifier.align(Alignment.TopEnd).panelInsetsPadding().padding(end = d.spaceM)) {
         CarSecondaryButton(label = stringResource(R.string.close_view), onClick = onClose, compact = true)
     }
 }
@@ -161,17 +171,20 @@ private fun LibraryRow(
     onOpen: () -> Unit,
     onStart: () -> Unit,
     onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val d = CarTheme.dimens
     val accent = MaterialTheme.colorScheme.primary
     val shape = RoundedCornerShape(d.cardCorner * 0.75f)
+    val interaction = remember { MutableInteractionSource() }
     Column(
-        Modifier
+        modifier
+            .pressable(interaction, Motion.PRESSED_ROW_SCALE)
             .fillMaxWidth()
             .clip(shape)
             .background(if (selected) accent.copy(alpha = 0.16f) else Color.Transparent)
             .border(1.dp, if (selected) accent else Color.Transparent, shape)
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onClick)
             .padding(d.spaceXs)
             .animateContentSize(Motion.settle(Motion.reduced)),
     ) {

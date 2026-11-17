@@ -3,21 +3,23 @@ package com.secretworld.auto.map
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,17 +37,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.mapbox.common.MapboxOptions
@@ -66,17 +74,20 @@ import com.mapbox.maps.plugin.animation.MapAnimationOptions
 import com.mapbox.maps.viewannotation.geometry
 import com.mapbox.maps.viewannotation.viewAnnotationOptions
 import com.secretworld.auto.core.designsystem.CarTheme
+import com.secretworld.auto.core.designsystem.Motion
 import com.secretworld.auto.domain.Coordinates
 import com.secretworld.auto.domain.Phrasebook
 import com.secretworld.auto.domain.Place
 import com.secretworld.auto.feature.discover.FlyoverState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.math.cos
 import kotlin.math.ln
 import kotlin.math.max
+import kotlin.math.pow
 
 /**
  * El itinerario sobre el mapa. Primero, **la presentación**, como la de un
@@ -102,9 +113,13 @@ fun TourFlyover(
     /** Se tocó un sitio de alrededor: añadirlo. */
     onAddPlace: (Place) -> Unit = {},
 ) {
+    // El mapa sigue al tema: de noche con el oscuro, de día con el claro. Un
+    // panel claro sobre un mapa nocturno era una mezcla de los dos.
+    val ground = MaterialTheme.colorScheme.background
+    val night = ground.luminance() < 0.5f
     if (mapboxToken.isNullOrBlank() || (state.stops.isEmpty() && state.intro)) {
         LaunchedEffect(Unit) { onIntroDone() }
-        Box(modifier.fillMaxSize().background(Color.Black)) { overlay() }
+        Box(modifier.fillMaxSize().background(ground)) { overlay() }
         return
     }
     MapboxOptions.accessToken = mapboxToken
@@ -210,10 +225,51 @@ fun TourFlyover(
         )
     }
 
+    // El rastreo, como un radar: mientras se busca, una onda tras otra desde el
+    // centro hasta el anillo, y los puntos de antes se apartan. Al terminar, la
+    // onda en curso llega al borde y sale una última que va descubriendo los
+    // puntos según los alcanza. También al aparecer los primeros puntos.
+    // Todo en una sola corrutina: dos animando la misma onda se cancelaban.
+    val wave = remember { Animatable(1f) }
+    var hunting by remember { mutableStateOf(false) }
+    var waving by remember { mutableStateOf(false) }
+    val scanning by rememberUpdatedState(state.scanning && state.pickable)
+    val hasDots by rememberUpdatedState(state.pickable && state.candidates.isNotEmpty() && state.radiusMeters != null)
+    val reduced = Motion.reduced
+    LaunchedEffect(Unit) {
+        suspend fun sweep() {
+            wave.snapTo(0f)
+            wave.animateTo(1f, tween(WAVE_MS, easing = LinearEasing))
+        }
+        var shown = false
+        snapshotFlow { scanning to hasDots }.collect { (searching, dots) ->
+            when {
+                searching -> {
+                    hunting = true
+                    waving = !reduced
+                    if (reduced) snapshotFlow { scanning }.first { !it } else do sweep() while (scanning)
+                    hunting = false
+                    if (!reduced) sweep()
+                    waving = false
+                    shown = true
+                }
+                dots && !shown -> {
+                    shown = true
+                    if (!reduced) {
+                        waving = true
+                        sweep()
+                        waving = false
+                    }
+                }
+                !dots -> shown = false
+            }
+        }
+    }
+
     Box(
         modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(ground)
             .then(
                 if (state.intro) {
                     Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onIntroDone)
@@ -229,7 +285,7 @@ fun TourFlyover(
                 MapboxStandardStyle(
                     standardStyleState = rememberStandardStyleState {
                         configurationsState.apply {
-                            lightPreset = LightPresetValue.NIGHT
+                            lightPreset = if (night) LightPresetValue.NIGHT else LightPresetValue.DAY
                             theme = ThemeValue.MONOCHROME
                             showPlaceLabels = BooleanValue(false)
                             showRoadLabels = BooleanValue(false)
@@ -241,6 +297,12 @@ fun TourFlyover(
             },
             scaleBar = {},
             compass = {},
+            // El logo y la atribución, abajo a la derecha: a la izquierda los tapaba
+            // el panel, y Mapbox exige que se vean.
+            logo = { Logo(alignment = Alignment.BottomEnd) },
+            attribution = {
+                Attribution(alignment = Alignment.BottomEnd, contentPadding = PaddingValues(end = ATTRIBUTION_END, bottom = 4.dp))
+            },
         ) {
             com.mapbox.maps.extension.compose.MapEffect(state.stops, state.intro, state.candidates.map { it.id }, state.radiusMeters, state.ringCenter) { mapView ->
                 // Sin paradas, lo que hay para elegir: que se vea todo lo tocable; con
@@ -338,13 +400,38 @@ fun TourFlyover(
                         lineWidth = 2.0
                         lineEmissiveStrength = 1.0
                     }
+                    // La onda, del tamaño del anillo con el zoom de ahora: sigue al mapa
+                    // aunque la cámara se mueva. Solo mientras dura: tapa los toques.
+                    if (waving) {
+                        val camera = viewport.cameraState
+                        val zoom = camera?.zoom ?: EMPTY_ZOOM
+                        val metersPerDp = METERS_PER_DP_Z0 * cos(Math.toRadians(me.latitude)) / 2.0.pow(zoom)
+                        ViewAnnotation(
+                            options = viewAnnotationOptions {
+                                geometry(me.point())
+                                allowOverlap(true)
+                            },
+                        ) {
+                            ScanWave(
+                                // Con un tope: mientras la cámara aún no se ha acercado
+                                // —al arrancar—, el anillo mide decenas de miles de
+                                // píxeles y Compose no puede medirlo; la app se cerraba.
+                                diameter = (2 * radius / metersPerDp).coerceAtMost(WAVE_MAX_DP).dp,
+                                // Inclinado, el anillo se ve achatado: la onda también.
+                                squash = cos(Math.toRadians(camera?.pitch ?: RING_PITCH)).toFloat(),
+                                progress = { wave.value },
+                            )
+                        }
+                    }
                 }
             }
             // Lo de alrededor, pequeño y tocable: tocarlo lo añade al itinerario.
-            if (!state.intro) {
+            // Buscando, los puntos de antes se apartan: los nuevos los descubre la onda.
+            val ringAt = state.ringCenter ?: state.me
+            if (!state.intro && !(state.pickable && hunting)) {
                 state.candidates
                     .filter { candidate -> state.stops.none { it.id == candidate.id } && candidate.id != state.focus?.id }
-                    .forEach { candidate ->
+                    .forEachIndexed { index, candidate ->
                         androidx.compose.runtime.key("cand-" + candidate.id) {
                             ViewAnnotation(
                                 options = viewAnnotationOptions {
@@ -354,7 +441,14 @@ fun TourFlyover(
                                 },
                             ) {
                                 if (state.pickable) {
-                                    CandidateDot { onAddPlace(candidate) }
+                                    // Cada uno aparece cuando la onda llega a él; sin anillo, por turnos.
+                                    val reach = state.radiusMeters
+                                    val delayMs = if (ringAt != null && reach != null) {
+                                        (ringAt.distanceTo(candidate.position) / reach).coerceIn(0.0, 1.0) * WAVE_MS
+                                    } else {
+                                        index.coerceAtMost(DOT_STAGGER_MAX) * Motion.STAGGER_MS.toDouble()
+                                    }
+                                    CandidateDot(delayMs.toLong()) { onAddPlace(candidate) }
                                 } else {
                                     CandidateMarker(candidate, adds = true) { onAddPlace(candidate) }
                                 }
@@ -400,7 +494,8 @@ fun TourFlyover(
                     val radius = maxOf(size.width * (1 - lightX), size.width * lightX, size.height) * VIGNETTE_REACH
                     val vignette = Brush.radialGradient(
                         0.55f to Color.Transparent,
-                        1f to Color.Black.copy(alpha = 0.75f),
+                        // Con el claro, los bordes se aclaran: una bruma, no una sombra.
+                        1f to (if (night) Color.Black.copy(alpha = 0.75f) else ground.copy(alpha = 0.7f)),
                         center = center,
                         radius = radius,
                     )
@@ -428,7 +523,7 @@ fun TourFlyover(
                 text = state.summary,
                 style = MaterialTheme.typography.displayMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onBackground,
             )
         }
 
@@ -448,19 +543,66 @@ fun TourFlyover(
         Text(
             text = "▸▸",
             style = MaterialTheme.typography.titleMedium,
-            color = Color.White.copy(alpha = 0.6f),
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
             modifier = Modifier.align(Alignment.BottomEnd).padding(d.spaceL),
         )
     }
 }
 
-/** Un sitio en el mapa del inicio: un punto, sin nombre, que no tapa a los demás. El elegido lleva el suyo. */
+/**
+ * Un sitio en el mapa del inicio: un punto, sin nombre, que no tapa a los demás.
+ * El elegido lleva el suyo. Aparecen uno tras otro, como un radar que los va
+ * encontrando: [delayMs] es lo que espera el suyo.
+ */
 @Composable
-private fun CandidateDot(onClick: () -> Unit) {
+private fun CandidateDot(delayMs: Long, onClick: () -> Unit) {
     val accent = MaterialTheme.colorScheme.primary
-    Box(Modifier.size(32.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    val reduced = Motion.reduced
+    val pop = remember { Animatable(if (reduced) 1f else 0f) }
+    LaunchedEffect(Unit) {
+        delay(delayMs)
+        pop.animateTo(1f, Motion.reward(reduced))
+    }
+    Box(
+        Modifier
+            .size(32.dp)
+            .graphicsLayer {
+                scaleX = pop.value
+                scaleY = pop.value
+                alpha = pop.value.coerceIn(0f, 1f)
+            }
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
         Box(Modifier.size(20.dp).clip(CircleShape).background(accent.copy(alpha = 0.25f)))
         Box(Modifier.size(11.dp).clip(CircleShape).border(1.5.dp, Color.Black.copy(alpha = 0.6f), CircleShape).background(accent))
+    }
+}
+
+/**
+ * Una onda del rastreo: un frente que va del centro al anillo, con una estela
+ * que se apaga detrás. [progress] se lee al dibujar: no recompone por fotograma.
+ */
+@Composable
+private fun ScanWave(diameter: Dp, squash: Float, progress: () -> Float) {
+    val accent = MaterialTheme.colorScheme.primary
+    Canvas(Modifier.size(diameter)) {
+        val t = progress()
+        if (t >= 1f) return@Canvas
+        val front = size.minDimension / 2 * t
+        // Se ve casi hasta el borde y se apaga al llegar.
+        val fade = 1f - t * t * t
+        scale(scaleX = 1f, scaleY = squash) {
+            if (front > 1f) {
+                drawCircle(
+                    Brush.radialGradient(0.4f to Color.Transparent, 1f to accent.copy(alpha = 0.18f * fade), center = center, radius = front),
+                    radius = front,
+                )
+            }
+            drawCircle(accent.copy(alpha = 0.3f * fade), radius = front, style = Stroke(width = 10.dp.toPx()))
+            drawCircle(accent.copy(alpha = 0.9f * fade), radius = front, style = Stroke(width = 2.5.dp.toPx()))
+        }
     }
 }
 
@@ -516,7 +658,17 @@ private fun MeMarker() {
         label = "halo",
     )
     Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-        Box(Modifier.size(22.dp).scale(halo).clip(CircleShape).background(color.copy(alpha = 0.25f)))
+        // El latido en la capa de dibujo: el marcador no se recompone en cada fotograma.
+        Box(
+            Modifier
+                .size(22.dp)
+                .graphicsLayer {
+                    scaleX = halo
+                    scaleY = halo
+                }
+                .clip(CircleShape)
+                .background(color.copy(alpha = 0.25f)),
+        )
         Box(Modifier.size(14.dp).clip(CircleShape).border(2.dp, Color.White, CircleShape).background(color))
     }
 }
@@ -525,10 +677,18 @@ private fun MeMarker() {
 @Composable
 private fun StopMarker(number: Int?, place: Place, highlighted: Boolean) {
     val accent = MaterialTheme.colorScheme.primary
-    val pop = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { pop.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)) }
-    val size = if (highlighted) 76.dp else 56.dp
-    Box(Modifier.scale(pop.value), contentAlignment = Alignment.TopEnd) {
+    val reduced = Motion.reduced
+    val pop = remember { Animatable(if (reduced) 1f else 0f) }
+    LaunchedEffect(Unit) { pop.animateTo(1f, Motion.reward(reduced)) }
+    // La parada de la que se habla crece; antes saltaba de golpe.
+    val size by animateDpAsState(if (highlighted) 76.dp else 56.dp, Motion.settle(reduced), label = "parada")
+    Box(
+        Modifier.graphicsLayer {
+            scaleX = pop.value
+            scaleY = pop.value
+        },
+        contentAlignment = Alignment.TopEnd,
+    ) {
         Box(
             Modifier
                 .size(size)
@@ -631,3 +791,15 @@ private const val OVERLAY_SHARE = 0.40f
 private val FRAME_TOP = 170.dp
 private val FRAME_BOTTOM = 160.dp
 private val FRAME_SIDE = 90.dp
+
+/** Hasta cuántos puntos se escalonan: con decenas, los últimos esperarían demasiado. */
+private const val DOT_STAGGER_MAX = 20
+
+/** Lo que tarda una onda del rastreo en llegar del centro al anillo. */
+private const val WAVE_MS = 1_400
+
+/** Hueco para el logo de Mapbox a la derecha de la "i" de la atribución. */
+private val ATTRIBUTION_END = 96.dp
+
+/** El diámetro más grande que se dibuja: más allá, la onda ya cubre la pantalla entera. */
+private const val WAVE_MAX_DP = 4_000.0

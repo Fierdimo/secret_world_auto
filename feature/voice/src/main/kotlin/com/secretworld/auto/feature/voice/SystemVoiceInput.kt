@@ -144,7 +144,11 @@ class SystemVoiceInput(
 
         override fun onError(error: Int) {
             Log.w(TAG, "error de reconocimiento: $error")
-            val nothingHeard = error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+            // El servicio que se desconecta entre una escucha y la siguiente —en
+            // algunos móviles, cada pocas— tampoco es una avería: se reabre.
+            val nothingHeard = error == SpeechRecognizer.ERROR_NO_MATCH ||
+                error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ||
+                error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED
             // Un fallo por estar ocupado —se reabrió encima— no agota el turno.
             if (error != SpeechRecognizer.ERROR_RECOGNIZER_BUSY && error != SpeechRecognizer.ERROR_CLIENT) answerTurn = false
             _state.value = VoiceInput.State.Failed(reasonOf(error), quiet = nothingHeard && !direct)

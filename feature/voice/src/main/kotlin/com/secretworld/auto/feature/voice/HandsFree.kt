@@ -28,6 +28,12 @@ import kotlinx.coroutines.launch
 class HandsFree(
     private val input: VoiceInput,
     private val scope: CoroutineScope,
+    /**
+     * Si la app está hablando. Con el reconocedor del sistema no se escucha
+     * mientras tanto: al abrir el micrófono se queda el audio, y la narración
+     * se cortaba nada más empezar.
+     */
+    private val speaking: StateFlow<Boolean> = MutableStateFlow(false),
 ) {
 
     private val _enabled = MutableStateFlow(false)
@@ -49,9 +55,16 @@ class HandsFree(
         loop = scope.launch {
             var consecutiveErrors = 0
             while (_enabled.value) {
+                speaking.first { !it }
                 input.listen(direct = false)
+                // Si empieza a hablar con el micrófono abierto, se cierra: primero se oye.
+                val hush = scope.launch {
+                    speaking.first { it }
+                    input.stopListening()
+                }
                 // Se espera a que el ciclo termine: escuchando no hay nada que hacer.
                 val outcome = input.state.awaitEndOfListening()
+                hush.cancel()
                 consecutiveErrors = if (outcome is VoiceInput.State.Failed) {
                     consecutiveErrors + 1
                 } else {

@@ -30,6 +30,7 @@ Versión 0.2. Ordenado por urgencia.
 | 6b | **¿Cómo se registra el CRN del emulador?** | Sin registrar, `ai.umos.setupwizard` bloquea la pantalla entera y no hay pruebas visuales fiables. Se puede desactivar para desarrollar, pero no es una base sobre la que validar distracción | Consulta a Pleos |
 | 7b | **¿Cubre vuestro contrato con Mapbox el uso embarcado en vehículo?** | La app móvil ya usa Mapbox y el SDK funciona en AAOS, pero los términos estándar cubren móvil y web; automoción es acuerdo aparte. Decide si el mapa de la v1 es Mapbox o hay que esperar al nativo. Ver [MAP-OPTIONS.md](MAP-OPTIONS.md) | Consulta a Mapbox |
 | 7 | ¿Mapa nativo del vehículo por SDK, o hay que licenciar uno? | Mapbox automotive es contrato aparte y caro. *Medido: existe app de navegación nativa `ai.umos.maps.android.navigation.app`, pero no expone `geo:`* | Consulta + spike |
+| 7c | **¿Puede una app de terceros poner varios puntos en el mapa del navegador nativo, y quedarse a su lado en pantalla dividida?** | La app en el coche es un panel junto al navegador, sin mapa propio. Que se vean en el mapa los resultados de búsqueda y «Qué ver» depende de `NAVI_CUSTOM_MAP`; en la API cliente vista solo hay destino y paradas. Decide qué enseña la demo en pantalla dividida. Ver [NATIVE-NAV-SPLIT-SCREEN.md](NATIVE-NAV-SPLIT-SCREEN.md) | Consulta a Pleos |
 
 ## Decisiones de producto pendientes
 

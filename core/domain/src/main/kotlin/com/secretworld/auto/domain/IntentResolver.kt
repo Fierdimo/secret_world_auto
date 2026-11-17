@@ -1,5 +1,7 @@
 package com.secretworld.auto.domain
 
+import kotlinx.coroutines.withTimeoutOrNull
+
 /**
  * Convierte lo que se oyó en una orden.
  *
@@ -51,7 +53,14 @@ class LayeredIntentResolver(
     override suspend fun resolve(heard: String, candidates: List<Place>, memory: ConversationMemory): Resolution {
         val first = grammar.resolve(heard, candidates, memory)
         if (first.command !is VoiceCommand.NotUnderstood || fallback == null) return first
-        return fallback.resolve(heard, candidates, memory)
+        // Sin esperar al modelo: si está ocupado —preparándose al arrancar,
+        // traduciendo— o es lento, "no te entendí" ya. En un Snapdragon 685
+        // la espera llegó a 44 s, con el conductor hablándole al vacío.
+        return withTimeoutOrNull(FALLBACK_TIMEOUT_MS) { fallback.resolve(heard, candidates, memory) } ?: first
+    }
+
+    private companion object {
+        const val FALLBACK_TIMEOUT_MS = 4_000L
     }
 }
 

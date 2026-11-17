@@ -1,9 +1,11 @@
 package com.secretworld.auto.feature.discover
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +39,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.secretworld.auto.core.designsystem.CarTheme
+import com.secretworld.auto.core.designsystem.Motion
+import com.secretworld.auto.core.designsystem.pressable
 import com.secretworld.auto.domain.Place
 
 /**
@@ -57,10 +62,12 @@ internal fun PhotoCard(
     onAdd: (() -> Unit)? = null,
 ) {
     val d = CarTheme.dimens
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier
+            .pressable(interaction, Motion.PRESSED_ROW_SCALE)
             .clip(RoundedCornerShape(d.cardCorner))
-            .clickable(onClick = onSelect),
+            .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onSelect),
     ) {
         // Sin la inicial de fondo: con el nombre encima, se leían las dos a la vez.
         PlaceImage(place, Modifier.fillMaxSize(), initial = false)
@@ -137,7 +144,7 @@ internal fun PlaceThumb(place: Place, size: Dp, modifier: Modifier = Modifier) {
     PlaceImage(place, modifier.size(size).clip(RoundedCornerShape(size / 4)))
 }
 
-internal enum class Glyph { LISTEN, GO, SETTINGS, ADD, DELETE, ROUTE, SIGHT, FOOD, FUEL, PARKING, BED, CROSS, CASH }
+internal enum class Glyph { LISTEN, GO, SETTINGS, ADD, DELETE, ROUTE, SIGHT, FOOD, FUEL, PARKING, BED, CROSS, CASH, MIC_OFF }
 
 /** Los botones de una tarjeta: visibles sin tapar la foto. */
 private val ACTION: Dp = 40.dp
@@ -148,12 +155,14 @@ internal fun RoundAction(glyph: Glyph, onClick: () -> Unit, filled: Boolean, dia
     val primary = MaterialTheme.colorScheme.primary
     val background = if (filled) primary else Color.Black.copy(alpha = 0.45f)
     val ink = if (filled) MaterialTheme.colorScheme.onPrimary else Color.White
+    val interaction = remember { MutableInteractionSource() }
     Box(
         Modifier
+            .pressable(interaction)
             .size(diameter)
             .clip(CircleShape)
             .background(background)
-            .clickable(onClick = onClick),
+            .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         GlyphIcon(glyph, ink, diameter * 0.42f)
@@ -281,6 +290,17 @@ internal fun GlyphIcon(glyph: Glyph, ink: Color, extent: Dp) {
                 val h = size.height
                 drawRoundRect(ink, topLeft = Offset(0f, h * 0.2f), size = Size(w, h * 0.6f), cornerRadius = CornerRadius(w * 0.08f), style = Stroke(width = w * 0.09f))
                 drawCircle(ink, radius = w * 0.13f, center = Offset(w / 2, h / 2))
+            }
+            Glyph.MIC_OFF -> {
+                // Un micrófono —la cápsula, el soporte y el pie— tachado.
+                val w = size.width
+                val h = size.height
+                val s = w * 0.1f
+                drawRoundRect(ink, topLeft = Offset(w * 0.34f, 0f), size = Size(w * 0.32f, h * 0.58f), cornerRadius = CornerRadius(w * 0.16f))
+                drawArc(ink, 0f, 180f, false, topLeft = Offset(w * 0.18f, h * 0.22f), size = Size(w * 0.64f, h * 0.52f), style = Stroke(width = s))
+                drawLine(ink, Offset(w / 2, h * 0.74f), Offset(w / 2, h * 0.92f), strokeWidth = s)
+                drawLine(ink, Offset(w * 0.32f, h * 0.95f), Offset(w * 0.68f, h * 0.95f), strokeWidth = s)
+                drawLine(ink, Offset(w * 0.08f, h * 0.06f), Offset(w * 0.92f, h * 0.94f), strokeWidth = s * 1.2f)
             }
             Glyph.DELETE -> {
                 // Una "×": quitar.

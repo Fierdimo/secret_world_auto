@@ -382,6 +382,8 @@ object ItineraryRequests {
     private val FIRST = listOf(
         "primero", "primera", "empieza por", "empezar por", "empecemos por", "empezamos por", "comienza por",
         "prima il", "prima la", "per primo", "per prima", "inizia da", "iniziamo da", "comincia da",
+        // "Inizia dal castello": la preposición va pegada al artículo.
+        "inizia dal", "inizia dalla", "iniziamo dal", "iniziamo dalla", "comincia dal", "comincia dalla",
         "first", "start with", "begin with",
     )
     private val LAST = listOf(
@@ -407,7 +409,7 @@ object ItineraryRequests {
         "cuentame", "cuenta", "cuentanos", "hablame", "habla", "hablanos", "dime", "explicame",
         "raccontami", "racconta", "parlami", "parla", "dimmi", "spiegami",
     )
-    private val TELL_PHRASES = listOf("que es", "que sabes", "tell me", "talk about", "what is", "cos e")
+    private val TELL_PHRASES = listOf("que es", "que sabes", "tell me", "told me", "talk about", "what is", "cos e")
     private val SAVE_VERBS = listOf(
         "guarda", "guardalo", "guardala", "guardar", "guardame", "salva", "salvalo", "salvala", "apunta", "apuntalo",
         "memoriza", "memorizalo", "conserva", "conservalo", "quedate con", "me lo quedo",

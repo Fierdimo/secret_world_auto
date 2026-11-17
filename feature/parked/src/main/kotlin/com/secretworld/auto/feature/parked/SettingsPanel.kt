@@ -57,6 +57,9 @@ fun SettingsPanel(
     radii: List<Int> = emptyList(),
     radiusKm: Int = 0,
     onRadius: (Int) -> Unit = {},
+    /** Si el tema es oscuro; `null`, no se puede elegir y no sale. */
+    darkTheme: Boolean? = null,
+    onDarkTheme: (Boolean) -> Unit = {},
 ) {
     val d = CarTheme.dimens
     Column(
@@ -103,6 +106,22 @@ fun SettingsPanel(
                         CarButton(label = label, onClick = {}, dense = true)
                     } else {
                         CarSecondaryButton(label = label, onClick = { onRadius(km) }, dense = true)
+                    }
+                }
+            }
+        }
+        // Claro u oscuro: el mapa y los paneles cambian juntos. Al elegirlo la app
+        // se vuelve a abrir en él, como con el idioma.
+        if (darkTheme != null) {
+            Spacer(Modifier.height(d.spaceM))
+            Text(stringResource(R.string.theme), style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.height(d.spaceXs))
+            Row(horizontalArrangement = Arrangement.spacedBy(d.spaceXs)) {
+                listOf(false to R.string.theme_light, true to R.string.theme_dark).forEach { (dark, name) ->
+                    if (dark == darkTheme) {
+                        CarButton(label = stringResource(name), onClick = {}, dense = true)
+                    } else {
+                        CarSecondaryButton(label = stringResource(name), onClick = { onDarkTheme(dark) }, dense = true)
                     }
                 }
             }

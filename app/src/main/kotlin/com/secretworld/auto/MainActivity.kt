@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.res.Configuration
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -72,6 +73,7 @@ import com.secretworld.auto.core.data.WikipediaPlaces
 import com.secretworld.auto.core.data.MapboxPlaceSearch
 import com.secretworld.auto.core.data.PlaceCache
 import com.secretworld.auto.core.data.MapboxRouter
+import com.secretworld.auto.core.platform.NetworkWatcher
 import com.secretworld.auto.domain.PlaceSearch
 import com.secretworld.auto.core.platform.DeviceVehicleSource
 import com.secretworld.auto.core.platform.SimulatedVehicleSource
@@ -80,6 +82,8 @@ import com.secretworld.auto.domain.NavigationGuide
 import com.secretworld.auto.domain.Route
 import com.secretworld.auto.domain.Router
 import com.secretworld.auto.feature.discover.NavigationUi
+import com.secretworld.auto.feature.voice.NoVoiceInput
+import com.secretworld.auto.feature.voice.VoiceTiming
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -209,6 +213,13 @@ class MainActivity : ComponentActivity() {
     /** Un sitio que se ha ofrecido llevar; un "sí" lo confirma. */
     private var offered: Place? = null
 
+    /** El sitio cuya historia hay que traducir y se ofreció traducir: un "sí" la traduce y la cuenta. */
+    private var translationOffered: Place? = null
+
+    /** Su historia está en otro idioma y aquí no hay modelo con que traducirla. */
+    private fun untranslatable(place: Place): Boolean =
+        gemma == null && place.contentLanguage != null && place.contentLanguage != language
+
     /** La conversación para armar un itinerario: lo que se preguntó o propuso. */
     private val itinerary = ItineraryConversation()
     private val profiles by lazy { TravellerProfiles(this) }
@@ -258,6 +269,47 @@ class MainActivity : ComponentActivity() {
     /** Las imágenes encontradas para sitios que no traían la suya, por id. */
     private val images = MutableStateFlow<Map<String, String>>(emptyMap())
     private val picturing = mutableSetOf<String>()
+
+    /** El tema elegido en Ajustes; si no se ha elegido, el del sabor. */
+    private fun darkTheme(): Boolean = settingsPrefs.getBoolean(DARK_THEME, resources.getBoolean(R.bool.dark_theme))
+
+    /** Cambia el tema: se guarda y la app se vuelve a abrir en él, como con el idioma. */
+    private fun setDarkTheme(dark: Boolean) {
+        if (dark == darkTheme()) return
+        settingsPrefs.edit().putBoolean(DARK_THEME, dark).apply()
+        recreate()
+    }
+
+    /** La última vez que se habló con la app o habló ella. */
+    @Volatile private var lastVoiceActivity = SystemClock.elapsedRealtime()
+
+    /** Espera a un rato sin voz: ni el conductor hablando ni la app contestando. */
+    private suspend fun awaitQuiet() {
+        while (SystemClock.elapsedRealtime() - lastVoiceActivity < AI_QUIET_MS || appSpeaking.value) {
+            kotlinx.coroutines.delay(AI_QUIET_POLL_MS)
+        }
+    }
+
+    /**
+     * Lo que se contesta a las búsquedas habituales dichas de viva voz, en todas
+     * sus formas: se prepara en cuanto la voz está lista y desde entonces suena
+     * al instante, toque la que toque.
+     */
+    private fun searchReplies(): List<String> {
+        val c = Phrasebook.Context(vehicle.state.value.position, emptyList(), memory, language)
+        return SHORTCUTS.mapNotNull { (_, label) ->
+            (VoiceGrammar.parse(label(language), emptyList(), language = language) as? VoiceCommand.FindPlaces)?.query
+        }.distinct().flatMap { Phrasebook.searchingVariants(c, it) }
+    }
+
+    /** Si ya se cerró el aviso de que el dispositivo no reconoce la voz. */
+    private val voiceNoticeClosed by lazy { MutableStateFlow(settingsPrefs.getBoolean(VOICE_NOTICE_CLOSED, false)) }
+
+    /** Si la app está hablando: la escucha del sistema espera a que acabe. */
+    private val appSpeaking = MutableStateFlow(false)
+
+    /** Cuándo vuelve la conexión: lo que falló sin red se vuelve a pedir. */
+    private val network by lazy { NetworkWatcher(this) }
     private val pictureGate = kotlinx.coroutines.sync.Semaphore(PICTURE_PARALLEL)
 
     /**
@@ -319,7 +371,6 @@ class MainActivity : ComponentActivity() {
     /** La ruta en curso y su guía. `null` cuando no se navega. */
     private val activeRoute = MutableStateFlow<Route?>(null)
     private var guide: NavigationGuide? = null
-    private val announced = mutableSetOf<String>()
     private var lastReroute = 0L
 
     /**
@@ -494,6 +545,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        VoiceTiming.ready("actividad")
+        network.start()
+        // Las fotos que no se encontraron sin red, otra vez a la cola.
+        lifecycleScope.launch { network.comebacks.collect { picturing.retainAll(images.value.keys) } }
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             androidx.core.content.ContextCompat.registerReceiver(
                 this, sayReceiver, android.content.IntentFilter(SAY_ACTION), androidx.core.content.ContextCompat.RECEIVER_EXPORTED,
@@ -520,9 +575,10 @@ class MainActivity : ComponentActivity() {
         }
         // De borde a borde: el mapa llega hasta el filo de la pantalla. Cualquier
         // franja del sistema que quede encima la dibuja el vehículo, no nosotros.
-        // El tono lo decide el sabor, no el sistema: los iconos de las barras
-        // tienen que seguirlo o quedan claros sobre fondo claro.
-        val dark = resources.getBoolean(R.bool.dark_theme)
+        // El tono lo elige quien usa la app en Ajustes —de partida, el del sabor—,
+        // no el sistema: los iconos de las barras tienen que seguirlo o quedan
+        // claros sobre fondo claro.
+        val dark = darkTheme()
         val bars = if (dark) {
             SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         } else {
@@ -558,6 +614,13 @@ class MainActivity : ComponentActivity() {
             language,
             speaker = if (BuildConfig.PLEOS_SERVICES) PleosSpeaker(this) else null,
         )
+        lifecycleScope.launch {
+            narration.state.collect { state ->
+                appSpeaking.value = state is NarrationController.State.Playing ||
+                    (state is NarrationController.State.Speaking && !state.preparing)
+                if (state !is NarrationController.State.Idle) lastVoiceActivity = SystemClock.elapsedRealtime()
+            }
+        }
         val modeController = DrivingModeController(vehicle, lifecycleScope)
 
         setContent {
@@ -570,6 +633,7 @@ class MainActivity : ComponentActivity() {
                 val modelsPercentNow by modelsPercent.collectAsState()
                 val micOn by micGranted.collectAsState()
                 val locationOn by locationGranted.collectAsState()
+                val noticeClosed by voiceNoticeClosed.collectAsState()
                 val notices = listOfNotNull(
                     PermissionNotice(
                         message = stringResource(R.string.permission_mic_off),
@@ -581,6 +645,15 @@ class MainActivity : ComponentActivity() {
                         action = stringResource(R.string.permission_enable),
                         onClick = { requestPermission(*LOCATION.toTypedArray()) },
                     ).takeIf { !locationOn },
+                    // Se avisa una vez: al cerrarlo no vuelve; queda el micrófono tachado.
+                    PermissionNotice(
+                        message = stringResource(R.string.voice_unavailable),
+                        action = stringResource(com.secretworld.auto.feature.discover.R.string.close_view),
+                        onClick = {
+                            voiceNoticeClosed.value = true
+                            settingsPrefs.edit().putBoolean(VOICE_NOTICE_CLOSED, true).apply()
+                        },
+                    ).takeIf { micOn && !voiceInput.available && !noticeClosed },
                 )
                 val voiceState by voiceInput.state.collectAsState()
                 val hearingNow by voiceInput.hearing.collectAsState()
@@ -601,8 +674,11 @@ class MainActivity : ComponentActivity() {
                 val route by activeRoute.collectAsState()
                 var navigationUi by remember { mutableStateOf<NavigationUi?>(null) }
 
+                // Cada vez que vuelve la conexión, otra vez lo que se pidió sin ella.
+                val comeback by network.comebacks.collectAsState()
+
                 // La clave del mapa se pide al backend, no viaja en el APK.
-                LaunchedEffect(Unit) { mapboxToken = mapKeys.mapboxToken() }
+                LaunchedEffect(comeback) { if (mapboxToken == null) mapboxToken = mapKeys.mapboxToken() }
 
                 // Se pide catálogo cuando el coche se ha movido lo suficiente como
                 // para que valga la pena, no en cada fotograma.
@@ -610,19 +686,23 @@ class MainActivity : ComponentActivity() {
                     vehicleState.position.latitude,
                     vehicleState.position.longitude,
                 )
-                LaunchedEffect(positionKey) {
+                LaunchedEffect(positionKey, comeback) {
                     catalogueResult = catalogue.nearby(vehicleState.position, language = language)
+                    VoiceTiming.ready("sitios")
                 }
+                LaunchedEffect(Unit) { VoiceTiming.ready("interfaz") }
                 // Dónde está el usuario de verdad, no la "ciudad" del lugar más cercano.
                 var where by remember { mutableStateOf<String?>(null) }
-                LaunchedEffect(positionKey) {
+                LaunchedEffect(positionKey, comeback) {
                     where = whereAmI.describe(vehicleState.position, java.util.Locale.forLanguageTag(language.code))
                 }
 
                 // Una guía de la ciudad entera no es un sitio al que ir ni que enumerar.
                 val places = catalogueResult?.places.orEmpty().filterNot(PlaceKinds::isCityGuide)
                 val upcoming = remember(places, positionKey, mode, skipped) {
-                    queue.next(vehicleState, places, skipped, language, limit = 12)
+                    // Con el modelo, lo que solo tiene texto en otro idioma se traduce
+                    // al narrarlo: la voz ve los mismos sitios que la pantalla.
+                    queue.next(vehicleState, places, skipped, language, limit = 12, translates = gemma != null)
                         .ifEmpty {
                             places.filter { it.id !in skipped }
                                 .sortedBy { vehicleState.position.distanceTo(it.position) }
@@ -650,24 +730,12 @@ class MainActivity : ComponentActivity() {
                         },
                         arrived = progress.arrived,
                     )
-                    val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
+                    // En silencio: la guía hablada es del navegador del sistema. Aquí
+                    // solo se sigue la ruta en pantalla, y la llegada a una parada
+                    // del itinerario la ofrece el itinerario, con su historia.
                     when {
-                        progress.arrived -> {
-                            // Si es una parada del itinerario, la llegada la anuncia
-                            // el itinerario, que además ofrece la historia.
-                            if (tour.value?.current?.id != current.destination.id) {
-                                narration.say(Phrasebook.arrived(c, current.destination))
-                            }
-                            endNavigation()
-                        }
-                        progress.offRoute && vehicleState.speedMetersPerSecond > 1.0 -> reroute(current, vehicleState.position, c)
-                        progress.shouldAnnounce -> {
-                            val step = progress.nextStep ?: return@LaunchedEffect
-                            val key = "${step.at.latitude},${step.at.longitude}"
-                            if (announced.add(key)) {
-                                narration.say(Phrasebook.maneuver(c, progress.metersToNextStep, step.instruction))
-                            }
-                        }
+                        progress.arrived -> endNavigation()
+                        progress.offRoute && vehicleState.speedMetersPerSecond > 1.0 -> reroute(current, vehicleState.position)
                     }
                 }
 
@@ -688,7 +756,7 @@ class MainActivity : ComponentActivity() {
                 // falta: la primera respuesta también tiene que ser inmediata.
                 LaunchedEffect(narration.voiceInstalled) {
                     if (!narration.voiceInstalled) return@LaunchedEffect
-                    narration.prewarm(fixedReplies(language))
+                    narration.prewarm(fixedReplies(language), later = searchReplies())
                     val prefs = getSharedPreferences(SETTINGS, MODE_PRIVATE)
                     if (prefs.getBoolean(ANNOUNCE_KEY, false)) {
                         prefs.edit().putBoolean(ANNOUNCE_KEY, false).apply()
@@ -763,6 +831,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     heard = order
+                    lastVoiceActivity = SystemClock.elapsedRealtime()
                     val resolvedAt = System.nanoTime()
                     // Primero la gramática con cada lectura de la frase —la
                     // limpia y la original—, que es instantánea; el modelo, que
@@ -874,6 +943,7 @@ class MainActivity : ComponentActivity() {
                         ?: understood.firstOrNull { (it.command as? VoiceCommand.FindPlaces)?.let { find -> VoiceGrammar.searchCategoryOf(find.query) != null } ?: false }
                         ?: understood.firstOrNull()
                         ?: resolver.resolve(order, nameable, memory)
+                    VoiceTiming.understood(resolution.command::class.simpleName.orEmpty(), (System.nanoTime() - resolvedAt) / 1_000_000)
                     Log.i("SWVoice", "«$order» → ${resolution.command::class.simpleName} en ${(System.nanoTime() - resolvedAt) / 1_000_000} ms" +
                         " (LLM ${gemma?.let { when { it.ready -> "listo"; it.failed -> "no disponible"; else -> "cargando" } } ?: "ausente"})" +
                         (resolution.reply?.let { " · dice: «$it»" } ?: ""))
@@ -945,8 +1015,8 @@ class MainActivity : ComponentActivity() {
                 val imgs by images.collectAsState()
                 LaunchedEffect(Unit) { refreshSaved() }
                 // Las imágenes de lo que se enseña, en cuanto se enseña.
-                LaunchedEffect(upcoming.map { it.id }) { picture(upcoming) }
-                LaunchedEffect(results.map { it.id }) { picture(results) }
+                LaunchedEffect(upcoming.map { it.id }, comeback) { picture(upcoming) }
+                LaunchedEffect(results.map { it.id }, comeback) { picture(results) }
                 val searchUi = searchShown?.let { query ->
                     SearchUi(
                         title = if (query.endsWith(SIMILAR_MARK)) {
@@ -1009,12 +1079,15 @@ class MainActivity : ComponentActivity() {
                     val itineraryMap = fly?.takeIf { (!compact || shelf != null) && !inPip }
                     val homeMap = itineraryMap == null && panel is Panel.Home && !inPip && !compact
                     if (itineraryMap != null || homeMap) {
-                        LaunchedEffect(around.map { it.id }) { picture(around) }
-                        LaunchedEffect(itineraryMap?.stops?.map { it.id }, itineraryMap?.candidates?.map { it.id }) {
+                        LaunchedEffect(around.map { it.id }, comeback) { picture(around) }
+                        LaunchedEffect(itineraryMap?.stops?.map { it.id }, itineraryMap?.candidates?.map { it.id }, comeback) {
                             itineraryMap?.let { picture(it.stops + it.candidates) }
                         }
                         val places = searchUi?.places ?: around.pictured(imgs)
-                        val scan = searchScan.collectAsState().value?.takeIf { searchUi != null }
+                        val searchingNow by searching.collectAsState()
+                        // El anillo del rastreo desde que empieza: en la primera búsqueda
+                        // aún no hay resultados, y el de "Qué ver" se quedaba puesto.
+                        val scan = searchScan.collectAsState().value?.takeIf { searchUi != null || searchingNow }
                         val selectedPlace = homeAt?.takeIf { chosen -> places.any { it.id == chosen.id } }
                         val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
                         val screen = when {
@@ -1045,6 +1118,7 @@ class MainActivity : ComponentActivity() {
                                 // si no, el radio de "Qué ver" alrededor del coche.
                                 radiusMeters = scan?.radiusM ?: sights.second,
                                 ringCenter = scan?.center,
+                                scanning = searchingNow,
                             ),
                             mapboxToken = mapboxToken,
                             onIntroDone = { flyover.value = flyover.value?.copy(intro = false) },
@@ -1087,6 +1161,7 @@ class MainActivity : ComponentActivity() {
                                                 notices = notices,
                                                 tour = tourUi,
                                                 search = searchUi,
+                                                searching = searchingNow,
                                                 nearby = around.pictured(imgs),
                                                 origin = vehicleState.position,
                                                 navigation = navigationUi,
@@ -1213,7 +1288,8 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .panelInsetsPadding()
-                                .padding(CarTheme.dimens.spaceS),
+                                // Arriba a la altura del panel de la izquierda.
+                                .padding(end = CarTheme.dimens.spaceS),
                         )
                     }
 
@@ -1338,6 +1414,8 @@ class MainActivity : ComponentActivity() {
                 radii = RADII_KM,
                 radiusKm = homeRadiusKm.collectAsState().value,
                 onRadius = ::setRadius,
+                darkTheme = darkTheme(),
+                onDarkTheme = ::setDarkTheme,
                 onRemoveVoice = { },
                 onClose = { onPanel(Panel.Home) },
                 testingStatus = "${stringResource(if (mode == DrivingMode.PARKED) R.string.mode_parked else R.string.mode_driving)} · %.0f km/h"
@@ -1363,6 +1441,7 @@ class MainActivity : ComponentActivity() {
         thinkingNow: Boolean,
     ) = VoiceUi(
         status = when {
+            !voiceInput.available -> VoiceStatus.UNAVAILABLE
             thinkingNow -> VoiceStatus.THINKING
             hearingNow -> VoiceStatus.HEARING
             state is VoiceInput.State.Listening -> VoiceStatus.YOUR_TURN
@@ -1433,6 +1512,20 @@ class MainActivity : ComponentActivity() {
                     narration.say(reply) { voiceInput.listenForAnswer() }
                     return reply
                 }
+                if (untranslatable(command.place)) {
+                    offered = command.place
+                    val reply = Phrasebook.noStoryInLanguage(c, command.place)
+                    narration.say(reply) { voiceInput.listenForAnswer() }
+                    return reply
+                }
+                // Traducir tarda: se dice y se pregunta, y el conductor sabe a qué espera.
+                if (narration.needsTranslation(command.place)) {
+                    translationOffered = command.place
+                    val reply = Phrasebook.offerTranslation(c, command.place)
+                    narration.say(reply) { voiceInput.listenForAnswer() }
+                    focusMapOn(command.place)
+                    return reply
+                }
                 // Una breve introducción y, cuando termine, la narración. Sin
                 // introducción, narrar sin más es la respuesta, como antes.
                 val intro = said ?: if (narration.isPrepared(command.place)) Phrasebook.playing(c, command.place) else Phrasebook.preparing(c, command.place)
@@ -1460,11 +1553,18 @@ class MainActivity : ComponentActivity() {
             }
 
             VoiceCommand.Yes -> {
-                // Lo último ofrecido manda: la historia de la parada a la que se
-                // acaba de llegar, buscar dónde comer, o llevar a un sitio.
+                // Lo último ofrecido manda: traducir una historia, la de la parada
+                // a la que se acaba de llegar, buscar dónde comer, o llevar a un sitio.
+                translationOffered?.let { place ->
+                    translationOffered = null
+                    val intro = Phrasebook.translating(c, place)
+                    narration.say(intro) { narration.listen(place) }
+                    memory.focusOn(place)
+                    return intro
+                }
                 storyOffered?.let { stop ->
                     storyOffered = null
-                    val intro = Phrasebook.playing(c, stop)
+                    val intro = if (narration.needsTranslation(stop)) Phrasebook.translating(c, stop) else Phrasebook.playing(c, stop)
                     narration.say(intro) { narration.listen(stop) }
                     memory.focusOn(stop)
                     return intro
@@ -1503,6 +1603,7 @@ class MainActivity : ComponentActivity() {
 
             VoiceCommand.No -> {
                 offered = null
+                translationOffered = null
                 // No a seguir: sin prisa, se queda.
                 if (moveOnOffered) {
                     moveOnOffered = false
@@ -2072,7 +2173,10 @@ class MainActivity : ComponentActivity() {
         itinerary.restore(pending)
         lifecycleScope.launch {
             val heardAs = try {
-                ItineraryReplyPrompt.parse(model.complete(ItineraryReplyPrompt.PREFIX, ItineraryReplyPrompt.request(heard)))
+                // Sin esperar más de la cuenta: ocupado o lento, la propuesta sigue a la vista.
+                kotlinx.coroutines.withTimeoutOrNull(MODEL_REPLY_TIMEOUT_MS) {
+                    model.complete(ItineraryReplyPrompt.PREFIX, ItineraryReplyPrompt.request(heard))
+                }?.let(ItineraryReplyPrompt::parse)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -2358,6 +2462,16 @@ class MainActivity : ComponentActivity() {
             narration.say(Phrasebook.noStory(c, place))
             return
         }
+        val c = Phrasebook.Context(vehicle.state.value.position, memory.listed, memory, language)
+        if (untranslatable(place)) {
+            narration.say(Phrasebook.noStoryInLanguage(c, place))
+            return
+        }
+        // Tocar "Escuchar" ya es pedirlo: no se pregunta, pero se avisa de la espera.
+        if (narration.needsTranslation(place)) {
+            narration.say(Phrasebook.translating(c, place)) { narration.listen(place) }
+            return
+        }
         narration.listen(place)
     }
 
@@ -2375,6 +2489,7 @@ class MainActivity : ComponentActivity() {
         // lista de barrios, la red—, su respuesta llegaría después y se
         // mezclaría con lo que se está pidiendo ahora.
         searchJob?.cancel()
+        searching.value = true
         searchJob = lifecycleScope.launch {
             val here = vehicle.state.value.position
             val c = Phrasebook.Context(here, memory.listed, memory, language)
@@ -2384,6 +2499,7 @@ class MainActivity : ComponentActivity() {
             val where = area?.let { areas.locate(it, here, language) }
             if (area != null && where == null) {
                 val name = if (area == VoiceGrammar.CITY_CENTRE) Phrasebook.cityCentre(c) else area.replaceFirstChar { it.uppercase() }
+                searching.value = false
                 narration.say(Phrasebook.areaNotFound(c, name))
                 return@launch
             }
@@ -2406,6 +2522,8 @@ class MainActivity : ComponentActivity() {
             // En la lista, por cercanía a donde se busca; la distancia que se enseña es al coche.
             results = results.sortedBy { center.distanceTo(it.position) }.take(natural.max)
             Log.i("SWSearch", "«$query» [$category]${where?.let { " en ${it.name}" }.orEmpty()}: ${results.size} resultados · ${results.take(LOGGED_NAMES).joinToString { it.name }}")
+            // El rastreo acaba con los resultados, no cuando se terminan de decir.
+            searching.value = false
             searchResults.value = results
             searchQuery.value = listOfNotNull(query, where?.name).joinToString(" · ")
             if (results.isEmpty()) {
@@ -2416,10 +2534,17 @@ class MainActivity : ComponentActivity() {
             val reply = Phrasebook.found(c, query, results.take(SEARCH_SPOKEN), area = where?.name)
             memory.remember(query, reply)
             narration.say(reply) { voiceInput.listenForAnswer() }
+        }.also { job ->
+            // Si se cancela o falla. Solo la última: la que se canceló al empezar
+            // otra no apaga el rastreo de esta.
+            job.invokeOnCompletion { if (searchJob === job) searching.value = false }
         }
     }
 
     private var searchJob: kotlinx.coroutines.Job? = null
+
+    /** Si hay un rastreo en marcha: el mapa lanza ondas y la lista espera. */
+    private val searching = MutableStateFlow(false)
 
     /** Dónde y hasta dónde está buscando el rastreo: el mapa lo enseña como el anillo. */
     data class SearchScan(val center: Coordinates, val radiusM: Double)
@@ -2517,6 +2642,8 @@ class MainActivity : ComponentActivity() {
 
     /** Vuelve a la lista de siempre. */
     private fun clearSearch() {
+        // Lo que se estaba buscando ya no se quiere: que no llegue después.
+        searchJob?.cancel()
         searchResults.value = emptyList()
         searchQuery.value = null
         searchScan.value = null
@@ -2565,16 +2692,11 @@ class MainActivity : ComponentActivity() {
                 return@launch
             }
             startNavigation(found)
-            // La primera maniobra va dentro del anuncio: no hace falta que la
-            // guía la repita nada más empezar.
-            found.steps.firstOrNull()?.let { announced.add("${it.at.latitude},${it.at.longitude}") }
-            narration.say(Phrasebook.routeStarted(c, found))
         }
     }
 
     private fun startNavigation(route: Route) {
         guide = NavigationGuide(route)
-        announced.clear()
         activeRoute.value = route
         Log.i("SWNav", "ruta a ${route.destination.name}: %.0f m, %.0f s, ${route.steps.size} maniobras".format(route.distanceMeters, route.durationSeconds))
     }
@@ -2582,17 +2704,15 @@ class MainActivity : ComponentActivity() {
     private fun endNavigation() {
         activeRoute.value = null
         guide = null
-        announced.clear()
     }
 
-    /** Fuera de la ruta y en marcha: se recalcula, como mucho cada quince segundos. */
-    private fun reroute(current: Route, here: Coordinates, c: Phrasebook.Context) {
+    /** Fuera de la ruta y en marcha: se recalcula, en silencio, como mucho cada quince segundos. */
+    private fun reroute(current: Route, here: Coordinates) {
         val now = System.currentTimeMillis()
         if (now - lastReroute < REROUTE_EVERY_MS) return
         lastReroute = now
         lifecycleScope.launch {
             val found = router.route(here, current.destination) ?: return@launch
-            narration.say(Phrasebook.rerouting(c))
             startNavigation(found)
         }
     }
@@ -2629,11 +2749,15 @@ class MainActivity : ComponentActivity() {
         if (intent.getStringExtra("mic") == "communication") {
             local.source = android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION
         }
-        voiceInput = if (local.available || local.bundled) local.also { onDevice = it } else SystemVoiceInput(this, language)
-        handsFree = HandsFree(voiceInput, lifecycleScope)
+        // Sin los modelos propios, sin escucha: el reconocedor del sistema había
+        // que reabrirlo en cada frase, fallaba y le quitaba el audio a la narración.
+        voiceInput = if (local.available || local.bundled) local.also { onDevice = it } else NoVoiceInput(language)
+        handsFree = HandsFree(voiceInput, lifecycleScope, appSpeaking)
         resolver = LayeredIntentResolver(
             grammar = grammar,
-            fallback = if (llm.available || llm.bundled) {
+            // Sin IA, para medir cuánto pesa al arrancar sin recompilar:
+            // adb shell am start ... --ez llm false
+            fallback = if ((llm.available || llm.bundled) && intent.getBooleanExtra("llm", true)) {
                 LlmIntentResolver(llm.also { gemma = it }, position = { vehicle.state.value.position }, language = language) {
                     Log.e("SWVoice", "el LLM no contestó", it)
                 }
@@ -2651,10 +2775,23 @@ class MainActivity : ComponentActivity() {
             installBundledModels(models)
             onDevice?.load()?.onFailure { Log.e("SWVoice", "modelos de escucha", it) }
             voiceReady.value = true
-            // El LLM se carga después del micrófono: es lo más pesado y lo menos
-            // urgente, y hasta que esté la gramática sigue atendiendo.
+            // El LLM, después de la escucha **y de la voz**: es lo más pesado y lo
+            // menos urgente, y hasta que esté la gramática sigue atendiendo.
+            // Medido en un Snapdragon 685: cargándolo a la vez, la voz tardaba
+            // 57 s en estar lista; sin él, 6,5.
+            if (gemma != null) {
+                kotlinx.coroutines.withTimeoutOrNull(VOICE_FIRST_MS) { narration.warm.first { it } }
+                lastVoiceActivity = SystemClock.elapsedRealtime()
+            }
             gemma?.load()?.onFailure { Log.e("SWVoice", "LLM", it) }
-            gemma?.warm(IntentPrompt.PREFIX)
+            // Prepararlo ocupa todos los núcleos —en un Snapdragon 685, más de un
+            // minuto— y la escucha y la voz se arrastran mientras tanto. Se hace
+            // en un rato quieto: lo esencial lo resuelve la gramática, y el
+            // modelo es solo para lo que ella no entiende.
+            if (gemma != null) {
+                awaitQuiet()
+                gemma?.warm(IntentPrompt.PREFIX)
+            }
         }
     }
 
@@ -2844,6 +2981,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         runCatching { unregisterReceiver(sayReceiver) }
+        network.stop()
         super.onDestroy()
         device?.stop()
         onDevice?.release()
@@ -2862,6 +3000,17 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
+        /** Lo más que se espera al modelo para entender una respuesta a una propuesta. */
+        const val MODEL_REPLY_TIMEOUT_MS = 4_000L
+        /** Lo más que espera el modelo a que la voz esté lista para cargarse. */
+        const val VOICE_FIRST_MS = 60_000L
+        /** Sin voz durante esto, se prepara el modelo. */
+        const val AI_QUIET_MS = 20_000L
+        const val AI_QUIET_POLL_MS = 1_000L
+        /** En Ajustes: el tema elegido, claro u oscuro. */
+        const val DARK_THEME = "dark_theme"
+        /** En Ajustes: si se cerró el aviso de que no hay reconocimiento de voz. */
+        const val VOICE_NOTICE_CLOSED = "voice_notice_closed"
         /** Cuánto se queda en pantalla una respuesta del asistente. */
         const val ANSWER_LINGER_MS = 8_000L
         const val REROUTE_EVERY_MS = 15_000L
@@ -2899,9 +3048,9 @@ class MainActivity : ComponentActivity() {
          * Tienen que ser **idénticas** a las de [Phrasebook] para que se usen.
          */
         fun fixedReplies(language: VoiceLanguage) = listOf(yes(language), goAhead(language), notCaught(language)) + language.say(
-            en = listOf("Okay.", "Sure.", "Alright, I'll be quiet.", "There's nothing playing to skip.", "Nothing to skip right now.", "Recalculating.", "New route.", "Route ended."),
-            es = listOf("Vale.", "Listo.", "Me callo.", "No hay nada sonando que saltar.", "Nada que saltar ahora mismo.", "Recalculando.", "Nueva ruta.", "Ruta terminada."),
-            it = listOf("Va bene.", "Fatto.", "D'accordo, faccio silenzio.", "Non c'è niente in riproduzione da saltare.", "Niente da saltare adesso.", "Ricalcolo.", "Nuovo percorso.", "Percorso terminato."),
+            en = listOf("Okay.", "Sure.", "Alright, I'll be quiet.", "There's nothing playing to skip.", "Nothing to skip right now.", "Route ended."),
+            es = listOf("Vale.", "Listo.", "Me callo.", "No hay nada sonando que saltar.", "Nada que saltar ahora mismo.", "Ruta terminada."),
+            it = listOf("Va bene.", "Fatto.", "D'accordo, faccio silenzio.", "Non c'è niente in riproduzione da saltare.", "Niente da saltare adesso.", "Percorso terminato."),
         )
         /**
          * Se arranca en Roma porque es donde el catálogo tiene densidad real, y

@@ -30,7 +30,8 @@ object NameMatcher {
             }
     }
 
-    private fun same(a: String, b: String) = a == b || (b.length >= 5 && Script.editDistance(a, b) <= 1)
+    /** La misma palabra, con una letra de diferencia o en otro idioma: "castle" es "castillo". */
+    private fun same(a: String, b: String) = a == b || Landmarks.same(a, b) || (b.length >= 5 && Script.editDistance(a, b) <= 1)
 
     private fun core(text: String): List<String> =
         java.text.Normalizer.normalize(text.lowercase(), java.text.Normalizer.Form.NFD)

@@ -5,9 +5,11 @@ import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.secretworld.auto.core.designsystem.CarTheme
 import com.secretworld.auto.core.designsystem.Motion
+import com.secretworld.auto.core.designsystem.pressable
 import kotlinx.coroutines.delay
 
 /** Lo que hay en la barra de iconos de arriba a la derecha. */
@@ -101,12 +104,15 @@ private fun MenuButton(entry: MenuEntry, expanded: Boolean, onClick: () -> Unit)
     val d = CarTheme.dimens
     val accent = MaterialTheme.colorScheme.primary
     val shape = RoundedCornerShape(50)
+    val interaction = remember { MutableInteractionSource() }
     Row(
         Modifier
+            .pressable(interaction)
             .clip(shape)
-            .background(if (expanded) accent else Color.Black.copy(alpha = 0.55f))
+            // Del color de los paneles: oscuro con el tema oscuro, claro con el claro.
+            .background(if (expanded) accent else MaterialTheme.colorScheme.surface.copy(alpha = 0.84f))
             .border(1.dp, accent.copy(alpha = if (expanded) 1f else 0.4f), shape)
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onClick)
             .padding(start = if (expanded) d.spaceM else 0.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -124,7 +130,7 @@ private fun MenuButton(entry: MenuEntry, expanded: Boolean, onClick: () -> Unit)
             )
         }
         Box(Modifier.size(SIZE).clip(CircleShape), contentAlignment = Alignment.Center) {
-            GlyphIcon(entry.icon.glyph, if (expanded) MaterialTheme.colorScheme.onPrimary else Color.White, SIZE * 0.42f)
+            GlyphIcon(entry.icon.glyph, if (expanded) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface, SIZE * 0.42f)
         }
     }
 }

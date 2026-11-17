@@ -7,11 +7,17 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.graphicsLayer
+import com.secretworld.auto.core.designsystem.entering
+import com.secretworld.auto.core.designsystem.pressable
+import com.secretworld.auto.core.designsystem.rememberListEntrance
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
@@ -33,7 +39,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -71,6 +76,8 @@ fun BoxScope.HomeOverlay(
     notices: List<PermissionNotice>,
     tour: TourUi?,
     search: SearchUi?,
+    /** Buscando: la lista se vacía mientras el mapa rastrea; lo anterior confundía. */
+    searching: Boolean,
     nearby: List<Place>,
     origin: Coordinates,
     navigation: NavigationUi?,
@@ -100,7 +107,8 @@ fun BoxScope.HomeOverlay(
             .fillMaxHeight()
             .fillMaxWidth(PANEL_SHARE)
             .panelInsetsPadding()
-            .padding(d.spaceM)
+            // Del borde de la barra de estado a casi el de la pantalla: todo el alto.
+            .padding(start = d.spaceM, end = d.spaceM, bottom = d.spaceXs)
             .clip(shape)
             .background(glass)
             .border(1.dp, accent.copy(alpha = 0.35f), shape)
@@ -165,13 +173,13 @@ fun BoxScope.HomeOverlay(
             CurrentStops(tour)
         }
         Spacer(Modifier.height(d.spaceS))
-        val places = search?.places ?: nearby
+        val places = if (searching) emptyList() else search?.places ?: nearby
         val list = rememberLazyListState()
         LaunchedEffect(selected?.id) {
             val at = places.indexOfFirst { it.id == selected?.id }
             if (at >= 0) list.animateScrollToItem(at)
         }
-        if (places.isEmpty()) {
+        if (places.isEmpty() && !searching) {
             Text(
                 text = stringResource(R.string.nothing_within, radiusKm),
                 style = MaterialTheme.typography.bodyMedium,
@@ -179,9 +187,13 @@ fun BoxScope.HomeOverlay(
                 modifier = Modifier.padding(vertical = d.spaceS),
             )
         }
+        // La lista entra de nuevo con cada sección y cuando llegan sus sitios; no
+        // cuando cambian unos pocos al moverse el coche.
+        val entrance = rememberListEntrance(search?.title, places.isNotEmpty())
         LazyColumn(Modifier.fillMaxWidth().weight(1f), state = list, verticalArrangement = Arrangement.spacedBy(d.spaceXs)) {
-            items(places, key = { it.id }) { place ->
+            itemsIndexed(places, key = { _, place -> place.id }) { index, place ->
                 PlaceLine(
+                    modifier = Modifier.animateItem().entering(entrance, index),
                     place = place,
                     origin = origin,
                     selected = place.id == selected?.id,
@@ -217,17 +229,20 @@ private fun PlaceLine(
     onListen: () -> Unit,
     onAdd: () -> Unit,
     onNavigate: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val d = CarTheme.dimens
     val accent = MaterialTheme.colorScheme.primary
     val shape = RoundedCornerShape(d.cardCorner * 0.75f)
+    val interaction = remember { MutableInteractionSource() }
     Column(
-        Modifier
+        modifier
+            .pressable(interaction, Motion.PRESSED_ROW_SCALE)
             .fillMaxWidth()
             .clip(shape)
             .background(if (selected) accent.copy(alpha = 0.16f) else Color.Transparent)
             .border(1.dp, if (selected) accent else Color.Transparent, shape)
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onClick)
             .padding(d.spaceXs)
             .animateContentSize(Motion.settle(Motion.reduced)),
     ) {
@@ -271,11 +286,13 @@ private fun PlaceLine(
 private fun Tab(glyph: Glyph, label: String, active: Boolean, onClick: () -> Unit) {
     val accent = MaterialTheme.colorScheme.primary
     val ink = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    val interaction = remember { MutableInteractionSource() }
     Column(
         Modifier
+            .pressable(interaction)
             .clip(RoundedCornerShape(4.dp))
             // Sin el recuadro gris del toque: la raya ya dice cuál está activa.
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .defaultMinSize(minWidth = TAB_TOUCH)
             .padding(horizontal = 4.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -308,8 +325,19 @@ private fun Tab(glyph: Glyph, label: String, active: Boolean, onClick: () -> Uni
             }
         }
         Spacer(Modifier.height(4.dp))
+        // La raya crece desde el centro en la capa de dibujo: el layout no cambia.
         val underline by animateFloatAsState(if (active) 1f else 0f, Motion.settle(reduced), label = "raya")
-        Box(Modifier.height(2.dp).width(24.dp * underline).clip(RoundedCornerShape(1.dp)).background(accent.copy(alpha = underline)))
+        Box(
+            Modifier
+                .height(2.dp)
+                .width(UNDERLINE)
+                .graphicsLayer {
+                    scaleX = underline
+                    alpha = underline
+                }
+                .clip(RoundedCornerShape(1.dp))
+                .background(accent),
+        )
     }
 }
 
@@ -330,6 +358,7 @@ private const val AROUND = "\u0000around"
 private val THUMB = 44.dp
 private val ACTION = 36.dp
 private val TAB_ICON = 20.dp
+private val UNDERLINE = 24.dp
 /** El alto de una línea de texto: icono y nombre ocupan lo mismo y la fila no salta. */
 private val TAB_LINE = 22.dp
 /** Lo que tarda en asentarse la pestaña: la búsqueda espera a que termine. */

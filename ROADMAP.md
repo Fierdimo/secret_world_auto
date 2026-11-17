@@ -1,8 +1,17 @@
 # ROADMAP
 
-Versión 0.2. Las fechas son relativas al arranque, que **ya se ha producido**:
-el emulador arm64 de Pleos Connect funciona en local desde el 2026‑09‑03. Ver
-[SETUP.md](SETUP.md).
+Versión 0.3, actualizada el 2026‑11‑17. Las fechas son relativas al arranque,
+que **ya se ha producido**: el emulador arm64 de Pleos Connect funciona en local
+desde el 2026‑09‑03. Ver [SETUP.md](SETUP.md).
+
+> Cambios respecto a 0.2: **la guía hablada es del navegador del sistema**; la app
+> no narra maniobras, recálculos ni llegadas, y su narración es siempre a petición
+> del usuario. En el coche **no hay mapa propio de navegación**; la app
+> es un panel junto al navegador nativo y Mapbox queda para la prueba de concepto
+> en teléfono ([docs/NAVIGATION-AND-MAP-DECISIONS.md](docs/NAVIGATION-AND-MAP-DECISIONS.md)).
+> Hay dos APK de prueba: la demo para teléfono y la versión Pleos con los
+> servicios de la plataforma. La voz se ha medido en un móvil de gama baja
+> (Snapdragon 685) y se ha ajustado para que la IA nunca la frene.
 
 > Cambios respecto a 0.1: el alta en Playground ya está hecha, así que la fase 0
 > pasa de trámite a **spikes técnicos**. El audio pre-generado deja de ser
@@ -22,14 +31,23 @@ técnico y de consulta, y está detallado en [SETUP.md](SETUP.md).
 
 - [x] Solicitar, instalar y arrancar el emulador. *(2026‑09‑03: la primera entrega fue x86_64 e inservible en Apple Silicon; la build arm64 funciona)*
 - [x] Esqueleto de módulos con `:core:domain` aislado y verificación de pureza en `check`. *(2026‑09‑03: 8 módulos, `./gradlew check` en verde, APK arrancando en el emulador)*
-- [ ] **Spike 1**: ¿SpeechToText propio o vía asistente Gleo? Es la pregunta que
-      puede cambiar el producto.
+- [x] **Spike 1**: ¿SpeechToText propio o vía asistente Gleo? *(resuelto)* Las dos
+      vías, según la build: la demo escucha en el dispositivo (palabra de
+      activación y reconocimiento con sherpa-onnx, sin red); la versión Pleos usa
+      el reconocedor de la plataforma (`ai.umos.ambientai`). En la v2.1.5 ese
+      reconocedor dependía de la red; en Connect‑W está por medir.
 - [x] **Spike 2 · motor TTS embebido** *(2026‑09‑03)*: sherpa-onnx + Piper int8 integrado y midiendo en el emulador. **RTF 0,20 frente al presupuesto de 0,50**, memoria plana. Resultados en [spikes/voice/RESULTS.md](spikes/voice/RESULTS.md).
 - [ ] Escuchar los 90 s generados y decidir si la calidad pasa el listón. Es lo único del spike 2 que no puede hacer una máquina.
 - [ ] **Resolver la licencia de la voz italiana.** Es el bloqueante que deja el spike: ninguna voz italiana de Piper tiene hoy licencia verificada para uso comercial. El inglés sí (`ljspeech`, dominio público).
-- [ ] **Spike 3**: Fused Location y Vehicle SDK.
-- [ ] **Spike 4**: traspaso de destino con NaviHelper.
-- [ ] **Spike 5**: audio en segundo plano y pantalla partida.
+- [ ] **Spike 3**: Fused Location y Vehicle SDK. *La posición real ya está*
+      (`LocationManager` con todos los proveedores, sin Play Services); falta el
+      Vehicle SDK.
+- [ ] **Spike 4**: traspaso de destino con NaviHelper. *Medido: el servicio está
+      en la imagen y responde; falta la librería cliente, que Pleos no ha
+      publicado.* Mientras, en teléfono el traspaso va a Google Maps o Waze.
+- [ ] **Spike 5**: audio en segundo plano y pantalla partida. *En teléfono, la app
+      sigue narrando en una ventana flotante junto al navegador. En Pleos está
+      por probar en Connect‑W, que solo arranca en un PC x86_64.*
 - [ ] **Solicitar ya los servicios de Gleo** (`STT_SERVICE`, `TTS_SERVICE`,
       `LLM_SERVICE`). Son *Request Required*: el plazo de aprobación es
       desconocido y no bloquea la v1, pero sí el nivel 2. Cuanto antes entre la
@@ -43,138 +61,106 @@ audio propio). Es el punto de go / no-go real.
 
 ## Dónde estamos de verdad
 
-Actualizado el 2026‑09‑10. Conviene ser exacto, porque es fácil confundir una
+Actualizado el 2026‑11‑17. Conviene ser exacto, porque es fácil confundir una
 prueba de concepto con un producto.
 
-**Lo construido es una prueba de concepto técnica.** Demuestra que el producto se
-puede hacer y que rinde. No demuestra que alguien lo quiera usar, porque todavía
-no hay nada que usar.
+**Lo construido es una prueba de concepto completa en teléfono**, con una
+versión para Pleos que todavía no se ha visto funcionar en su emulador actual.
+Demuestra que el producto se puede hacer y se entiende al usarlo; aún no
+demuestra que funcione dentro del coche.
 
-### Lo que ve hoy un usuario que abre la app *(actualizado el 2026‑09‑10)*
+### Las dos APK de prueba
 
-- **El catálogo real de Secret World** por posición: nombres, fotos, textos y
-  ciudad, servidos por `POST /places/cards`. En Roma devuelve 32 lugares útiles.
-- Un **mapa permanente** con esos lugares encima: Mapbox en el banco de pruebas,
-  lienzo propio en el vehículo.
-- **Narración que suena**, sintetizada en el dispositivo y preparada por delante.
-- **Órdenes por voz sin tocar nada** *(2026‑09‑07)*: se dice *"Siky"* y, en la
-  misma frase, una de las cuatro órdenes del nivel 1 —"cuéntame más", "llévame
-  ahí", "sáltalo", "¿qué hay cerca?"—. La gramática vive en el dominio, en Kotlin
-  puro y auditable; la respuesta se habla con el mismo motor que narra.
-- Cuatro pantallas: home, detalle, itinerario y ajustes.
-- Respaldo sin cobertura: 18 lugares reales guardados, y la app **dice** que está
-  en modo respaldo en vez de quedarse en blanco.
+| APK | Para | Voz, escucha e IA | Estado |
+|---|---|---|---|
+| Demo | Un teléfono Android | Propias, dentro del APK (~750 MB) | Probada en un moto g75 y en un Honor con Snapdragon 685 |
+| Pleos | El emulador Connect‑W (x86_64) | Las de la plataforma | Sin probar: el emulador no arranca en Apple Silicon |
 
-Lo que sigue faltando, y no es poco: la **escucha no es eficiente** —se reabre el
-reconocedor en cada frase, no hay detector de palabra clave—, el **mapa del
-vehículo no enseña calles**, **"Llévame ahí" no fija destino**, el **vehículo es
-simulado**, el contenido no está reescrito para ser oído y el itinerario es de
-demostración porque los reales exigen cuenta.
+### Lo que ve hoy quien abre la demo
+
+- **«Qué ver»**: los sitios del catálogo y de Wikipedia alrededor, con foto y
+  texto. Wikipedia se consulta en inglés, español e italiano y se junta por
+  Wikidata, así que **los sitios son los mismos en los tres idiomas**; los
+  eventos se filtran.
+- **Búsquedas como un radar** (restaurantes, gasolina, aparcamiento…), que
+  empiezan cerca y amplían el radio hasta encontrar bastante, también en otra
+  zona y por nombre de cadena.
+- **Órdenes de voz sin tocar nada** en inglés, español e italiano, empezando por
+  *"Secret"*. La gramática local resuelve las básicas en milisegundos; una
+  batería de pruebas recorre cada orden en los tres idiomas. Con auriculares se
+  puede interrumpir a la app mientras habla.
+- **Itinerarios**: sugeridos de viva voz o armados a mano, presentados con un
+  vuelo por el mapa, editables de viva voz, guardados en «Mis itinerarios» y
+  enviados a Google Maps o Waze con la app en una ventana flotante.
+- **Narración** sintetizada en el dispositivo, frase a frase; si un sitio no tiene
+  texto en el idioma, la app lo dice y pregunta antes de traducirlo.
+- **Primer arranque** con pantalla de carga mientras se instalan voces y modelos;
+  tema claro u oscuro en Ajustes; recuperación al volver la conexión.
+
+### Lo que se midió en un móvil de gama baja *(2026‑11‑14, Snapdragon 685)*
+
+| | Antes | Ahora |
+|---|---|---|
+| Voz lista tras abrir la app, con IA | 57 s | **7,7 s** |
+| Una orden, de terminar de hablar a empezar a contestar | 4–8 s, 85 s en el peor caso | **1–3 s** |
+| Reconocer una frase | ~3 s | **0,8–1,2 s** |
+
+El modelo de IA (Gemma 3 1B) tarda en prepararse 9 s en un moto g75 y 41 s en el
+Snapdragon 685, y en este último **no contesta en menos de 4 s** ni preparado. Por
+eso nunca bloquea: se prepara en los ratos sin voz y solo se usa, con 4 s como
+máximo, para lo que la gramática no entiende. Los tiempos quedan en el registro
+`SWTiming`.
 
 ### Lo que sí quedó demostrado, y no era gratis
 
-Cinco supuestos del plan original resultaron falsos, y solo se descubrieron
+Supuestos del plan original que resultaron falsos, y que solo se descubrieron
 construyendo:
 
 1. La plataforma **no expone nada por las APIs estándar de Android**: vive en
    `pleos.car.permission.*`.
-2. **No hay motor TTS** por la vía de AOSP, y el de Pleos está *coming soon*.
-3. **`geo:` no lo atiende nadie**: no existe el traspaso estándar de destino.
+2. **No hay motor TTS** por la vía de AOSP; el de Pleos, en la v2.1.5, solo
+   hablaba coreano.
+3. **`geo:` no lo atiende nadie**: el traspaso de destino es por NaviHelper.
 4. Las **voces que mejor suenan no se pueden licenciar** comercialmente.
-5. El **rendimiento** es viable en hardware real —RTF 0,326—, pero la cifra del
-   emulador oscilaba entre 0,22 y 1,64 y no servía para decidir nada.
-
-Sin esto, la fase 1 se habría escrito sobre cinco supuestos equivocados.
+5. El **rendimiento** es viable en hardware real, pero el del emulador no sirve
+   para decidir nada.
+6. **Mapbox en el coche exige un contrato de automoción aparte.** Decidido: en el
+   coche, panel junto al navegador nativo y, si hace falta mapa, uno propio con
+   MapLibre y OpenStreetMap solo para los puntos.
+7. **Un modelo de IA en el dispositivo no es viable en gama baja** para contestar
+   en marcha: sirve como respaldo, nunca como camino principal.
 
 ### Lo que falta para que esto sea un MVP
 
 En orden de cuánto acercan el producto a alguien que lo usaría:
 
-1. ~~Catálogo real~~ **hecho el 2026‑09‑04**: `:core:data` contra
-   `api.sworld.co.uk`, con filtrado de artículos de marketing, deduplicación de
-   fichas repetidas y respaldo sin red.
-2. **Contenido real** — segmentos de 60 a 90 s escritos para ser oídos. Es ahora
-   **la brecha más visible**: los textos del catálogo son de longitud artículo y
-   se están recortando a las primeras frases como apaño. Sigue siendo la ruta
-   crítica y no es trabajo de desarrollo.
-3. ~~Detección de voz eficiente~~ **hecho el 2026‑09‑15, medido en un Moto g75**:
-   detector de palabra clave, detector de voz y Whisper *base*, los tres con
-   sherpa-onnx en el dispositivo y sin red; detrás, Gemma 3 1B (MediaPipe, CPU)
-   para lo que la gramática no prevé. Cargan en 2–5 s, ~900 MB de RAM con todo
-   residente. Lo que queda abierto de aquí, con dato:
-   - **Interrumpir la narración por voz no funciona con altavoz y micrófono
-     juntos**: la app se oye a sí misma a 10× el nivel de la voz (0,08 frente a
-     0,008). Probados y descartados en este móvil el `AcousticEchoCanceler`
-     (no cancela), `VOICE_COMMUNICATION` (deforma la voz, el detector no la
-     reconoce) y el `NoiseSuppressor` (la silencia). Hace falta cancelación de
-     eco con la señal reproducida como referencia: la del vehículo o WebRTC APM
-     por software. Con auriculares funciona.
-   - **Whisper *base* oye mal las órdenes cortas** ("what's nearby" → "what's
-     new by", "glass new buy"). El LLM lo absorbe —«What's new? Bye?» →
-     `what_is_nearby`— pero cuesta ~1,5 s más. Whisper *small* está descargado
-     para medir si el tiempo compensa.
-4. ~~Mapa real~~ / ~~Navegación~~ **hechos en el banco de pruebas el
-   2026‑09‑15**, por Mapbox como puente: posición real del dispositivo
-   (`LocationManager`, sin Play Services), rutas por Mapbox Directions dibujadas
-   en el mapa, guía por maniobras en voz alta, recálculo al salirse y aviso de
-   llegada. Medido en Cartagena: "Ey Sícret, llévame al cerro de la Popa" →
-   ruta de 7,2 km con 15 maniobras. Lo que sigue abierto es lo de siempre: en
-   el vehículo, `NaviHelper` de Pleos.
-5. **Lugares reales con texto.** El catálogo editorial tiene tres fichas por
-   ciudad. Se suman los de **Wikipedia por geolocalización** —22 monumentos en
-   10 km de Cartagena, con introducción en el idioma y foto—, filtrando
-   eventos, provincias y aeropuertos. Licencia CC BY-SA: hay que atribuir.
-6. **Reconocimiento:** Whisper base destrozaba el español. Se cambió por el
-   FastConformer multilingüe de NVIDIA (en/es/fr/de): 6× más rápido (~110 ms
-   por frase en el móvil) y entiende los dos idiomas. La palabra de activación
-   es **por idioma**: "Hey Secret" con el detector de palabras clave en
-   inglés; "Ey Sícret" por transcripción en español, porque el detector solo
-   sabe inglés y ninguna palabra española le dispara (medido: 0/4 en todas).
-   Coste a medir: en español se transcribe todo lo que se dice en el coche.
-7. **Contenido en el idioma.** Lo del catálogo solo existe en inglés; se
-   traduce en el dispositivo con Gemma una vez por lugar (10–20 s en segundo
-   plano). Correcto, no literario: la traducción editorial sigue siendo humana.
-6. **Posición real del vehículo** en lugar del simulador.
-7. **Cuenta vinculada**, para que favoritos e itinerarios aparezcan en el coche.
-
-Con 1 y 2 la app ya sería algo que un turista podría encender en un viaje; con 3,
-4 y 5, algo que se puede usar conduciendo. Sin ellas, no.
+1. **Contenido real**: segmentos de 60 a 90 s escritos para ser oídos. Sigue
+   siendo la ruta crítica y no es trabajo de desarrollo.
+2. **NaviHelper**: la librería cliente y las credenciales de `registerApp`. Sin
+   ella, en el coche no se puede fijar destino.
+3. **Probar la versión Pleos en Connect‑W**: voz, escucha y pantalla dividida.
+   Hace falta un PC x86_64; la guía de instalación está en `docs/PLEOS-TEST.md`,
+   en la rama `pleos`.
+4. **Interfaz simplificada para conducir**: el panel junto al navegador, según
+   las normas de distracción.
+5. **Caché sin conexión por zona**: sitios, textos, fotos y narraciones.
+6. **Cuenta vinculada**, para que favoritos e itinerarios aparezcan en el coche.
 
 ### Lo que falta para poder enviar el APK a un desconocido
 
-Actualizado el 2026‑09‑15. Es la pregunta que decide si esto es un MVP o una
-demostración: ¿qué pasa si el APK llega a alguien en Nueva York o en Milán?
-
-- **La localidad se adapta sola**: GPS real, catálogo por posición, Wikipedia
-  y búsqueda de Mapbox funcionan en cualquier ciudad, y las rutas también.
-- **El idioma, solo inglés y español.** Nueva York recibiría todo; Milán
-  recibiría el mapa y las rutas, pero en inglés y sin entender italiano.
-- **Los modelos no llegan.** En el móvil de pruebas se cargaron con `adb`; la
-  app sabe descargarlos, pero `ModelCatalog.baseUrl` apunta a la máquina de
-  desarrollo. Sin ellos no hay palabra de activación, ni reconocimiento en el
-  dispositivo, ni LLM: queda el botón con el reconocedor de Google.
-
-Tareas, en orden. Sin las dos primeras no hay MVP que enviar:
-
-- [ ] **Alojar los paquetes en un CDN real** —voces (~15–22 MB cada una),
-      modelos de escucha (~110 MB) y LLM (~390 MB)— y apuntar `ModelCatalog` y
-      `VoiceCatalog` ahí. Falta decidir dónde: el backend de Secret World, un
-      bucket, o una *release* de GitHub. Lo demás —descarga, `sha256`,
+- [x] **La localidad se adapta sola**: GPS real, catálogo por posición, Wikipedia
+      y búsquedas en cualquier ciudad. Probado en Cartagena y en Cancún.
+- [x] **Italiano**: reconocimiento multilingüe, voz italiana y gramática.
+      *Falta resolver la licencia de la voz italiana.*
+- [x] **Pantalla de primera ejecución** con progreso, para lo que va dentro del APK.
+- [ ] **Alojar los paquetes en un CDN** —voces, modelos de escucha y LLM— para
+      una build de tienda que no los lleve dentro. Lo demás —descarga, `sha256`,
       instalación atómica— ya existe.
-- [ ] **Pantalla de primera ejecución** (SPEC RF‑1.8.8): una sola ventana de
-      «Descargando actualizaciones» con progreso agregado, que no deje pasar sin
-      el paquete del idioma y deje el LLM terminar detrás. Hoy solo se instala
-      la voz, sola y en segundo plano.
-- [ ] **Italiano**, si Milán importa: cambiar al FastConformer de 10 idiomas
-      (`be-de-en-es-fr-hr-it-pl-ru-uk`, incluye italiano), incluir la voz
-      italiana y **resolver su licencia**, y hacer la tabla italiana de gramática
-      y frases. El español costó un día; esto, parecido.
-- [ ] **Sin cobertura, lo que no se puede con el puente**: teselas del mapa y
-      cálculo de rutas necesitan red. Los sitios ya se guardan por zona una
-      semana. Mapa y rutas sin red los da el navegador del vehículo, no Mapbox
-      por REST; en el banco de pruebas es un límite conocido.
-- [ ] Probar la guía **en marcha**: maniobras a tiempo, recálculo al salirse,
-      llegada. Todo está escrito y nada está probado con el coche moviéndose.
+- [ ] **Sin cobertura**: los sitios se guardan por zona y la app se recupera
+      sola al volver la red; falta guardar fotos y narraciones de una zona entera.
+- [ ] Probar **en marcha**, con el coche moviéndose, el traspaso al navegador y la
+      llegada a las paradas del itinerario. La guía hablada —maniobras,
+      recálculos, llegada— es del navegador del sistema: la app no la narra.
 
 ## Fase 1 — El MVP acordado · 4–6 semanas
 
@@ -189,31 +175,33 @@ acotado.
 - [ ] `TourQueue` v1. ~~`NarrationTrigger` (anticipación por velocidad).~~ Descartado el 2026‑11‑03: no hay narración automática en marcha, toda narración la pide el usuario (SPEC RF‑3.3).
 - [ ] Servicio de media e integración con el centro multimedia del vehículo.
 - [x] **Vocabulario cerrado con palabra de activación** *(2026‑09‑07)*: gramática en el dominio para "cuéntame más", "llévame ahí", "sáltalo" y "¿qué hay cerca?", con *"Siky"* al principio de la frase y pruebas sobre transcripciones sucias. Micrófono por `SpeechRecognizer` de AOSP: el `SpeechService` de Pleos acepta la conexión pero su `onBind` devuelve `null`.
-- [ ] **Detector de palabra clave *offline*** delante del reconocedor, con sherpa-onnx. Es lo que convierte la escucha permanente en algo que se puede dejar encendido.
-- [ ] Traspaso de destino vía NaviHelper.
+- [x] **Detector de palabra clave *offline*** delante del reconocedor, con sherpa-onnx *(2026‑09‑15)*. En inglés con detector; en español e italiano, por transcripción.
+- [ ] Traspaso de destino vía NaviHelper. *Bloqueado por la librería cliente.*
 - [x] **Motor TTS embebido con descarga de voces al primer uso** *(2026‑09‑03)*: `VoiceInstaller` con progreso, verificación `sha256` e instalación atómica, probado de extremo a extremo contra un CDN local.
 - [x] **Síntesis por delante a caché de disco** *(2026‑09‑03)*: `NarrationPrefetcher` en el dominio con presupuesto y política LRU, `DiskNarrationStore` en disco, y bucle completo probado con vehículo simulado — **cero esperas en el momento de narrar**.
-- [ ] **Spike: LLM de intenciones en el dispositivo** (Gemma 3 1B int4, MediaPipe o llama.cpp). Solo entiende y llama a las órdenes existentes; entra detrás de la gramática cuando esta devuelve `NotUnderstood`. Medir en hardware real: RAM residente, latencia por frase con y sin caché de prefijo, y acierto sobre ~50 frases fuera de gramática en inglés e italiano. Go/no-go: < 1,5 s y < 1,5 GB.
-- [ ] **Primer arranque con ventana «Descargando actualizaciones»** (SPEC RF‑1.8.7–1.8.9): paquete de idioma —voz, reconocimiento, palabra de activación— y LLM por el mismo `VoiceInstaller`. **En pruebas van empaquetados**; la build de tienda no. Probar desde dispositivo limpio antes del envío.
-- [ ] Cargar el motor de voz al arrancar la app y **persistir la caché entre sesiones**: es lo que falta para cumplir RNF‑1 en arranque en frío.
-- [ ] Prueba en modo avión: el nivel 1 completo debe funcionar sin red, voces ya descargadas.
+- [x] **Spike: LLM de intenciones en el dispositivo** (Gemma 3 1B, MediaPipe). Entra detrás de la gramática. *Medido: en gama media cumple; en un Snapdragon 685 no contesta en 4 s. No-go como camino principal; se queda como respaldo con 4 s de máximo.*
+- [ ] **Primer arranque con ventana «Descargando actualizaciones»** (SPEC RF‑1.8.7–1.8.9). *Hecha la pantalla para lo empaquetado en el APK (2026‑11‑05); falta la descarga desde CDN para la build de tienda.*
+- [x] Cargar el motor de voz al arrancar la app y **persistir la caché entre sesiones**. *Medido: voz lista a los 7,7 s en arranque en frío en un Snapdragon 685.*
+- [ ] Prueba en modo avión: el nivel 1 completo debe funcionar sin red, voces ya descargadas. *Probado: la app se recupera sola al volver la red; falta el recorrido completo sin red.*
 - [ ] **Contenido**: piloto de ~200 lugares en **inglés e italiano**, formato conversacional.
 
-**Hito 1**: en el emulador con posición en movimiento, la app narra un lugar
-**antes** de que el conductor lo pase, acepta las tres intenciones por voz y pasa
-el destino al navegador.
+**Hito 1**: en el emulador con posición en movimiento, la app dice qué hay por
+delante **cuando el conductor lo pide**, narra el lugar que elige antes de pasarlo,
+acepta las órdenes por voz y pasa el destino al navegador. La narración es siempre
+a petición del usuario: la app no habla sola en marcha (SPEC RF‑3.3).
 
 ## Fase 2 — Superficie visual y ruta · 4–6 semanas
 
 - [x] **Superficie de POIs en marcha** y **modo detenido**, en Compose con sistema de diseño propio *(2026‑09‑03)*. Capturas y hallazgos en [spikes/ui/](spikes/ui/).
 - [x] `DrivingModeController` con vehículo simulado; falta engancharlo al Vehicle SDK real.
-- [ ] Mapa e itinerarios en modo detenido. El mapa sigue pendiente de la decisión de licencia.
+- [x] Mapa e itinerarios en modo detenido, en la prueba de concepto con Mapbox. *En el coche, sin Mapbox: ver [docs/NAVIGATION-AND-MAP-DECISIONS.md](docs/NAVIGATION-AND-MAP-DECISIONS.md).*
 - [ ] **Registrar el CRN del emulador en Playground**: hasta entonces la pantalla solo funciona desactivando el setup wizard.
-- [ ] `TourQueue` v2 sobre la ruta activa.
-- [ ] Layouts para Connect-S, W y WF, en landscape, portrait y media pantalla.
+- [ ] `TourQueue` v2 sobre la ruta activa: lo que hay por delante en la ruta, para
+      ofrecerlo cuando el conductor pregunte, no para narrarlo solo.
+- [ ] Layouts para Connect-S, W y WF, en landscape, portrait y media pantalla. *Prioridad: el panel junto al navegador.*
 
-**Hito 2**: recorrido completo, con el coche yendo a un destino y la app narrando
-lo que hay en el camino.
+**Hito 2**: recorrido completo, con el coche yendo a un destino y la app
+contando, cuando se le pide, lo que hay en el camino.
 
 ## Fase 3 — Cuenta y acceso · 3–4 semanas
 

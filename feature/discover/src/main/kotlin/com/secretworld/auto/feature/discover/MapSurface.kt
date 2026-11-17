@@ -92,4 +92,6 @@ data class FlyoverState(
     val radiusMeters: Double? = null,
     /** Dónde está el centro del anillo si no es el coche: una zona buscada. */
     val ringCenter: Coordinates? = null,
+    /** Si se está buscando: ondas desde el centro hasta el anillo, y los puntos esperan. */
+    val scanning: Boolean = false,
 )

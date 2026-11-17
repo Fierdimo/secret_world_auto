@@ -72,8 +72,12 @@ class CatalogueRepository(
             .let { catalogue -> withWikipedia(catalogue, position, language) }
 
         result.places.forEach { place -> place.summary?.let { texts[place.id] = it } }
-        lastKey = key
-        lastResult = result
+        // El respaldo no se recuerda: si no, al volver la red se servía otra vez
+        // él en vez de pedir el catálogo de verdad.
+        if (result.source != Source.FALLBACK) {
+            lastKey = key
+            lastResult = result
+        }
         return result
     }
 
@@ -104,7 +108,8 @@ class CatalogueRepository(
         val wiki = wikipedia ?: return catalogue
         val around = cache?.let { store ->
             // Wikipedia también por zona: la ciudad no se mueve de sitio.
-            val places = store.around(position, "wikipedia", language) { wiki.around(position, language).places }
+            // "wikidata": los de antes, uno por Wikipedia, no se mezclan con los de ahora.
+            val places = store.around(position, "wikidata", language) { wiki.around(position, language).places }
             WikipediaPlaces.Around(places, places.firstNotNullOfOrNull { it.city })
         } ?: wiki.around(position, language)
         if (around.places.isEmpty()) return catalogue
