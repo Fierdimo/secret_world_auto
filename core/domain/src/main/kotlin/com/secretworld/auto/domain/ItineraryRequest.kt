@@ -493,7 +493,7 @@ object ItineraryRequests {
 
     /** Por raíz: "castillo", "castillos", "castello", "castle" caen todos. */
     private val INTEREST_WORDS: Map<Interest, List<String>> = mapOf(
-        Interest.HISTORY to listOf("histori", "storia", "storic", "castill", "castell", "castle", "fort", "murall", "ruin", "rovin", "monument", "palaci", "palazz", "palace", "colonial", "arqueolog", "archeolog", "archaeolog"),
+        Interest.HISTORY to listOf("histor", "storia", "storic", "castill", "castell", "castle", "fort", "murall", "ruin", "rovin", "monument", "palaci", "palazz", "palace", "colonial", "arqueolog", "archeolog", "archaeolog"),
         Interest.ART to listOf("arte", "art", "muse", "galeri", "galler", "pintur", "pittur", "painting", "escultur", "scultur"),
         Interest.RELIGION to listOf("iglesi", "chies", "church", "catedral", "cattedral", "cathedral", "basilic", "convent", "monaster", "religio"),
         Interest.NATURE to listOf("natur", "playa", "spiagg", "beach", "parque", "parco", "park", "jardin", "giardin", "garden", "mirador", "belvedere", "viewpoint", "paisaj", "paesagg", "landscape"),

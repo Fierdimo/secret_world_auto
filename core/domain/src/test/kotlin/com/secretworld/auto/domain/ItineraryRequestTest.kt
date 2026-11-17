@@ -19,6 +19,15 @@ class ItineraryRequestTest {
     }
 
     @Test
+    fun `la historia se entiende en los tres idiomas`() {
+        // "histori" valía para "historia" pero no para "history": en inglés la
+        // respuesta no se entendía y la conversación se cerraba.
+        listOf("history", "historia", "storia").forEach { said ->
+            assertEquals(setOf(Interest.HISTORY), ItineraryRequests.details(said).interests, said)
+        }
+    }
+
+    @Test
     fun `sin tiempo ni gustos se pregunta por los dos`() {
         assertEquals(
             setOf(ItineraryRequest.Missing.TIME, ItineraryRequest.Missing.INTERESTS),
