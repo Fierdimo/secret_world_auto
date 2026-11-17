@@ -132,11 +132,21 @@ class PleosSpeaker(private val context: Context) : LiveSpeaker {
     private var locale: String? = null
     private var pending: CompletableDeferred<Boolean>? = null
 
+    /** Si la frase en curso llegó a sonar: `false` si dio error antes. */
+    private var starting: CompletableDeferred<Boolean>? = null
+
     private val callback = PleosCaas.callback(CALLBACK, 2) { (cmd, data) ->
         Log.i(PleosCaas.TAG, "TTS <= $cmd ${data.orEmpty().take(160)}")
         when (cmd) {
-            "UpdateTtsDone", "UpdateTtsStop" -> pending?.complete(true)
-            "UpdateTtsError" -> pending?.complete(false)
+            "UpdateTtsStart" -> starting?.complete(true)
+            "UpdateTtsDone", "UpdateTtsStop" -> {
+                starting?.complete(true)
+                pending?.complete(true)
+            }
+            "UpdateTtsError" -> {
+                starting?.complete(false)
+                pending?.complete(false)
+            }
         }
     }
 
@@ -162,7 +172,9 @@ class PleosSpeaker(private val context: Context) : LiveSpeaker {
         val app = context.packageName
         val wanted = PleosCaas.localeOf(language)
         val done = CompletableDeferred<Boolean>()
+        val began = CompletableDeferred<Boolean>()
         pending = done
+        starting = began
         runCatching {
             // El idioma se guarda por app: solo se cambia si hace falta.
             if (locale != wanted) {
@@ -176,6 +188,15 @@ class PleosSpeaker(private val context: Context) : LiveSpeaker {
             PleosCaas.call(b, DESCRIPTOR, SPEAK, text, true, app, attrs)
         }.onFailure {
             Log.e(PleosCaas.TAG, "TTS speak", it)
+            return@withContext false
+        }
+        // Primero, que empiece a sonar. En la v2.1.5 acepta la frase, dice
+        // "lista" y el error de idioma llega veinte segundos después, al
+        // reproducir: esperando así, la app tardaba 80 s en saber que no hay voz.
+        val sounding = withTimeoutOrNull(START_TIMEOUT_MS) { began.await() } ?: false
+        if (!sounding) {
+            Log.w(PleosCaas.TAG, "TTS: no empezó a sonar en ${START_TIMEOUT_MS / 1000} s")
+            runCatching { PleosCaas.call(b, DESCRIPTOR, STOP, app) }
             return@withContext false
         }
         // Lo que tarde en decirse, con margen; si no llega el final, se sigue.
@@ -194,6 +215,8 @@ class PleosSpeaker(private val context: Context) : LiveSpeaker {
     }
 
     private companion object {
+        /** Lo más que se espera a que una frase empiece a sonar. */
+        const val START_TIMEOUT_MS = 10_000L
         const val DESCRIPTOR = "ai.pleos.playground.caas.service.speech.aidl.ITtsOnDeviceStream"
         const val CALLBACK = "ai.pleos.playground.caas.service.speech.aidl.ITtsCallback"
         const val REGISTER = 1

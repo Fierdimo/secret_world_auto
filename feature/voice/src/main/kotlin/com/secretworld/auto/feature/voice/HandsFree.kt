@@ -55,6 +55,12 @@ class HandsFree(
         loop = scope.launch {
             var consecutiveErrors = 0
             while (_enabled.value) {
+                // Sin reconocedor —no lo hay o dejó de responder—, se deja de escuchar.
+                if (!input.available) {
+                    Log.i(TAG, "sin reconocedor: escucha permanente apagada")
+                    _enabled.value = false
+                    break
+                }
                 speaking.first { !it }
                 input.listen(direct = false)
                 // Si empieza a hablar con el micrófono abierto, se cierra: primero se oye.

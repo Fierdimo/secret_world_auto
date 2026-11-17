@@ -92,6 +92,19 @@ class NarrationController(
 
     val voiceInstalled: Boolean get() = speaker != null || installer.isInstalled(language)
 
+    private val _silent = MutableStateFlow(speaker?.available == false)
+
+    /**
+     * Sin voz: la de la plataforma no está o no habla este idioma —en la v2.1.5
+     * de Pleos solo hablaba coreano—. Entonces no se intenta hablar: las
+     * respuestas quedan escritas y la app se usa tocando. No es un error que
+     * enseñar en cada frase.
+     */
+    val silent: StateFlow<Boolean> = _silent.asStateFlow()
+
+    /** Si habla la voz de la plataforma, que puede resultar no hablar el idioma. */
+    val speaksLive: Boolean get() = speaker != null
+
     /** Instala la voz si falta. Idempotente. */
     fun ensureVoice() {
         if (speaker != null || installer.isInstalled(language)) return
@@ -161,6 +174,7 @@ class NarrationController(
     fun listen(place: Place) {
         Log.i(TAG, "listen: ${place.id} ${place.name}")
         saying?.cancel()
+        if (_silent.value) return
         speaker?.let { live ->
             saying = scope.launch(Dispatchers.IO) {
                 val text = textSource.textFor(place, language)
@@ -236,6 +250,11 @@ class NarrationController(
      */
     fun say(text: String, onDone: (() -> Unit)? = null) {
         saying?.cancel()
+        // Sin voz, lo que viene después de hablar sigue pasando.
+        if (_silent.value) {
+            scope.launch(Dispatchers.Main) { onDone?.invoke() }
+            return
+        }
         speaker?.let { live ->
             saying = scope.launch(Dispatchers.IO) {
                 _state.value = State.Speaking(text, preparing = false)
@@ -285,7 +304,8 @@ class NarrationController(
         try {
             for (sentence in sentences(text)) {
                 if (!live.speak(sentence, language)) {
-                    Log.w(TAG, "la voz de la plataforma no pudo decir: «$sentence»")
+                    Log.w(TAG, "la voz de la plataforma no pudo decir: «$sentence»: sin voz, se usa tocando")
+                    _silent.value = true
                     break
                 }
             }

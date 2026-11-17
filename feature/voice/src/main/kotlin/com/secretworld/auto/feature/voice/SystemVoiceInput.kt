@@ -55,7 +55,15 @@ class SystemVoiceInput(
      */
     private var answerTurn = false
 
-    override val available: Boolean get() = SpeechRecognizer.isRecognitionAvailable(context)
+    override val available: Boolean get() = !gaveUp && SpeechRecognizer.isRecognitionAvailable(context)
+
+    /**
+     * Fallos seguidos que no son silencio —sin red, sin servicio, idioma no
+     * admitido—. A los [GIVE_UP_AFTER], el reconocedor no está y la app se usa
+     * tocando: reabrirlo sin parar solo gasta y llena la pantalla de errores.
+     */
+    private var hardFailures = 0
+    @Volatile private var gaveUp = false
 
     /** Cierra el micrófono en cada frase: la escucha permanente es reabrirlo. */
     override val continuous: Boolean = false
@@ -129,6 +137,7 @@ class SystemVoiceInput(
 
     private val listener = object : RecognitionListener {
         override fun onResults(results: Bundle?) {
+            hardFailures = 0
             val heard = results
                 ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 ?.firstOrNull()
@@ -144,6 +153,10 @@ class SystemVoiceInput(
 
         override fun onError(error: Int) {
             Log.w(TAG, "error de reconocimiento: $error")
+            if (error in HARD_FAILURES && ++hardFailures >= GIVE_UP_AFTER && !gaveUp) {
+                gaveUp = true
+                Log.w(TAG, "el reconocedor del sistema no responde: sin escucha, se usa tocando")
+            }
             // El servicio que se desconecta entre una escucha y la siguiente —en
             // algunos móviles, cada pocas— tampoco es una avería: se reabre.
             val nothingHeard = error == SpeechRecognizer.ERROR_NO_MATCH ||
@@ -198,6 +211,13 @@ class SystemVoiceInput(
     }
 
     private companion object {
+        /** Lo que dice que el reconocedor no está, no que no se oyó nada. */
+        private val HARD_FAILURES = setOf(
+            SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER,
+            SpeechRecognizer.ERROR_CLIENT, SpeechRecognizer.ERROR_AUDIO, SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS,
+            SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE,
+        )
+        private const val GIVE_UP_AFTER = 3
         const val TAG = "SWVoiceInput"
     }
 }

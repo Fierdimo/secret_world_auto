@@ -302,6 +302,13 @@ class MainActivity : ComponentActivity() {
         }.distinct().flatMap { Phrasebook.searchingVariants(c, it) }
     }
 
+    /** Una ficha que abrir, pedida desde fuera de la interfaz. */
+    private val detailRequest = MutableStateFlow<Place?>(null)
+
+    private fun openDetail(place: Place) {
+        detailRequest.value = place
+    }
+
     /** Si ya se cerró el aviso de que el dispositivo no reconoce la voz. */
     private val voiceNoticeClosed by lazy { MutableStateFlow(settingsPrefs.getBoolean(VOICE_NOTICE_CLOSED, false)) }
 
@@ -664,6 +671,14 @@ class MainActivity : ComponentActivity() {
 
                 var catalogueResult by remember { mutableStateOf<CatalogueRepository.Result?>(null) }
                 var panel by remember { mutableStateOf<Panel>(Panel.Home) }
+                // Lo que pide abrir una ficha desde fuera de la pantalla: "escuchar" sin voz.
+                val askedDetail by detailRequest.collectAsState()
+                LaunchedEffect(askedDetail) {
+                    askedDetail?.let { place ->
+                        panel = Panel.Detail(place)
+                        detailRequest.value = null
+                    }
+                }
                 var tick by remember { mutableStateOf(0) }
                 var mapboxToken by remember { mutableStateOf<String?>(null) }
                 // Lo descartado de viva voz. La cola ya sabe respetarlo.
@@ -2455,6 +2470,11 @@ class MainActivity : ComponentActivity() {
     /** Narra un lugar y lo deja en foco: a partir de aquí, "eso" es esto. */
     private fun play(place: Place) {
         memory.focusOn(place)
+        // Sin voz, "escuchar" es leer: se abre su ficha, con el texto.
+        if (narration.silent.value) {
+            openDetail(place)
+            return
+        }
         if (catalogue.textFor(place, language).isNullOrBlank()) {
             // Un lugar real sin ficha: se sabe dónde está, no su historia. Decirlo
             // es mejor que un "no hay texto" en la pantalla.
@@ -2466,6 +2486,12 @@ class MainActivity : ComponentActivity() {
         if (untranslatable(place)) {
             narration.say(Phrasebook.noStoryInLanguage(c, place))
             return
+        }
+        // Si al intentarlo resulta que no hay voz, su ficha, con el texto.
+        if (narration.speaksLive) {
+            lifecycleScope.launch {
+                kotlinx.coroutines.withTimeoutOrNull(SILENCE_CHECK_MS) { narration.silent.first { it } }?.let { openDetail(place) }
+            }
         }
         // Tocar "Escuchar" ya es pedirlo: no se pregunta, pero se avisa de la espera.
         if (narration.needsTranslation(place)) {
@@ -2802,7 +2828,9 @@ class MainActivity : ComponentActivity() {
      * [PleosSpeaker], en el [NarrationController].
      */
     private fun setUpPleosVoice() {
-        voiceInput = SystemVoiceInput(this, language)
+        // Sin reconocedor en el sistema, sin escucha desde el principio: se usa tocando.
+        val system = SystemVoiceInput(this, language)
+        voiceInput = if (system.available) system else NoVoiceInput(language)
         handsFree = HandsFree(voiceInput, lifecycleScope)
         val llm = PleosLanguageModel(this).also { pleosLlm = it }
         resolver = LayeredIntentResolver(
@@ -3002,6 +3030,8 @@ class MainActivity : ComponentActivity() {
     private companion object {
         /** Lo más que se espera al modelo para entender una respuesta a una propuesta. */
         const val MODEL_REPLY_TIMEOUT_MS = 4_000L
+        /** Lo que se espera a saber si la voz de la plataforma habla, al pulsar "escuchar". */
+        const val SILENCE_CHECK_MS = 30_000L
         /** Lo más que espera el modelo a que la voz esté lista para cargarse. */
         const val VOICE_FIRST_MS = 60_000L
         /** Sin voz durante esto, se prepara el modelo. */
