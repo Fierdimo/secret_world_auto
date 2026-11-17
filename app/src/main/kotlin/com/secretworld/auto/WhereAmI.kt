@@ -19,17 +19,28 @@ import kotlin.coroutines.resume
  *
  * Devuelve "Barrio (Ciudad)", la misma forma que ya sabe partir la cabecera.
  */
-class WhereAmI(private val context: Context) {
+class WhereAmI(
+    private val context: Context,
+    /** Si el sistema no sabe —sin geocodificador, como en Pleos—, OpenStreetMap. */
+    private val fallback: (suspend (Coordinates) -> String?)? = null,
+) {
 
     private val cache = mutableMapOf<String, String?>()
 
     suspend fun describe(at: Coordinates, locale: Locale): String? {
-        if (!Geocoder.isPresent()) return null
         // Un kilómetro, más o menos: no hace falta preguntar en cada calle.
         val key = String.format(Locale.ROOT, "%.2f,%.2f", at.latitude, at.longitude)
         synchronized(cache) { if (key in cache) return cache[key] }
+        val name = system(at, locale) ?: fallback?.invoke(at)
+        // Sin respuesta no se recuerda: con la red de vuelta se vuelve a preguntar.
+        if (name != null) synchronized(cache) { cache[key] = name }
+        return name
+    }
+
+    private suspend fun system(at: Coordinates, locale: Locale): String? {
+        if (!Geocoder.isPresent()) return null
         val address = runCatching { lookup(at, locale) }.getOrNull()
-        val name = address?.let { a ->
+        return address?.let { a ->
             val city = a.locality ?: a.subAdminArea ?: a.adminArea
             val area = a.subLocality?.takeIf { it != city }
             when {
@@ -38,8 +49,6 @@ class WhereAmI(private val context: Context) {
                 else -> "$area ($city)"
             }
         }
-        synchronized(cache) { cache[key] = name }
-        return name
     }
 
     private suspend fun lookup(at: Coordinates, locale: Locale): Address? {

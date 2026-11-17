@@ -453,7 +453,7 @@ class MainActivity : ComponentActivity() {
     private fun availableLanguages(): List<VoiceLanguage> =
         if (BuildConfig.PLEOS_SERVICES) VoiceLanguage.entries.toList() else voiceInstaller.availableLanguages()
     private val areas = NominatimAreas()
-    private val whereAmI by lazy { WhereAmI(this) }
+    private val whereAmI by lazy { WhereAmI(this) { at -> areas.describe(at, language) } }
     private val grammar by lazy { GrammarIntentResolver(language) }
 
     /** Lo que el asistente recuerda de la conversación: foco, lo enumerado, las últimas frases. */
@@ -720,7 +720,12 @@ class MainActivity : ComponentActivity() {
                 // Dónde está el usuario de verdad, no la "ciudad" del lugar más cercano.
                 var where by remember { mutableStateOf<String?>(null) }
                 LaunchedEffect(positionKey, comeback) {
-                    where = whereAmI.describe(vehicleState.position, java.util.Locale.forLanguageTag(language.code))
+                    // Al arrancar la red tarda: si no contesta, se insiste un rato.
+                    repeat(WHERE_TRIES) { attempt ->
+                        where = whereAmI.describe(vehicleState.position, java.util.Locale.forLanguageTag(language.code))
+                        if (where != null) return@LaunchedEffect
+                        delay(WHERE_RETRY_MS * (attempt + 1))
+                    }
                 }
 
                 // Una guía de la ciudad entera no es un sitio al que ir ni que enumerar.
@@ -3095,6 +3100,9 @@ class MainActivity : ComponentActivity() {
         const val VOICE_NOTICE_CLOSED = "voice_notice_closed"
         /** Cuánto se queda en pantalla una respuesta del asistente. */
         const val ANSWER_LINGER_MS = 8_000L
+        /** Cuántas veces se pregunta dónde se está si no contesta nadie, y cada cuánto. */
+        const val WHERE_TRIES = 5
+        const val WHERE_RETRY_MS = 5_000L
         const val REROUTE_EVERY_MS = 15_000L
         /** A esta distancia de una parada del itinerario se está en ella. */
         const val ARRIVAL_METERS = 150.0

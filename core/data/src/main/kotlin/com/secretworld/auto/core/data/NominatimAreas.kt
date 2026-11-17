@@ -170,6 +170,31 @@ class NominatimAreas(
     }
 
     /**
+     * El barrio y la ciudad de un punto, "Barrio (Ciudad)", por la geocodificación
+     * inversa de OpenStreetMap. Es el respaldo de la del sistema, que falta donde
+     * no hay servicios de Google —el emulador de Pleos—: sin ella, la cabecera
+     * tomaba la primera página de Wikipedia con tipo ciudad, y en el centro de
+     * Cartagena decía "Bocagrande".
+     */
+    suspend fun describe(at: Coordinates, language: VoiceLanguage): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val url = "https://nominatim.openstreetmap.org/reverse".toHttpUrl().newBuilder()
+                .addQueryParameter("lat", at.latitude.toString())
+                .addQueryParameter("lon", at.longitude.toString())
+                .addQueryParameter("format", "jsonv2")
+                // Barrio: ni la calle ni solo la ciudad.
+                .addQueryParameter("zoom", "16")
+                .addQueryParameter("accept-language", language.code)
+                .build()
+            val address = get(url.toString())?.let { json.parseToJsonElement(it).jsonObject["address"]?.jsonObject } ?: return@runCatching null
+            fun field(vararg keys: String) = keys.firstNotNullOfOrNull { key -> address[key]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } }
+            val city = field("city", "town", "village", "municipality", "county") ?: return@runCatching null
+            val area = field("suburb", "neighbourhood", "quarter", "city_district")?.takeIf { it != city }
+            if (area == null) city else "$area ($city)"
+        }.onFailure { Log.w(TAG, "geocodificación inversa", it) }.getOrNull()
+    }
+
+    /**
      * El recuadro de búsqueda. Locale.ROOT: con la app en italiano o español,
      * "%f" escribía "10,39" y el servidor contestaba 400.
      */
