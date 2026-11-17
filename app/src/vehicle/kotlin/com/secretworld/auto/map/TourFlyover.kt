@@ -11,14 +11,13 @@ import androidx.compose.ui.Modifier
 import com.secretworld.auto.feature.discover.FlyoverState
 
 /**
- * En el vehículo aún no hay mapa para el itinerario: este build no lleva Mapbox
+ * En el vehículo aún no hay mapa para el itinerario: este build no lleva mapa propio
  * y el mapa nativo de Pleos espera a la librería de NaviService. Sin
  * presentación; la vista del itinerario queda sobre el fondo.
  */
 @Composable
 fun TourFlyover(
     state: FlyoverState,
-    mapboxToken: String?,
     onIntroDone: () -> Unit,
     modifier: Modifier = Modifier,
     overlay: @Composable BoxScope.() -> Unit = {},

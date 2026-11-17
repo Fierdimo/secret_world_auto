@@ -26,9 +26,9 @@ import java.util.concurrent.TimeUnit
  *    ciudad—, en el idioma de la app y si no en inglés.
  * 2. Si no hay artículo, la foto de Wikimedia Commons hecha más cerca del
  *    punto, a unos pasos.
- * 3. Un negocio, o lo que no tenga foto: la vista de satélite del sitio. No es
- *    una foto del restaurante, pero enseña el edificio y lo que lo rodea, que
- *    es lo que orienta; una foto de lo que hay al lado diría algo falso.
+ * 3. Un negocio, o lo que no tenga foto: su inicial. Era la vista de satélite
+ *    de Mapbox, que ya no se usa; una foto de lo que hay al lado diría algo
+ *    falso.
  *
  * Lo encontrado se recuerda en [memory]: no se busca dos veces.
  */
@@ -47,18 +47,18 @@ class PlaceImages(
     }
 
     /**
-     * La imagen de [place], o `null` si no hay ninguna y tampoco satélite. La que
+     * La imagen de [place], o `null` si no hay ninguna: entonces, su inicial. La que
      * traiga se comprueba antes: las del catálogo a veces no existen, y entonces
      * el sitio se quedaba con su inicial.
      */
-    suspend fun find(place: Place, language: VoiceLanguage, mapboxToken: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun find(place: Place, language: VoiceLanguage): String? = withContext(Dispatchers.IO) {
         memory.get(KEY + place.id)?.let { return@withContext it }
         place.imageUrl?.takeIf(::loads)?.let { own ->
             memory.put(KEY + place.id, own)
             return@withContext own
         }
         val sight = place.kind == null
-        val found = (if (sight) photoOf(place, language) else null) ?: satellite(place.position, mapboxToken)
+        val found = if (sight) photoOf(place, language) else null
         found?.also { memory.put(KEY + place.id, it) }
     }
 
@@ -131,14 +131,6 @@ class PlaceImages(
             }
     }
 
-    /** La vista de satélite del sitio, cuadrada, sin logos encima. */
-    private fun satellite(at: Coordinates, token: String?): String? {
-        if (token.isNullOrBlank()) return null
-        return "https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/static/" +
-            "${at.longitude},${at.latitude},$SATELLITE_ZOOM,0/${SATELLITE_PX}x$SATELLITE_PX@2x" +
-            "?access_token=$token&attribution=false&logo=false"
-    }
-
     /** Si la imagen responde: el primer byte basta. */
     private fun loads(url: String): Boolean = runCatching {
         val request = Request.Builder().url(url).header("User-Agent", USER_AGENT).header("Range", "bytes=0-0").build()
@@ -166,12 +158,13 @@ class PlaceImages(
         val json = Json { ignoreUnknownKeys = true }
         const val USER_AGENT = "SecretWorldAuto/0.1 (https://sworld.co.uk; bench build)"
         const val THUMB = 480
-        /** Cambia cuando cambia cómo se eligen: lo guardado con el criterio anterior no vale. */
-        const val KEY = "v2:"
+        /**
+         * Cambia cuando cambia cómo se eligen: lo guardado con el criterio anterior no
+         * vale. v3: sin las vistas de satélite de Mapbox.
+         */
+        const val KEY = "v3:"
         const val ARTICLE_RADIUS_M = 1_500.0
         const val COMMONS_RADIUS_M = 120
-        const val SATELLITE_ZOOM = 17.5
-        const val SATELLITE_PX = 240
         /** Ficheros de Commons que no son una foto del sitio. */
         val NOT_A_PHOTO = listOf(".svg", "map", "mapa", "logo", "plano", "escudo", "flag", "bandera")
     }

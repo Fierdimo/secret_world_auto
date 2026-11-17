@@ -8,7 +8,6 @@ import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.POST
-import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
 
 /** El API de Secret World, la parte que necesita el coche. */
@@ -16,16 +15,6 @@ interface SecretWorldApi {
 
     @POST("places/cards")
     suspend fun placesNearby(@Body request: PlacesRequest): PlacesResponse
-
-    /**
-     * Claves de terceros servidas por nuestro propio backend.
-     *
-     * Es como lo hace la app móvil, y es lo correcto: la clave pública de Mapbox
-     * **no viaja dentro del APK**. Así se puede rotar sin publicar una versión, y
-     * un APK descompilado no la regala.
-     */
-    @POST("get-key")
-    suspend fun key(@Query("type") type: String): KeyResponse
 
     companion object {
         const val BASE_URL = "https://api.sworld.co.uk/api/v1/"

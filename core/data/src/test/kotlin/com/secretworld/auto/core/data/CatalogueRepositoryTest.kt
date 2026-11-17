@@ -22,7 +22,6 @@ class CatalogueRepositoryTest {
             return response!!
         }
 
-        override suspend fun key(type: String): KeyResponse = KeyResponse(key = null)
     }
 
     private fun okResponse() = PlacesResponse(

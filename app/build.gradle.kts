@@ -69,9 +69,9 @@ android {
             }
             signingConfig = signingConfigs.getByName("debug")
         }
-        // Mapbox se enlaza SOLO en el banco de pruebas y la demo. El APK del vehículo no lo
-        // lleva: allí se usará el servicio de mapas del propio dispositivo, que es
-        // además lo que evita el contrato de automoción.
+        // El mapa es de OpenStreetMap, con MapLibre, en el banco de pruebas, la
+        // demo y Pleos. El APK del vehículo no lleva mapa propio: allí lo pone el
+        // navegador del sistema.
     }
 
     sourceSets {
@@ -112,12 +112,10 @@ dependencies {
     implementation(project(":feature:voice"))
     implementation(project(":feature:discover"))
     implementation(project(":feature:parked"))
-    "benchImplementation"(libs.mapbox.maps)
-    "benchImplementation"(libs.mapbox.compose)
-    "demoImplementation"(libs.mapbox.maps)
-    "demoImplementation"(libs.mapbox.compose)
-    "pleosImplementation"(libs.mapbox.maps)
-    "pleosImplementation"(libs.mapbox.compose)
+    // El mapa: OpenStreetMap con MapLibre. Sin Mapbox, que no tenemos licenciado.
+    "benchImplementation"(libs.maplibre)
+    "demoImplementation"(libs.maplibre)
+    "pleosImplementation"(libs.maplibre)
 
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)

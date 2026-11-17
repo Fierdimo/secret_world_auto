@@ -10,8 +10,8 @@ import com.secretworld.auto.domain.VehicleState
  * Todo lo que un mapa necesita saber para dibujarse.
  *
  * Existe para que **el mapa sea sustituible**. La decisión de producto es que
- * Mapbox se usa solo en el MVP y que en el vehículo se usará el servicio de mapas
- * que traiga el dispositivo. Para que eso no sea una reescritura, todo el resto de
+ * el mapa propio es de OpenStreetMap y que en el vehículo se usará el de
+ * su navegador. Para que eso no sea una reescritura, todo el resto de
  * la app habla con el mapa a través de este estado y nada más.
  */
 data class MapState(
@@ -19,8 +19,6 @@ data class MapState(
     val route: List<Coordinates>,
     val places: List<Place>,
     val highlighted: String?,
-    /** Clave de Mapbox, si la implementación activa la necesita y el backend la dio. */
-    val mapboxToken: String? = null,
     /**
      * Qué fracción del borde izquierdo del mapa queda **tapada por el panel**.
      *

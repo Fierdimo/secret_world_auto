@@ -21,7 +21,7 @@ import kotlin.math.roundToInt
  * disco si la red falla o si es reciente.
  *
  * No es un mapa sin conexión: las teselas y las rutas siguen necesitando red.
- * Eso lo resuelve el navegador del vehículo; aquí, con Mapbox por REST, no.
+ * Eso lo resuelve el navegador del vehículo; aquí, con servicios por red, no.
  */
 class PlaceCache(root: File) {
 

@@ -60,19 +60,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.lifecycleScope
 import com.secretworld.auto.core.data.CatalogueRepository
 import com.secretworld.auto.core.data.DeviceIdentity
-import com.secretworld.auto.core.data.MapCredentials
 import com.secretworld.auto.core.data.PlaceImages
 import com.secretworld.auto.core.data.SecretWorldApi
 import com.secretworld.auto.core.designsystem.CarSecondaryButton
 import com.secretworld.auto.core.designsystem.CarTheme
 import com.secretworld.auto.core.designsystem.SecretWorldTheme
 import com.secretworld.auto.core.platform.DrivingModeController
-import com.secretworld.auto.core.data.MapboxApi
 import com.secretworld.auto.core.data.NominatimAreas
 import com.secretworld.auto.core.data.WikipediaPlaces
-import com.secretworld.auto.core.data.MapboxPlaceSearch
 import com.secretworld.auto.core.data.PlaceCache
-import com.secretworld.auto.core.data.MapboxRouter
+import com.secretworld.auto.core.data.OsmPlaceSearch
+import com.secretworld.auto.core.data.OsmRouter
 import com.secretworld.auto.core.platform.NetworkWatcher
 import com.secretworld.auto.domain.PlaceSearch
 import com.secretworld.auto.core.platform.DeviceVehicleSource
@@ -326,7 +324,7 @@ class MainActivity : ComponentActivity() {
     private fun picture(places: List<Place>) {
         places.filter { it.id !in images.value && picturing.add(it.id) }.forEach { place ->
             lifecycleScope.launch {
-                val url = pictureGate.withPermit { placeImages.find(place, language, mapKeys.mapboxToken()) }
+                val url = pictureGate.withPermit { placeImages.find(place, language) }
                 if (url != null) images.value = images.value + (place.id to url)
             }
         }
@@ -442,7 +440,6 @@ class MainActivity : ComponentActivity() {
     }
     private val queue = TourQueue(maxDistanceMeters = 25_000.0)
     private lateinit var catalogue: CatalogueRepository
-    private lateinit var mapKeys: MapCredentials
     private lateinit var narration: NarrationController
     private lateinit var voiceInput: VoiceInput
     private lateinit var handsFree: HandsFree
@@ -594,14 +591,13 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
 
         val api = SecretWorldApi.create(DeviceIdentity.of(this))
-        mapKeys = MapCredentials(api)
-        val mapbox = MapboxApi.create()
         // Todo lo que se consulta se guarda por zona: media Colombia no tiene
         // cobertura, y los sitios no se mueven.
         val cache = PlaceCache(filesDir)
         catalogue = CatalogueRepository(api, wikipedia = WikipediaPlaces(), cache = cache)
-        router = MapboxRouter(mapbox, mapKeys, language)
-        search = cache.caching(MapboxPlaceSearch(mapbox, mapKeys, language), language)
+        // Rutas y búsqueda de OpenStreetMap: sin Mapbox, que no tenemos licenciado.
+        router = OsmRouter()
+        search = cache.caching(OsmPlaceSearch(areas, language), language)
         refreshPermissions()
         // Las dos ubicaciones juntas: Android 12+ solo ofrece elegir entre
         // precisa y aproximada si se piden ambas.
@@ -691,7 +687,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 var tick by remember { mutableStateOf(0) }
-                var mapboxToken by remember { mutableStateOf<String?>(null) }
                 // Lo descartado de viva voz. La cola ya sabe respetarlo.
                 var skipped by remember { mutableStateOf(emptySet<String>()) }
                 var answer by remember { mutableStateOf<String?>(null) }
@@ -704,7 +699,6 @@ class MainActivity : ComponentActivity() {
                 val comeback by network.comebacks.collectAsState()
 
                 // La clave del mapa se pide al backend, no viaja en el APK.
-                LaunchedEffect(comeback) { if (mapboxToken == null) mapboxToken = mapKeys.mapboxToken() }
 
                 // Se pide catálogo cuando el coche se ha movido lo suficiente como
                 // para que valga la pena, no en cada fotograma.
@@ -1104,7 +1098,6 @@ class MainActivity : ComponentActivity() {
                     // Si al abrir la app no hubo red, la clave del mapa no llegó: se
                     // vuelve a pedir al enseñar un itinerario, o el mapa sale negro.
                     val flying = fly != null
-                    LaunchedEffect(flying) { if (flying && mapboxToken == null) mapboxToken = mapKeys.mapboxToken() }
 
                     // Un solo mapa para el inicio, "Mis itinerarios" y el itinerario: es
                     // el mundo, y no se va; lo que cambia es el panel de encima. Con "Mis
@@ -1153,7 +1146,6 @@ class MainActivity : ComponentActivity() {
                                 ringCenter = scan?.center,
                                 scanning = searchingNow,
                             ),
-                            mapboxToken = mapboxToken,
                             onIntroDone = { flyover.value = flyover.value?.copy(intro = false) },
                             onAddPlace = { place ->
                                 if (itineraryMap == null) homeSelected.value = place else answer = addToItinerary(place, c)
@@ -2688,8 +2680,8 @@ class MainActivity : ComponentActivity() {
             val here = vehicle.state.value.position
             val c = Phrasebook.Context(here, memory.listed, memory, language)
             val where = area?.let { areas.locate(it, here, language) }
-            // Dos buscadores a la vez: Mapbox tiene los negocios; OpenStreetMap,
-            // los monumentos. Se elige el que mejor se llama como lo pedido.
+            // Dos buscadores de OpenStreetMap a la vez: Nominatim y Photon
+            // encuentran cosas distintas. Se elige el que mejor se llama como lo pedido.
             val center = where?.position ?: here
             val (fromMap, fromOsm) = coroutineScope {
                 val map = async { search.findByName(name, center, where?.bounds) }
@@ -2737,11 +2729,11 @@ class MainActivity : ComponentActivity() {
     /**
      * Traza la ruta hasta [place] y la deja activa: el mapa la dibuja, la guía la
      * sigue y las maniobras se anuncian. Es lo que en el vehículo hará NaviHelper
-     * cuando Pleos lo publique; hasta entonces, Mapbox (docs/MAP-OPTIONS.md).
+     * cuando Pleos lo publique; hasta entonces, OSRM (docs/MAP-OPTIONS.md).
      */
     /**
      * Lleva a un sitio. **La navegación no es nuestra**: el destino se le pasa al
-     * navegador del usuario. La propia —Mapbox en el banco de pruebas— queda
+     * navegador del usuario. La propia —con OpenStreetMap— queda
      * solo para cuando no hay ninguno instalado.
      */
     private fun navigateTo(place: Place, announce: Boolean = true) {

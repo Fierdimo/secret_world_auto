@@ -3,7 +3,7 @@ package com.secretworld.auto.domain
 /**
  * Una ruta calculada hasta un lugar.
  *
- * Es dominio puro: quién la calcula —Mapbox en el banco de pruebas, el
+ * Es dominio puro: quién la calcula —OSRM sobre OpenStreetMap, el
  * navegador del vehículo cuando Pleos publique su librería— es cosa de la capa
  * de datos. Aquí solo hay geometría, pasos y números.
  */

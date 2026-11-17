@@ -49,9 +49,8 @@ class NominatimAreas(
 ) : AreaLocator, NamedPlaceFinder {
 
     /**
-     * Sitios concretos por su nombre en OpenStreetMap. Complementa a Mapbox:
-     * tiene los monumentos —el Castillo San Felipe de Barajas, que Mapbox no
-     * devolvía— y los nombres tal como se dicen.
+     * Sitios concretos por su nombre, con Photon. Complementa a Nominatim:
+     * tolera la ortografía del reconocedor y tiene los nombres tal como se dicen.
      */
     override suspend fun find(name: String, near: Coordinates, within: Bounds?, language: VoiceLanguage): List<Place> =
         photonPlaces(name, near, within, language, tag = null, limit = 6)
