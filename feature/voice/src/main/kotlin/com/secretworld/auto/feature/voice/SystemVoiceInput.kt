@@ -114,6 +114,17 @@ class SystemVoiceInput(
             .onFailure { _state.value = VoiceInput.State.Failed(it.message ?: "could not start listening") }
     }
 
+    /**
+     * Apaga la escucha para siempre en este arranque. Se usa cuando la app no
+     * puede contestar —sin voz—: una conversación que solo va en un sentido no
+     * sirve, y el micrófono abierto sin fin solo confunde.
+     */
+    fun turnOff() {
+        gaveUp = true
+        cancel()
+        _state.value = VoiceInput.State.Idle
+    }
+
     /** Aquí no hay vigilancia propia que conservar: cancelar y apagar es lo mismo. */
     override fun stopListening() = cancel()
 

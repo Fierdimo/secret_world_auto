@@ -1,5 +1,6 @@
 package com.secretworld.auto.feature.discover
 
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -917,7 +918,7 @@ private fun OverlayStopRow(stop: TourStopUi, first: Boolean, last: Boolean) {
 }
 
 private const val OVERLAY_SHARE = 0.40f
-private val TOAST_CORE: Dp = 28.dp
+private val TOAST_CORE: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(28.dp)
 /** Lo que se queda la ayuda al abrir la vista del itinerario. */
 
 /** Cuánto del ancho se lleva la columna del asistente con pantalla completa. */
@@ -930,7 +931,7 @@ private const val CYCLE_MS = 6_000
 private const val DRIVING_ITEMS = 4
 private const val PARKED_ITEMS = 12
 private const val COMPACT_NEARBY = 2
-private val MAX_CORE: Dp = 360.dp
-private val THUMB: Dp = 52.dp
-private val RAIL: Dp = 20.dp
-private val DOT: Dp = 14.dp
+private val MAX_CORE: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(360.dp)
+private val THUMB: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(52.dp)
+private val RAIL: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(20.dp)
+private val DOT: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(14.dp)

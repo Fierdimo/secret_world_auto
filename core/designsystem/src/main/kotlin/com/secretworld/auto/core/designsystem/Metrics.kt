@@ -55,7 +55,7 @@ class CarMetrics(
      * salpicadero a un brazo de distancia. La misma ventana necesita entonces
      * letras y botones más pequeños: se mide contra otra referencia.
      */
-    private val handheld: Boolean = false,
+    val handheld: Boolean = false,
 ) {
     /** El lado corto manda: es el que limita cuánto cabe sin apretar. */
     private val shortSideDp: Float = min(widthDp.value, heightDp.value)
@@ -88,11 +88,25 @@ class CarMetrics(
     val scale: Float = (sqrt(shortSideDp / referenceShortSide) * densityCompensation)
         .coerceIn(if (handheld) HANDHELD_MIN_SCALE else MIN_SCALE, MAX_SCALE)
 
+    /**
+     * Una medida afinada a ojo en el móvil en la mano, que crece con la pantalla
+     * y nunca baja de lo afinado. Con valores fijos, en el coche la letra crecía
+     * y su caja no: los nombres de las pestañas salían cortados por la mitad.
+     */
+    fun grown(phone: Dp): Dp = phone * (scale / PHONE_SCALE).coerceAtLeast(1f)
+
     /** Escala cualquier medida no prevista. Es la puerta de salida para casos nuevos. */
     fun scaled(reference: Dp): Dp = reference * scale
 
     fun scaled(reference: TextUnit): TextUnit =
         reference * scale / fontScale.coerceAtLeast(MIN_FONT_SCALE)
+
+    /**
+     * Lo que se lleva el panel que flota sobre el mapa. En el coche, la mitad: con
+     * letra para leer a un brazo de distancia, el 40 % cortaba los nombres y las
+     * pestañas.
+     */
+    val overlayShare: Float get() = if (handheld) 0.40f else 0.50f
 
     /** Ventana estrecha: móvil, media pantalla del vehículo, o una Connect pequeña. */
     val isCompact: Boolean get() = shortSideDp < COMPACT_SHORT_SIDE
@@ -230,6 +244,8 @@ class CarMetrics(
         const val RAMP_END = 1200f
         const val DENSITY_BOOST = 1.35f
         const val COMPACT_SHORT_SIDE = 600f
+        /** La escala del móvil apaisado en el que se afinaron las medidas fijas (411 dp de alto). */
+        const val PHONE_SCALE = 0.625f
         const val PANEL_SHARE = 0.34f
         const val HANDHELD_PANEL_SHARE = 0.42f
         val NAVIGATION_PANEL = 480.dp

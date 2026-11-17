@@ -142,18 +142,20 @@ fun TourFlyover(
     // título y a la tarjeta; después, a la línea de tiempo, a la izquierda.
     var finale by remember { mutableStateOf<CameraOptions?>(null) }
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val width = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
-    val height = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
+    val width = com.secretworld.auto.core.designsystem.CarTheme.metrics.widthDp
+    val height = com.secretworld.auto.core.designsystem.CarTheme.metrics.heightDp
+    // Lo que tapa el panel de encima: el mapa encuadra en lo que queda.
+    val overlayShare = com.secretworld.auto.core.designsystem.CarTheme.metrics.overlayShare
     val introPadding = with(density) {
         com.mapbox.maps.EdgeInsets(FRAME_TOP.toPx().toDouble(), FRAME_SIDE.toPx().toDouble(), FRAME_BOTTOM.toPx().toDouble(), FRAME_SIDE.toPx().toDouble())
     }
     // Para el anillo: el panel a la izquierda y la barra de iconos a la derecha;
     // arriba y abajo, poco: en un móvil apaisado la altura es lo que falta.
     val ringPadding = with(density) {
-        com.mapbox.maps.EdgeInsets(RING_SIDE.toPx().toDouble(), (width * OVERLAY_SHARE + RING_SIDE).toPx().toDouble(), RING_SIDE.toPx().toDouble(), RING_RAIL.toPx().toDouble())
+        com.mapbox.maps.EdgeInsets(RING_SIDE.toPx().toDouble(), (width * overlayShare + RING_SIDE).toPx().toDouble(), RING_SIDE.toPx().toDouble(), RING_RAIL.toPx().toDouble())
     }
     val viewPadding = with(density) {
-        com.mapbox.maps.EdgeInsets(FRAME_SIDE.toPx().toDouble(), (width * OVERLAY_SHARE + FRAME_SIDE).toPx().toDouble(), FRAME_BOTTOM.toPx().toDouble(), FRAME_SIDE.toPx().toDouble())
+        com.mapbox.maps.EdgeInsets(FRAME_SIDE.toPx().toDouble(), (width * overlayShare + FRAME_SIDE).toPx().toDouble(), FRAME_BOTTOM.toPx().toDouble(), FRAME_SIDE.toPx().toDouble())
     }
 
     LaunchedEffect(state.intro, state.stops, state.path) {
@@ -321,7 +323,7 @@ fun TourFlyover(
                     // El radio de acción, justo: el zoom con el que el anillo llena el
                     // hueco a la derecha del panel. Calculado, no pedido al mapa, que
                     // al montarse aún no tiene tamaño y encuadraba de más.
-                    val freeWidth = width.value * (1 - OVERLAY_SHARE) - RING_SIDE.value - RING_RAIL.value
+                    val freeWidth = width.value * (1 - overlayShare) - RING_SIDE.value - RING_RAIL.value
                     val freeHeight = height.value - 2 * RING_SIDE.value
                     val fit = minOf(freeWidth, freeHeight) * RING_FILL
                     val zoom = ln(METERS_PER_DP_Z0 * cos(Math.toRadians(me.latitude)) * fit / (2 * radius)) / ln(2.0)
@@ -485,7 +487,7 @@ fun TourFlyover(
         // Viñeta: los bordes oscuros llevan la mirada al centro, como en cine. Con
         // el panel a la izquierda, al centro de lo que queda de mapa, no al de la
         // pantalla: si no, la luz caía en el borde del panel.
-        val lightX = if (state.intro) 0.5f else OVERLAY_SHARE + (1 - OVERLAY_SHARE) / 2
+        val lightX = if (state.intro) 0.5f else overlayShare + (1 - overlayShare) / 2
         Box(
             Modifier
                 .fillMaxSize()
@@ -787,7 +789,6 @@ private const val UNFOCUS_MS = 2_000L
 private const val FOCUS_ZOOM = 17.0
 private const val FOCUS_TURN = 35.0
 /** Lo que ocupa la capa de la izquierda —línea de tiempo y asistente—: el encuadre la esquiva. */
-private const val OVERLAY_SHARE = 0.40f
 private val FRAME_TOP = 170.dp
 private val FRAME_BOTTOM = 160.dp
 private val FRAME_SIDE = 90.dp

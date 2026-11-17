@@ -1,5 +1,7 @@
 package com.secretworld.auto.feature.discover
 
+import androidx.compose.ui.unit.Dp
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.shrinkHorizontally
@@ -105,7 +107,7 @@ fun BoxScope.HomeOverlay(
         Modifier
             .align(Alignment.CenterStart)
             .fillMaxHeight()
-            .fillMaxWidth(PANEL_SHARE)
+            .fillMaxWidth(CarTheme.metrics.overlayShare)
             .panelInsetsPadding()
             // Del borde de la barra de estado a casi el de la pantalla: todo el alto.
             .padding(start = d.spaceM, end = d.spaceM, bottom = d.spaceXs)
@@ -352,16 +354,15 @@ private fun glyphOf(category: String?): Glyph = when (category) {
     else -> Glyph.SIGHT
 }
 
-private const val PANEL_SHARE = 0.40f
 /** La pestaña de "Qué ver", que no es una búsqueda. */
 private const val AROUND = "\u0000around"
-private val THUMB = 44.dp
-private val ACTION = 36.dp
-private val TAB_ICON = 20.dp
-private val UNDERLINE = 24.dp
+private val THUMB: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(44.dp)
+private val ACTION: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(36.dp)
+private val TAB_ICON: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(20.dp)
+private val UNDERLINE: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(24.dp)
 /** El alto de una línea de texto: icono y nombre ocupan lo mismo y la fila no salta. */
-private val TAB_LINE = 22.dp
+private val TAB_LINE: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(22.dp)
 /** Lo que tarda en asentarse la pestaña: la búsqueda espera a que termine. */
 private const val TAB_RESIZE_MS = 380
 /** Lo mínimo que se toca bien con el dedo; nada más, para que quepan. */
-private val TAB_TOUCH = 36.dp
+private val TAB_TOUCH: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(36.dp)

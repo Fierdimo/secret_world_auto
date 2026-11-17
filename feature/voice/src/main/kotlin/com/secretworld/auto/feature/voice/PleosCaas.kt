@@ -1,5 +1,8 @@
 package com.secretworld.auto.feature.voice
 
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineScope
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -281,8 +284,8 @@ class PleosLanguageModel(private val context: Context) : LanguageModel {
                 PleosCaas.call(b, DESCRIPTOR, REGISTER, callback, app)
                 PleosCaas.call(b, DESCRIPTOR, INITIALIZE, app)
             }.onSuccess {
-                ready = true
-                Log.i(PleosCaas.TAG, "LLM de Pleos vinculado")
+                Log.i(PleosCaas.TAG, "LLM de Pleos vinculado: se comprueba que conteste")
+                probe(b)
             }.onFailure {
                 failed = true
                 Log.e(PleosCaas.TAG, "LLM initialize", it)
@@ -291,22 +294,58 @@ class PleosLanguageModel(private val context: Context) : LanguageModel {
         if (connection == null) failed = true
     }
 
+    /**
+     * Vincularse no es tener modelo: en el emulador la caas acepta las
+     * peticiones y no contesta nunca, y cada orden y cada traducción esperaba
+     * 30 s para nada. Solo cuenta como listo si responde a una prueba.
+     */
+    private fun probe(b: IBinder) {
+        probing = CoroutineScope(Dispatchers.IO).launch {
+            val started = System.nanoTime()
+            // Entera y a tiempo: a medias al acabarse el plazo es un modelo que
+            // genera, pero tan despacio que cada orden esperaría por él.
+            val answered = runCatching { generate(b, "Reply with: OK", PROBE_TIMEOUT_MS, partial = false) }.getOrNull()
+            val took = (System.nanoTime() - started) / 1_000_000
+            if (answered.isNullOrBlank()) {
+                failed = true
+                Log.w(PleosCaas.TAG, "el LLM de Pleos no contesta en ${PROBE_TIMEOUT_MS / 1000} s: se sigue sin IA")
+            } else {
+                ready = true
+                Log.i(PleosCaas.TAG, "LLM de Pleos listo: contestó en $took ms")
+            }
+        }
+    }
+
+    private var probing: Job? = null
+
     override suspend fun complete(prefix: String, request: String, singleLine: Boolean): String = withContext(Dispatchers.IO) {
-        val b = binder ?: error("el LLM de Pleos no está vinculado")
+        val b = binder?.takeIf { ready } ?: error("el LLM de Pleos no está disponible")
+        val text = runCatching { generate(b, prefix + request, TIMEOUT_MS) }.getOrNull()
+        if (text.isNullOrBlank()) {
+            // Un modelo que deja de contestar no se vuelve a esperar en cada frase.
+            ready = false
+            failed = true
+            error("el LLM de Pleos no contestó a tiempo: se sigue sin IA")
+        }
+        if (singleLine) text.trim().lineSequence().firstOrNull { it.isNotBlank() }.orEmpty() else text
+    }
+
+    /** Lo que conteste a [prompt], o lo que llevara escrito al acabarse el tiempo. */
+    private suspend fun generate(b: IBinder, prompt: String, timeoutMs: Long, partial: Boolean = true): String? {
         val id = "sw-" + UUID.randomUUID().toString().take(8)
         val pending = Request()
         requests[id] = pending
         try {
-            PleosCaas.call(b, DESCRIPTOR, GENERATE_STREAM, context.packageName, id, prefix + request)
-            val text = withTimeoutOrNull(TIMEOUT_MS) { pending.done.await() }
-                ?: synchronized(pending.text) { pending.text.toString() }.ifBlank { error("el LLM de Pleos no contestó a tiempo") }
-            if (singleLine) text.trim().lineSequence().firstOrNull { it.isNotBlank() }.orEmpty() else text
+            PleosCaas.call(b, DESCRIPTOR, GENERATE_STREAM, context.packageName, id, prompt)
+            return withTimeoutOrNull(timeoutMs) { pending.done.await() }
+                ?: if (partial) synchronized(pending.text) { pending.text.toString() } else null
         } finally {
             requests.remove(id)
         }
     }
 
     fun release() {
+        probing?.cancel()
         connection?.let { runCatching { context.unbindService(it) } }
         connection = null
         binder = null
@@ -320,6 +359,8 @@ class PleosLanguageModel(private val context: Context) : LanguageModel {
         const val INITIALIZE = 3
         const val GENERATE_STREAM = 5
         const val TIMEOUT_MS = 30_000L
+        /** Lo que se espera a la prueba: un modelo que sirva contesta "OK" en mucho menos. */
+        const val PROBE_TIMEOUT_MS = 10_000L
     }
 }
 

@@ -58,9 +58,9 @@ fun PlatformMap(state: MapState, modifier: Modifier = Modifier) {
     // centro de cámara hacia la derecha, para que el vehículo y los lugares no
     // queden escondidos justo debajo de la información.
     val density = LocalDensity.current
-    val configuration = LocalConfiguration.current
+    val windowWidth = com.secretworld.auto.core.designsystem.CarTheme.metrics.widthDp
     val leftInset = with(density) {
-        (configuration.screenWidthDp.dp * state.panelCoverFraction).toPx().toDouble()
+        (windowWidth * state.panelCoverFraction).toPx().toDouble()
     }
     // La barra inferior también tapa mapa: sin este margen el vehículo queda
     // justo debajo de ella y no se ve dónde está uno.

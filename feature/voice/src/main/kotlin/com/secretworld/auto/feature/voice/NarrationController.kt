@@ -102,6 +102,22 @@ class NarrationController(
      */
     val silent: StateFlow<Boolean> = _silent.asStateFlow()
 
+    /**
+     * Comprueba al arrancar si la voz de la plataforma habla de verdad, diciendo
+     * [text]. Esperar a la primera respuesta era descubrirlo tarde: entretanto
+     * se escuchaba y se prometían respuestas que nunca iban a sonar.
+     */
+    fun probe(text: String) {
+        val live = speaker ?: return
+        if (_silent.value) return
+        scope.launch {
+            if (!live.speak(text, language)) {
+                Log.w(TAG, "la voz de la plataforma no habla: sin voz, se usa tocando")
+                _silent.value = true
+            }
+        }
+    }
+
     /** Si habla la voz de la plataforma, que puede resultar no hablar el idioma. */
     val speaksLive: Boolean get() = speaker != null
 

@@ -100,7 +100,7 @@ fun BoxScope.ItineraryLibraryOverlay(
         Modifier
             .align(Alignment.CenterStart)
             .fillMaxHeight()
-            .fillMaxWidth(PANEL_SHARE)
+            .fillMaxWidth(CarTheme.metrics.overlayShare)
             .panelInsetsPadding()
             // Del borde de la barra de estado a casi el de la pantalla: todo el alto.
             .padding(start = d.spaceM, end = d.spaceM, bottom = d.spaceXs)
@@ -290,7 +290,6 @@ private fun RouteSketch(stops: List<Place>, modifier: Modifier, small: Boolean =
     }
 }
 
-private const val PANEL_SHARE = 0.40f
 private val BADGE = 30.dp
 private val SKETCH = 64.dp
 private val DELETE = 40.dp

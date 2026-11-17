@@ -621,6 +621,15 @@ class MainActivity : ComponentActivity() {
             language,
             speaker = if (BuildConfig.PLEOS_SERVICES) PleosSpeaker(this) else null,
         )
+        if (BuildConfig.PLEOS_SERVICES) {
+            // Sin voz no hay conversación: la escucha se apaga y la app se usa tocando.
+            narration.probe(getString(com.secretworld.auto.feature.discover.R.string.brand))
+            lifecycleScope.launch {
+                narration.silent.first { it }
+                (voiceInput as? SystemVoiceInput)?.turnOff()
+                handsFree.disable()
+            }
+        }
         lifecycleScope.launch {
             narration.state.collect { state ->
                 appSpeaking.value = state is NarrationController.State.Playing ||
@@ -641,6 +650,8 @@ class MainActivity : ComponentActivity() {
                 val micOn by micGranted.collectAsState()
                 val locationOn by locationGranted.collectAsState()
                 val noticeClosed by voiceNoticeClosed.collectAsState()
+                // Al quedarse sin voz se apaga la escucha: la pantalla tiene que enterarse.
+                val voiceGone by narration.silent.collectAsState()
                 val notices = listOfNotNull(
                     PermissionNotice(
                         message = stringResource(R.string.permission_mic_off),
@@ -654,13 +665,13 @@ class MainActivity : ComponentActivity() {
                     ).takeIf { !locationOn },
                     // Se avisa una vez: al cerrarlo no vuelve; queda el micrófono tachado.
                     PermissionNotice(
-                        message = stringResource(R.string.voice_unavailable),
+                        message = stringResource(if (voiceGone) R.string.voice_silent else R.string.voice_unavailable),
                         action = stringResource(com.secretworld.auto.feature.discover.R.string.close_view),
                         onClick = {
                             voiceNoticeClosed.value = true
                             settingsPrefs.edit().putBoolean(VOICE_NOTICE_CLOSED, true).apply()
                         },
-                    ).takeIf { micOn && !voiceInput.available && !noticeClosed },
+                    ).takeIf { micOn && (voiceGone || !voiceInput.available) && !noticeClosed },
                 )
                 val voiceState by voiceInput.state.collectAsState()
                 val hearingNow by voiceInput.hearing.collectAsState()
@@ -1017,7 +1028,9 @@ class MainActivity : ComponentActivity() {
                 // itinerario (SPEC §4.4). Compacta cuando comparte pantalla.
                 val metrics = CarTheme.metrics
                 val split by multiWindow.collectAsState()
-                val compact = split || metrics.widthDp < COMPACT_WIDTH
+                // Pleos abre todas las apps en multiventana, aunque la ventana
+                // mida 1600 dp: compartir pantalla solo compacta si de verdad estrecha.
+                val compact = metrics.widthDp < COMPACT_WIDTH || (split && metrics.widthDp < SPLIT_COMPACT_WIDTH)
                 val plan by shownPlan.collectAsState()
                 val shownPlanUi = plan?.takeIf {
                     currentTour != null || itinerary.state is ItineraryConversation.State.Proposed || itinerary.state is ItineraryConversation.State.Saved
@@ -3051,6 +3064,8 @@ class MainActivity : ComponentActivity() {
         const val PIP_HEIGHT = 5
         /** Por debajo de este ancho, la pantalla del asistente es compacta. */
         val COMPACT_WIDTH = 600.dp
+        /** Compartiendo pantalla, por debajo de este ancho la app cede el sitio al navegador. */
+        val SPLIT_COMPACT_WIDTH = 1200.dp
         const val GOOGLE_MAPS = "com.google.android.apps.maps"
         const val WAZE = "com.waze"
         /** Lo más que se espera a que termine una frase antes de abrir el navegador. */

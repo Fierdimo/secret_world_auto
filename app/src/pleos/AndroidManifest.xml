@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!--
       Para el emulador de Pleos: una app de coche que habla, escucha y piensa con
       los servicios de la plataforma (caas). Los permisos son de nivel normal y se
@@ -16,4 +17,16 @@
     <queries>
         <package android:name="ai.pleos.playground.caas" />
     </queries>
+
+    <!--
+      El escritorio de Pleos tiene dos huecos: uno grande, apaisado (1640×1400), y
+      otro pequeño en vertical (800×1400). Fijada en horizontal, en el pequeño la
+      plataforma la tapaba con "ensancha la ventana". Aquí cabe en los dos.
+    -->
+    <application>
+        <activity
+            android:name="com.secretworld.auto.MainActivity"
+            android:screenOrientation="unspecified"
+            tools:replace="android:screenOrientation" />
+    </application>
 </manifest>

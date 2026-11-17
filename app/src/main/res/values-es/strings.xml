@@ -11,6 +11,7 @@
     <string name="bar_quiet">Silencio</string>
     <string name="permission_mic_off">Micrófono desactivado: no puedo oírte.</string>
     <string name="voice_unavailable">Este dispositivo no puede reconocer la voz.</string>
+    <string name="voice_silent">Este dispositivo no tiene voz para este idioma.</string>
     <string name="permission_location_off">Ubicación no disponible: muestro %1$s.</string>
     <string name="permission_enable">Activar</string>
     <string name="search_similar">Parecidos a %1$s</string>

@@ -1,5 +1,6 @@
 package com.secretworld.auto.core.designsystem
 
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -44,12 +45,23 @@ private val LightColors = lightColorScheme(
     outline = Color(0xFFC6C3BC),
 )
 
+/**
+ * Todos los estilos que usa la app salen de la pantalla. Uno que faltara se
+ * quedaría con el valor fijo de Material —14 sp— y en el coche, con todo lo
+ * demás escalado, era letra de nota a pie de página.
+ */
 private fun typographyFor(sizes: CarTextSizes) = Typography(
     displayMedium = TextStyle(fontSize = sizes.display, fontWeight = FontWeight.SemiBold),
+    displaySmall = TextStyle(fontSize = sizes.display * 0.85f, fontWeight = FontWeight.SemiBold),
     titleLarge = TextStyle(fontSize = sizes.title, fontWeight = FontWeight.Medium),
+    titleMedium = TextStyle(fontSize = sizes.title * 0.8f, fontWeight = FontWeight.Medium),
+    titleSmall = TextStyle(fontSize = sizes.body, fontWeight = FontWeight.Medium),
     bodyLarge = TextStyle(fontSize = sizes.body),
-    labelLarge = TextStyle(fontSize = sizes.body, fontWeight = FontWeight.Medium),
+    bodyMedium = TextStyle(fontSize = sizes.caption * 1.1f),
     bodySmall = TextStyle(fontSize = sizes.caption),
+    labelLarge = TextStyle(fontSize = sizes.body, fontWeight = FontWeight.Medium),
+    labelMedium = TextStyle(fontSize = sizes.caption, fontWeight = FontWeight.Medium),
+    labelSmall = TextStyle(fontSize = sizes.caption * 0.9f, fontWeight = FontWeight.Medium),
 )
 
 @Composable
@@ -61,19 +73,27 @@ fun SecretWorldTheme(
 ) {
     // Todo se deriva del tamaño de ventana. Una pantalla nueva no necesita código
     // nuevo: necesita entrar por aquí.
+    //
+    // El tamaño es el de la **ventana**, no el de la configuración: Pleos abre las
+    // apps en sus huecos (1640×1400 y 800×1400) y les pasa la configuración de
+    // toda la pantalla, 2320×1324. Con ella, la app medía mal y no cambiaba al
+    // pasar de un hueco a otro.
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current.density
     val fontScale = LocalDensity.current.fontScale
+    val window = LocalWindowInfo.current.containerSize
+    val widthDp = if (window.width > 0) window.width / density else configuration.screenWidthDp.toFloat()
+    val heightDp = if (window.height > 0) window.height / density else configuration.screenHeightDp.toFloat()
     val metrics = remember(
-        configuration.screenWidthDp,
-        configuration.screenHeightDp,
+        widthDp,
+        heightDp,
         density,
         fontScale,
         handheld,
     ) {
         CarMetrics(
-            widthDp = configuration.screenWidthDp.dp,
-            heightDp = configuration.screenHeightDp.dp,
+            widthDp = widthDp.dp,
+            heightDp = heightDp.dp,
             density = density,
             fontScale = fontScale,
             handheld = handheld,

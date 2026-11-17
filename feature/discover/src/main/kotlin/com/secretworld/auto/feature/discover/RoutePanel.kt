@@ -1,5 +1,6 @@
 package com.secretworld.auto.feature.discover
 
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -765,4 +766,4 @@ internal fun VoiceStatusChip(status: VoiceStatus, labelled: Boolean = true) {
 private const val PULSE_MS = 600
 
 /** El micrófono tachado: del tamaño del punto de escucha al que sustituye, poco más. */
-private val MIC_OFF_ICON = 14.dp
+private val MIC_OFF_ICON: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(14.dp)
