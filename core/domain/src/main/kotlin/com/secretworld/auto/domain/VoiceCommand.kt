@@ -492,8 +492,25 @@ object VoiceGrammar {
             // largas: el reconocedor escribe «picería» o «pilcería» por pizzería.
             ?: CATEGORIES.firstOrNull { category -> category.keys.any { key -> ' ' !in key && words.any { sameKey(it, normalise(key)) } } }
             ?: return null
-        return if (language == VoiceLanguage.ITALIAN) category.italian else category.spanish
+        return when (language) {
+            VoiceLanguage.ITALIAN -> category.italian
+            // En inglés, con su nombre en inglés: contestaba «Looking for restaurante nearby».
+            VoiceLanguage.ENGLISH -> ENGLISH_NAMES[category.searchId] ?: category.spanish
+            VoiceLanguage.SPANISH -> category.spanish
+        }
     }
+
+    /** Cómo se dice en inglés lo que se busca, para contestarlo; lo demás se busca por categoría. */
+    private val ENGLISH_NAMES = mapOf(
+        "restaurant" to "restaurants", "gas_station" to "petrol stations", "parking_lot" to "parking",
+        "hotel" to "hotels", "pharmacy" to "pharmacies", "atm" to "cash machines", "cafe" to "cafés", "bar" to "bars",
+        "supermarket" to "supermarkets", "hospital" to "hospitals", "pizza_restaurant" to "pizza", "ice_cream" to "ice cream",
+        "bakery" to "bakeries", "auto_repair" to "mechanics", "charging_station" to "charging stations", "car_wash" to "car washes",
+        "airport" to "the airport", "bus_station" to "bus stations", "beach" to "beaches", "viewpoint" to "viewpoints",
+        "shopping_mall" to "shopping centres", "convenience_store" to "shops", "cinema" to "cinemas", "police_station" to "police",
+        "seafood_restaurant" to "seafood", "italian_restaurant" to "Italian food", "chinese_restaurant" to "Chinese food",
+        "mexican_restaurant" to "Mexican food", "japanese_restaurant" to "Japanese food", "fast_food" to "fast food",
+    )
 
     private fun sameKey(heard: String, key: String): Boolean {
         // Siete letras o más: con seis, "parque" pasaba por "parquear".
@@ -602,6 +619,7 @@ object VoiceGrammar {
         // después palabras sueltas: "negozio di abbigliamento" lleva "negozio",
         // que también es tienda de conveniencia.
         CATEGORIES.firstOrNull { said == normalise(it.spanish) || said == normalise(it.italian) }?.let { return it.searchId }
+        ENGLISH_NAMES.entries.firstOrNull { said == normalise(it.value) }?.let { return it.key }
         return CATEGORIES.firstOrNull { words.hasAny(it.keys) }?.searchId
     }
 
@@ -876,7 +894,9 @@ object VoiceGrammar {
     )
 
     /** Verbos tras los que viene lo que se busca. */
-    private val SEARCH_VERBS = listOf("busca", "buscar", "búscame", "buscame", "encuentra", "encuéntrame", "dónde hay", "donde hay", "hay algún", "hay alguna", "quiero", "necesito", "find", "search for", "look for", "where is there", "is there a", "i need", "i want")
+    private val SEARCH_VERBS = listOf("busca", "buscar", "búscame", "buscame", "encuentra", "encuéntrame", "dónde hay", "donde hay", "hay algún", "hay alguna",
+        // "¿Hay un OXXO cerca?": una cadena, por su nombre. Sin esto acababa en "¿qué hay cerca?".
+        "hay un", "hay una", "quiero", "necesito", "find", "search for", "look for", "where is there", "is there a", "is there an", "i need", "i want")
 
     /**
      * Verbos de búsqueda italianos, solo en italiano: "cerca" es "busca" en

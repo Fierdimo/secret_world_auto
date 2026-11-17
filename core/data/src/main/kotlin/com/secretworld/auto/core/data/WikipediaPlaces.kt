@@ -146,6 +146,8 @@ class WikipediaPlaces(
         val hits = all
             .filter { it["type"]?.jsonPrimitive?.content in PLACE_TYPES }
             .filterNot { hit -> NOT_A_STOP.any { hit["title"]!!.jsonPrimitive.content.contains(it, ignoreCase = true) } }
+            // Un año en el título es casi siempre un evento: «Premundial Femenino CONCACAF 2010».
+            .filterNot { hit -> YEAR.containsMatchIn(hit["title"]!!.jsonPrimitive.content) }
             .map { hit ->
                 Hit(
                     wiki = wiki,
@@ -268,6 +270,13 @@ class WikipediaPlaces(
             "Hotel", "Estadio", "Coliseo", "Aeropuerto", "Universidad", "Colegio", "Hospital", "Centro comercial", "Stadium", "Airport", "University", "Hospital", "Mall",
             // Pasó en un sitio, pero no es un sitio: la batalla tiene coordenadas.
             "Batalla", "Battle", "Battaglia", "Asedio", "Siege", "Assedio",
+            // Y los eventos: en Cancún salían conferencias y torneos.
+            "Conferencia", "Conference", "Conferenza", "Cumbre", "Summit", "Vertice",
+            "Campeonato", "Championship", "Campionato", "Premundial", "Mundial", "World Cup",
+            "Copa ", "Coppa ", "Torneo", "Tournament", "Festival", "Juegos ", "Games", "Giochi",
+            "Concurso", "Contest", "Concorso", "Elecciones", "Election", "Elezioni",
         )
+        /** Un año de cuatro cifras como palabra. */
+        val YEAR = Regex("\\b(1[5-9]|20)\\d{2}\\b")
     }
 }

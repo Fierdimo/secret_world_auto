@@ -288,7 +288,8 @@ class NarrationController(
      * en comas, que dejarían trozos sin sentido para la prosodia.
      */
     private fun sentences(text: String): List<String> =
-        text.split(Regex("(?<=[.!?;])\\s+"))
+        // También tras los dos puntos: «A tu alrededor:» suena mientras se prepara la lista.
+        text.split(Regex("(?<=[.!?;:])\\s+"))
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .ifEmpty { listOf(text) }
@@ -302,7 +303,12 @@ class NarrationController(
     /** Si la voz está cargada y las respuestas fijas, preparadas: hablar ya no espera a nada. */
     val warm: StateFlow<Boolean> = _warm.asStateFlow()
 
-    fun prewarm(texts: List<String>) {
+    /**
+     * Prepara [texts] —lo que tiene que sonar al instante desde el principio— y,
+     * con la voz ya lista, [later]: respuestas habituales que conviene tener,
+     * pero que no deben retrasar las primeras.
+     */
+    fun prewarm(texts: List<String>, later: List<String> = emptyList()) {
         if (!installer.isInstalled(language)) return
         scope.launch(Dispatchers.IO) {
             // La voz, cargada ya: la primera frase que no esté preparada no
@@ -317,6 +323,12 @@ class NarrationController(
             Log.i(TAG, "respuestas fijas preparadas: ${texts.size}")
             VoiceTiming.ready("voz")
             _warm.value = true
+            later.flatMap { sentences(it) }.distinct().forEach { sentence ->
+                val file = replyFile(sentence)
+                if (file.isFile) return@forEach
+                runCatching { synthesizer.synthesizeToFile(sentence, language, file.absolutePath) }
+                    .onFailure { file.delete() }
+            }
             prefetch(lastQueue)
         }
     }

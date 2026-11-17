@@ -137,13 +137,17 @@ object Phrasebook {
 
     // ---- búsqueda de sitios
 
-    fun searching(c: Context, query: String): String = pick(
-        c,
-        c.say(
-            en = listOf("Looking for $query nearby.", "Let me see what's around for $query.", "One moment, checking $query near you."),
-            es = listOf("Busco $query por aquí.", "A ver qué hay de $query cerca.", "Un momento, miro $query cerca de ti."),
-            it = listOf("Cerco $query qui vicino.", "Vediamo cosa c'è di $query qui intorno.", "Un momento, controllo $query vicino a te."),
-        ),
+    fun searching(c: Context, query: String): String = pick(c, searchingVariants(c, query))
+
+    /**
+     * Todas las formas de decir que se busca [query]. Se preparan de antemano
+     * para las búsquedas habituales: sintetizar una frase nueva tardaba más de
+     * dos segundos en un móvil lento, y así suena la que toque al instante.
+     */
+    fun searchingVariants(c: Context, query: String): List<String> = c.say(
+        en = listOf("Looking for $query nearby.", "Let me see what's around for $query.", "One moment, checking $query near you."),
+        es = listOf("Busco $query por aquí.", "A ver qué hay de $query cerca.", "Un momento, miro $query cerca de ti."),
+        it = listOf("Cerco $query qui vicino.", "Vediamo cosa c'è di $query qui intorno.", "Un momento, controllo $query vicino a te."),
     )
 
     fun lookingFor(c: Context, name: String): String = c.say(

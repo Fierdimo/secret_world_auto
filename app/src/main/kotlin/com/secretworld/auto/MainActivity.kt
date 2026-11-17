@@ -287,6 +287,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Lo que se contesta a las búsquedas habituales dichas de viva voz, en todas
+     * sus formas: se prepara en cuanto la voz está lista y desde entonces suena
+     * al instante, toque la que toque.
+     */
+    private fun searchReplies(): List<String> {
+        val c = Phrasebook.Context(vehicle.state.value.position, emptyList(), memory, language)
+        return SHORTCUTS.mapNotNull { (_, label) ->
+            (VoiceGrammar.parse(label(language), emptyList(), language = language) as? VoiceCommand.FindPlaces)?.query
+        }.distinct().flatMap { Phrasebook.searchingVariants(c, it) }
+    }
+
     /** Si ya se cerró el aviso de que el dispositivo no reconoce la voz. */
     private val voiceNoticeClosed by lazy { MutableStateFlow(settingsPrefs.getBoolean(VOICE_NOTICE_CLOSED, false)) }
 
@@ -741,7 +753,7 @@ class MainActivity : ComponentActivity() {
                 // falta: la primera respuesta también tiene que ser inmediata.
                 LaunchedEffect(narration.voiceInstalled) {
                     if (!narration.voiceInstalled) return@LaunchedEffect
-                    narration.prewarm(fixedReplies(language))
+                    narration.prewarm(fixedReplies(language), later = searchReplies())
                     val prefs = getSharedPreferences(SETTINGS, MODE_PRIVATE)
                     if (prefs.getBoolean(ANNOUNCE_KEY, false)) {
                         prefs.edit().putBoolean(ANNOUNCE_KEY, false).apply()

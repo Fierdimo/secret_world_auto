@@ -87,6 +87,13 @@ class VoiceCoverageTest {
             es to "busca restaurantes", es to "tengo hambre", es to "dónde hay una gasolinera", es to "necesito un café",
             it to "cerca ristoranti", it to "ho fame", it to "dov'è un distributore", it to "c'è un bar qui vicino",
         ).forEach { (l, p) -> heard(l, p) { it is VoiceCommand.FindPlaces && it.area == null } }
+        // Una cadena, por su nombre: «¿hay un OXXO cerca?» no es «¿qué hay cerca?».
+        listOf(en to "is there an OXXO nearby", es to "¿hay un OXXO cerca?", it to "c'è un OXXO qui vicino")
+            .forEach { (l, p) -> heard(l, p) { it is VoiceCommand.FindPlaces && it.query.contains("oxxo") } }
+        // Lo que se busca, en el idioma en que se contesta.
+        heard(en, "find restaurants") { it is VoiceCommand.FindPlaces && it.query == "restaurants" }
+        heard(es, "busca restaurantes") { it is VoiceCommand.FindPlaces && it.query == "restaurante" }
+        heard(it, "cerca ristoranti") { it is VoiceCommand.FindPlaces && it.query == "ristorante" }
         listOf(en to "restaurants in Bocagrande", es to "restaurantes en Bocagrande", it to "ristoranti a Bocagrande")
             .forEach { (l, p) -> heard(l, p) { it is VoiceCommand.FindPlaces && it.area == "bocagrande" } }
 
