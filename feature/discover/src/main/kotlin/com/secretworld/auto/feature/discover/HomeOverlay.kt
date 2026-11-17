@@ -98,6 +98,8 @@ fun BoxScope.HomeOverlay(
     onStopNarration: () -> Unit,
     onStopNavigation: () -> Unit,
     onClearSearch: () -> Unit,
+    /** Sin mapa al lado —ventana estrecha—: todo el ancho, sin cristal. */
+    fullWidth: Boolean = false,
 ) {
     val d = CarTheme.dimens
     val accent = MaterialTheme.colorScheme.primary
@@ -107,10 +109,11 @@ fun BoxScope.HomeOverlay(
         Modifier
             .align(Alignment.CenterStart)
             .fillMaxHeight()
-            .fillMaxWidth(CarTheme.metrics.overlayShare)
+            .fillMaxWidth(if (fullWidth) 1f else CarTheme.metrics.overlayShare)
             .panelInsetsPadding()
             // Del borde de la barra de estado a casi el de la pantalla: todo el alto.
-            .padding(start = d.spaceM, end = d.spaceM, bottom = d.spaceXs)
+            // A todo el ancho, deja sitio a la barra de iconos de la derecha.
+            .padding(start = d.spaceM, end = if (fullWidth) d.spaceM * 2 + CarTheme.metrics.grown(MENU_RAIL) else d.spaceM, bottom = d.spaceXs)
             .clip(shape)
             .background(glass)
             .border(1.dp, accent.copy(alpha = 0.35f), shape)
@@ -354,6 +357,8 @@ private fun glyphOf(category: String?): Glyph = when (category) {
     else -> Glyph.SIGHT
 }
 
+/** El ancho de la barra de iconos de arriba a la derecha (ver MenuRail). */
+private val MENU_RAIL = 52.dp
 /** La pestaña de "Qué ver", que no es una búsqueda. */
 private const val AROUND = "\u0000around"
 private val THUMB: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(44.dp)

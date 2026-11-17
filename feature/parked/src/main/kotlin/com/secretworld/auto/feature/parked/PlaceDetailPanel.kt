@@ -39,7 +39,8 @@ import com.secretworld.auto.domain.Place
 @Composable
 fun PlaceDetailPanel(
     place: Place,
-    onListen: () -> Unit,
+    /** `null` sin voz: escuchar sería abrir esta misma ficha. */
+    onListen: (() -> Unit)?,
     onNavigate: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
@@ -91,7 +92,7 @@ fun PlaceDetailPanel(
 
         Spacer(Modifier.height(d.spaceS))
         Row(horizontalArrangement = Arrangement.spacedBy(d.spaceXs)) {
-            if (hasStory) {
+            if (hasStory && onListen != null) {
                 CarButton(label = stringResource(R.string.listen), onClick = onListen)
                 CarSecondaryButton(label = stringResource(R.string.take_me_there), onClick = onNavigate)
             } else {

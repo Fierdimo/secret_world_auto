@@ -1241,6 +1241,45 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                         )
+                    } else if (panel is Panel.Home && compact && !inPip) {
+                        // En una ventana estrecha —el hueco pequeño de Pleos, media
+                        // pantalla— no cabe el mapa al lado: el mismo panel, a todo el
+                        // ancho. Las secciones y la lista entera se ven y se tocan; la
+                        // voz queda en su punto y en lo que dijo, arriba.
+                        LaunchedEffect(around.map { it.id }, comeback) { picture(around) }
+                        val places = searchUi?.places ?: around.pictured(imgs)
+                        val searchingNow by searching.collectAsState()
+                        val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
+                        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                            HomeOverlay(
+                                city = where ?: upcoming.firstOrNull()?.city,
+                                offline = catalogueResult?.source == CatalogueRepository.Source.FALLBACK,
+                                voice = voiceUiOf(voiceState, heard, answer, listening, hearingNow, thinking),
+                                nowPlaying = (nowPlayingOf(narrationState, tick) ?: installingOf(modelsPercentNow))
+                                    ?.takeUnless { narrationState is NarrationController.State.Speaking },
+                                notices = notices,
+                                tour = tourUi,
+                                search = searchUi,
+                                searching = searchingNow,
+                                nearby = around.pictured(imgs),
+                                origin = vehicleState.position,
+                                navigation = navigationUi,
+                                shortcuts = shortcutsUi,
+                                activeSearch = searchShown,
+                                radiusKm = radiusKm,
+                                // Sin mapa en el que señalarlo, tocar un sitio abre su ficha.
+                                selected = null,
+                                onSelect = { panel = Panel.Detail(it) },
+                                onDetails = { panel = Panel.Detail(it) },
+                                onListen = { play(it) },
+                                onNavigate = { navigateTo(it) },
+                                onAdd = { place -> answer = addToItinerary(place, c) },
+                                onStopNarration = { narration.stop() },
+                                onStopNavigation = { endNavigation() },
+                                onClearSearch = ::clearSearch,
+                                fullWidth = true,
+                            )
+                        }
                     } else if (panel is Panel.Home || inPip) {
                         AssistantScreen(
                             mini = inPip,
@@ -1398,7 +1437,7 @@ class MainActivity : ComponentActivity() {
 
             is Panel.Detail -> PlaceDetailPanel(
                 place = panel.place,
-                onListen = { play(panel.place) },
+                onListen = { play(panel.place) }.takeUnless { narration.silent.collectAsState().value },
                 onNavigate = {
                     navigateTo(panel.place)
                     onPanel(Panel.Home)

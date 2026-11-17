@@ -1,5 +1,7 @@
 package com.secretworld.auto.feature.discover
 
+import androidx.compose.ui.unit.Dp
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
@@ -135,5 +137,5 @@ private fun MenuButton(entry: MenuEntry, expanded: Boolean, onClick: () -> Unit)
     }
 }
 
-private val SIZE = 52.dp
+private val SIZE: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(52.dp)
 private const val COLLAPSE_MS = 3_500L
