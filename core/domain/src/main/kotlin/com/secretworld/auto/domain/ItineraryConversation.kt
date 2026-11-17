@@ -241,6 +241,16 @@ class ItineraryConversation {
         else -> null
     }
 
+    /**
+     * "No" tocado, no dicho: lo que se pregunta o se propone se descarta; lo ya
+     * guardado no se tira, se deja para más tarde. `null` si no había nada.
+     */
+    fun decline(): Step? = when (state) {
+        is State.Asking, is State.Proposed -> discard()
+        is State.Saved -> answer(ItineraryReply.LATER)
+        State.Idle -> null
+    }
+
     private fun discard(): Step {
         state = State.Idle
         return Step.Discarded

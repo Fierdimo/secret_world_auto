@@ -1,5 +1,7 @@
 package com.secretworld.auto.feature.discover
 
+import androidx.compose.ui.unit.Dp
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
@@ -154,7 +156,7 @@ fun BoxScope.ItineraryLibraryOverlay(
         }
     }
     Box(Modifier.align(Alignment.TopEnd).panelInsetsPadding().padding(end = d.spaceM)) {
-        CarSecondaryButton(label = stringResource(R.string.close_view), onClick = onClose, compact = true)
+        CarSecondaryButton(label = stringResource(R.string.close_view), onClick = onClose)
     }
 }
 
@@ -290,6 +292,6 @@ private fun RouteSketch(stops: List<Place>, modifier: Modifier, small: Boolean =
     }
 }
 
-private val BADGE = 30.dp
-private val SKETCH = 64.dp
-private val DELETE = 40.dp
+private val BADGE: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(30.dp)
+private val SKETCH: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(64.dp)
+private val DELETE: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(40.dp)

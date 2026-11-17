@@ -371,3 +371,4 @@ private val TAB_LINE: Dp @Composable @ReadOnlyComposable get() = CarTheme.metric
 private const val TAB_RESIZE_MS = 380
 /** Lo mínimo que se toca bien con el dedo; nada más, para que quepan. */
 private val TAB_TOUCH: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(36.dp)
+

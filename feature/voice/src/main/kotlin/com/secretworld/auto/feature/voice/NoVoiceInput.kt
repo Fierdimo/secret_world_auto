@@ -34,6 +34,9 @@ class NoVoiceInput(private val language: VoiceLanguage) : VoiceInput {
         )
     }
 
+    /** Un turno de respuesta abierto por la app, no pedido: sin aviso. */
+    override fun listenForAnswer() = Unit
+
     override fun cancel() {
         _state.value = VoiceInput.State.Idle
     }

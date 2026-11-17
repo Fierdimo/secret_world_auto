@@ -1,5 +1,8 @@
 package com.secretworld.auto.feature.discover
 
+import com.secretworld.auto.core.designsystem.CarTheme
+import androidx.compose.ui.unit.Dp
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -190,5 +193,5 @@ private const val SWEEP_MS = 2_600
 private const val PULSE_MS = 2_000
 private const val RINGS = 4
 private const val TRAIL_DEG = 60f
-private val BAR_WIDTH = 520.dp
-private val BAR_HEIGHT = 10.dp
+private val BAR_WIDTH: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(520.dp)
+private val BAR_HEIGHT: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(10.dp)

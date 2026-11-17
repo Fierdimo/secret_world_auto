@@ -801,7 +801,7 @@ fun androidx.compose.foundation.layout.BoxScope.ItineraryOverlay(
         Modifier
             .align(Alignment.CenterStart)
             .fillMaxHeight()
-            .fillMaxWidth(OVERLAY_SHARE)
+            .fillMaxWidth(CarTheme.metrics.overlayShare)
             .panelInsetsPadding()
             // Del borde de la barra de estado a casi el de la pantalla: todo el alto.
             .padding(start = d.spaceM, end = d.spaceM, bottom = d.spaceXs)
@@ -846,7 +846,7 @@ fun androidx.compose.foundation.layout.BoxScope.ItineraryOverlay(
         }
     }
     Box(Modifier.align(Alignment.TopEnd).panelInsetsPadding().padding(end = d.spaceM)) {
-        CarSecondaryButton(label = stringResource(R.string.close_view), onClick = onClose, compact = true)
+        CarSecondaryButton(label = stringResource(R.string.close_view), onClick = onClose)
     }
 
     // Lo dicho y lo contestado, como un aviso sobre el mapa que se va solo. Sin
@@ -859,7 +859,7 @@ fun androidx.compose.foundation.layout.BoxScope.ItineraryOverlay(
         exit = androidx.compose.animation.fadeOut(Motion.exit(Motion.reduced)),
         modifier = Modifier
             .align(Alignment.BottomEnd)
-            .fillMaxWidth(1f - OVERLAY_SHARE)
+            .fillMaxWidth(1f - CarTheme.metrics.overlayShare)
             .panelInsetsPadding()
             .padding(d.spaceM),
     ) {
@@ -917,7 +917,6 @@ private fun OverlayStopRow(stop: TourStopUi, first: Boolean, last: Boolean) {
     }
 }
 
-private const val OVERLAY_SHARE = 0.40f
 private val TOAST_CORE: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(28.dp)
 /** Lo que se queda la ayuda al abrir la vista del itinerario. */
 

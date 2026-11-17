@@ -470,7 +470,7 @@ fun TourFlyover(
         }
         Column(Modifier.align(Alignment.TopStart).padding(d.spaceL)) {
             Text(
-                text = state.stops.firstOrNull()?.city
+                text = (state.city ?: state.stops.firstOrNull()?.city)
                     ?.let { if ('(' in it) it.substringAfter('(').substringBefore(')') else it }
                     ?.uppercase().orEmpty(),
                 style = MaterialTheme.typography.bodySmall,
@@ -593,7 +593,7 @@ private fun CandidateDot(delayMs: Long, onClick: () -> Unit) {
     }
     Box(
         Modifier
-            .size(32.dp)
+            .size(grownDp(32f))
             .graphicsLayer {
                 scaleX = pop.value
                 scaleY = pop.value
@@ -603,8 +603,8 @@ private fun CandidateDot(delayMs: Long, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.size(20.dp).clip(CircleShape).background(accent.copy(alpha = 0.25f)))
-        Box(Modifier.size(11.dp).clip(CircleShape).border(1.5.dp, Color.Black.copy(alpha = 0.6f), CircleShape).background(accent))
+        Box(Modifier.size(grownDp(20f)).clip(CircleShape).background(accent.copy(alpha = 0.25f)))
+        Box(Modifier.size(grownDp(11f)).clip(CircleShape).border(1.5.dp, Color.Black.copy(alpha = 0.6f), CircleShape).background(accent))
     }
 }
 
@@ -654,22 +654,22 @@ private fun CandidateMarker(place: Place, adds: Boolean, onClick: () -> Unit) {
             .background(Color.Black.copy(alpha = 0.72f))
             .border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(50))
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = grownDp(10f), vertical = grownDp(6f)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (adds) {
             Text("+", color = accent, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         } else {
-            Box(Modifier.size(8.dp).clip(CircleShape).background(accent))
+            Box(Modifier.size(grownDp(8f)).clip(CircleShape).background(accent))
         }
-        Spacer(Modifier.width(6.dp))
+        Spacer(Modifier.width(grownDp(6f)))
         Text(
             Phrasebook.shortName(place),
             color = Color.White,
             style = MaterialTheme.typography.bodySmall,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 150.dp),
+            modifier = Modifier.widthIn(max = grownDp(150f)),
         )
     }
 }
@@ -685,11 +685,11 @@ private fun MeMarker() {
         animationSpec = androidx.compose.animation.core.infiniteRepeatable(tween(1_400), androidx.compose.animation.core.RepeatMode.Reverse),
         label = "halo",
     )
-    Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(grownDp(40f)), contentAlignment = Alignment.Center) {
         // El latido en la capa de dibujo: el marcador no se recompone en cada fotograma.
         Box(
             Modifier
-                .size(22.dp)
+                .size(grownDp(22f))
                 .graphicsLayer {
                     scaleX = halo
                     scaleY = halo
@@ -697,7 +697,7 @@ private fun MeMarker() {
                 .clip(CircleShape)
                 .background(color.copy(alpha = 0.25f)),
         )
-        Box(Modifier.size(14.dp).clip(CircleShape).border(2.dp, Color.White, CircleShape).background(color))
+        Box(Modifier.size(grownDp(14f)).clip(CircleShape).border(2.dp, Color.White, CircleShape).background(color))
     }
 }
 
@@ -709,7 +709,7 @@ private fun StopMarker(number: Int?, place: Place, highlighted: Boolean) {
     val pop = remember { Animatable(if (reduced) 1f else 0f) }
     LaunchedEffect(Unit) { pop.animateTo(1f, Motion.reward(reduced)) }
     // La parada de la que se habla crece; antes saltaba de golpe.
-    val size by animateDpAsState(if (highlighted) 76.dp else 56.dp, Motion.settle(reduced), label = "parada")
+    val size by animateDpAsState(if (highlighted) grownDp(76f) else grownDp(56f), Motion.settle(reduced), label = "parada")
     Box(
         Modifier.graphicsLayer {
             scaleX = pop.value
@@ -732,7 +732,7 @@ private fun StopMarker(number: Int?, place: Place, highlighted: Boolean) {
         }
         if (number != null) {
             Box(
-                Modifier.size(24.dp).clip(CircleShape).background(accent),
+                Modifier.size(grownDp(24f)).clip(CircleShape).background(accent),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(number.toString(), color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
@@ -747,7 +747,7 @@ private fun StopCaption(number: Int, place: Place, time: String) {
     val accent = MaterialTheme.colorScheme.primary
     Row(
         Modifier
-            .widthIn(max = 520.dp)
+            .widthIn(max = grownDp(520f))
             .clip(RoundedCornerShape(d.cardCorner))
             .background(Color.Black.copy(alpha = 0.6f))
             .border(1.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(d.cardCorner))
@@ -778,3 +778,13 @@ private fun overviewOf(points: List<Coordinates>): Pair<Coordinates, Double> {
     val zoom = (ln(360.0 / (span.coerceAtLeast(0.002) * 2.2)) / ln(2.0)).coerceIn(10.0, 16.0)
     return center to zoom
 }
+
+/**
+ * Una medida de marcador afinada en el móvil, que crece con la pantalla, pero
+ * **menos que el panel**: con el mismo factor, en el coche los puntos medían
+ * como botones y las paradas se tapaban unas a otras. El mapa necesita ver lo
+ * que hay debajo.
+ */
+@Composable
+@androidx.compose.runtime.ReadOnlyComposable
+private fun grownDp(phone: Float): Dp = phone.dp * kotlin.math.sqrt(CarTheme.metrics.grown(1.dp).value)

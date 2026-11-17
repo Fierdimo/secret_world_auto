@@ -1,5 +1,7 @@
 package com.secretworld.auto.feature.discover
 
+import androidx.compose.ui.unit.Dp
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -159,5 +161,5 @@ private fun PickerCard(place: Place?, saved: List<SavedItineraryUi>, onPick: (In
     }
 }
 
-private val CARD_WIDTH = 460.dp
-private val LIST_MAX = 260.dp
+private val CARD_WIDTH: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(460.dp)
+private val LIST_MAX: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(260.dp)

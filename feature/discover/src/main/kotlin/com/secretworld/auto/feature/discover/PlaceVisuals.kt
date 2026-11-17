@@ -1,5 +1,6 @@
 package com.secretworld.auto.feature.discover
 
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
@@ -147,7 +148,7 @@ internal fun PlaceThumb(place: Place, size: Dp, modifier: Modifier = Modifier) {
 internal enum class Glyph { LISTEN, GO, SETTINGS, ADD, DELETE, ROUTE, SIGHT, FOOD, FUEL, PARKING, BED, CROSS, CASH, MIC_OFF }
 
 /** Los botones de una tarjeta: visibles sin tapar la foto. */
-private val ACTION: Dp = 40.dp
+private val ACTION: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(40.dp)
 
 /** Un botón redondo con icono dibujado: escuchar (triángulo) o ir (flecha). */
 @Composable

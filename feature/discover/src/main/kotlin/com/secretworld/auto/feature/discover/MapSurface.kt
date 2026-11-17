@@ -92,4 +92,10 @@ data class FlyoverState(
     val ringCenter: Coordinates? = null,
     /** Si se está buscando: ondas desde el centro hasta el anillo, y los puntos esperan. */
     val scanning: Boolean = false,
+    /**
+     * Dónde se está, para el título de la presentación. La ciudad que trae
+     * Wikipedia en cada parada puede ser un barrio lejano: «Bocagrande» estando
+     * en el Centro.
+     */
+    val city: String? = null,
 )

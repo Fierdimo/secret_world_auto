@@ -78,10 +78,12 @@ class SystemVoiceInput(
         // Vigilar la palabra no interrumpe un turno de respuesta en curso.
         if (!direct && answerTurn && _state.value is VoiceInput.State.Listening) return
         this.direct = direct || answerTurn
+        // Sin reconocedor no se escucha, y no se dice en cada turno: el micrófono
+        // tachado y el aviso del principio ya lo cuentan. Tras guardar un
+        // itinerario salía "no hay reconocimiento" sin que nadie lo pidiera.
         if (!available) {
-            _state.value = VoiceInput.State.Failed(
-                language.say(en = "This device has no speech recognition", es = "Este dispositivo no tiene reconocimiento de voz", it = "Questo dispositivo non ha il riconoscimento vocale"),
-            )
+            answerTurn = false
+            _state.value = VoiceInput.State.Idle
             return
         }
         if (!hasPermission) {

@@ -1,5 +1,8 @@
 package com.secretworld.auto
 
+import com.secretworld.auto.feature.discover.PromptOption
+import com.secretworld.auto.feature.discover.PromptUi
+import com.secretworld.auto.feature.discover.ItineraryPrompt
 import android.Manifest
 import android.content.Context
 import android.content.res.Configuration
@@ -95,6 +98,7 @@ import com.secretworld.auto.domain.GrammarIntentResolver
 import com.secretworld.auto.domain.IntentPrompt
 import com.secretworld.auto.domain.IntentResolver
 import com.secretworld.auto.domain.ItineraryConversation
+import com.secretworld.auto.domain.ItineraryReplies
 import com.secretworld.auto.domain.ItineraryDesigner
 import com.secretworld.auto.domain.ItineraryEdit
 import com.secretworld.auto.domain.ItineraryProposal
@@ -1127,7 +1131,7 @@ class MainActivity : ComponentActivity() {
                         var lastTour by remember { mutableStateOf<TourUi?>(null) }
                         (tourUi ?: draftUi.takeIf { draftNow })?.let { lastTour = it }
                         TourFlyover(
-                            state = itineraryMap?.pictured(imgs) ?: FlyoverState(
+                            state = itineraryMap?.pictured(imgs)?.copy(city = where) ?: FlyoverState(
                                 start = vehicleState.position,
                                 stops = emptyList(),
                                 times = emptyList(),
@@ -1202,7 +1206,7 @@ class MainActivity : ComponentActivity() {
                                                 onStopNarration = { narration.stop() },
                                                 onStopNavigation = { endNavigation() },
                                                 onClearSearch = ::clearSearch,
-                                            )
+                                                            )
                                             HudScreen.LIBRARY -> {
                                                 val saved = lastShelf
                                                 fun act(index: Int, action: ItineraryLibrary.Action) {
@@ -1326,6 +1330,14 @@ class MainActivity : ComponentActivity() {
                     val addingNow by adding.collectAsState()
                     if (!inPip) {
                         val c = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
+                        // Lo que pregunta o propone el itinerario, sobre el mapa y con las
+                        // respuestas a la vista: sin voz, la única forma de seguir. No
+                        // tapa la presentación mientras vuela.
+                        val presenting = flyover.collectAsState().value?.intro == true
+                        ItineraryPrompt(
+                            prompt = itineraryPrompt(c).takeUnless { presenting },
+                            panelShare = if (compact) 0f else CarTheme.metrics.overlayShare,
+                        )
                         AddToPicker(
                             place = addingNow,
                             saved = addingSaved.map(::savedUiOf),
@@ -1862,6 +1874,52 @@ class MainActivity : ComponentActivity() {
     // ------------------------------------------------------------------ itinerarios
 
     /** Hace lo que pide la conversación del itinerario y devuelve lo que se dice. */
+    /**
+     * La tarjeta de lo que el itinerario tiene pendiente, o `null` si nada. Las
+     * respuestas van por la misma conversación que la voz: las del tiempo y los
+     * gustos, diciendo su frase; empezar, guardar o descartar, contestando
+     * directamente.
+     */
+    private fun itineraryPrompt(c: Phrasebook.Context): PromptUi? {
+        fun step(make: () -> ItineraryConversation.Step?): () -> Unit = {
+            voiceInput.acknowledge()
+            make()?.let { itineraryStep(it, c) }
+        }
+        // En "Mis itinerarios" el que se ve ya tiene sus botones: empezar, editar, borrar.
+        if (library.value != null) return null
+        val labels = ItineraryReplies.Labels
+        val cancel = PromptOption(labels.cancel(language), onClick = step { itinerary.decline() })
+        return when (val state = itinerary.state) {
+            is ItineraryConversation.State.Asking -> {
+                val missing = state.request.missing(profiles.load())
+                PromptUi(
+                    question = ItineraryReplies.question(missing, language),
+                    options = ItineraryReplies.forMissing(missing, language).map { reply ->
+                        PromptOption(reply.label) { voiceInput.inject(reply.says) }
+                    } + cancel,
+                )
+            }
+            is ItineraryConversation.State.Proposed -> PromptUi(
+                question = labels.ready(language),
+                options = listOf(
+                    PromptOption(labels.start(language), primary = true, onClick = step { itinerary.answer(ItineraryReply.START) }),
+                    PromptOption(labels.save(language), onClick = step { itinerary.answer(ItineraryReply.SAVE) }),
+                    PromptOption(labels.discard(language), onClick = step { itinerary.decline() }),
+                ),
+                atBottom = true,
+            )
+            is ItineraryConversation.State.Saved -> PromptUi(
+                question = labels.saved(language),
+                options = listOf(
+                    PromptOption(labels.start(language), primary = true, onClick = step { itinerary.answer(ItineraryReply.START) }),
+                    PromptOption(labels.later(language), onClick = step { itinerary.decline() }),
+                ),
+                atBottom = true,
+            )
+            ItineraryConversation.State.Idle -> null
+        }
+    }
+
     private fun itineraryStep(step: ItineraryConversation.Step, c: Phrasebook.Context): String {
         // Lo que se ofreció antes ya no está en el aire: el "sí" siguiente es para esto.
         offered = null
