@@ -376,6 +376,8 @@ class MainActivity : ComponentActivity() {
     private val pip = MutableStateFlow(false)
     /** Se le pasó una ruta al navegador del usuario, que nosotros no podemos cerrar. */
     private var externalRouteOpen = false
+    /** El navegador de Pleos, si este coche lo tiene. */
+    private val pleosNavigation by lazy { PleosNavigation(applicationContext) }
 
     /** La ruta en curso y su guía. `null` cuando no se navega. */
     private val activeRoute = MutableStateFlow<Route?>(null)
@@ -1776,6 +1778,7 @@ class MainActivity : ComponentActivity() {
                 narration.stop()
                 if (tour.value != null) {
                     val floating = isInPictureInPictureMode
+                    if (externalRouteOpen && pleosNavigation.available) lifecycleScope.launch { pleosNavigation.cancel() }
                     endTour()
                     endNavigation()
                     val reply = withNavigatorHint(Phrasebook.itineraryEnded(c), c, floating)
@@ -1787,6 +1790,7 @@ class MainActivity : ComponentActivity() {
                 // dice cómo.
                 if (externalRouteOpen) {
                     val floating = isInPictureInPictureMode
+                    if (pleosNavigation.available) lifecycleScope.launch { pleosNavigation.cancel() }
                     endNavigation()
                     leavePip()
                     val reply = withNavigatorHint(Phrasebook.routeEnded(c), c, floating)
@@ -2563,7 +2567,7 @@ class MainActivity : ComponentActivity() {
      * pantalla completa queda delante, y Secret World sigue al volver.
      */
     private fun hasExternalNavigation(): Boolean =
-        listOf(GOOGLE_MAPS, WAZE).any { packageManager.getLaunchIntentForPackage(it) != null }
+        pleosNavigation.available || listOf(GOOGLE_MAPS, WAZE).any { packageManager.getLaunchIntentForPackage(it) != null }
 
     private fun openExternalNavigation(place: Place): Boolean {
         val (lat, lon) = place.position.latitude to place.position.longitude
@@ -2808,6 +2812,16 @@ class MainActivity : ComponentActivity() {
             // Con navegador, nada que decir: su voz anuncia la ruta, y la nuestra
             // la pisaba al pasar a la ventana flotante.
             if (announce && !hasExternalNavigation()) narration.say(Phrasebook.routingTo(c, place))
+            // En Pleos, la ruta se le pide a su navegador y se le pone delante:
+            // el escritorio lo lleva al hueco grande y a nosotros al pequeño, al
+            // lado, sin ventana flotante.
+            if (pleosNavigation.available) {
+                externalRouteOpen = true
+                endNavigation()
+                // La repetición del primer pedido puede tardar: no se espera aquí.
+                launch { if (!pleosNavigation.open(place)) externalRouteOpen = false }
+                return@launch
+            }
             if (hasExternalNavigation()) {
                 // A pantalla completa, primero a la ventana flotante: así se sigue
                 // oyendo y hablando con el navegador delante.
@@ -3097,6 +3111,8 @@ class MainActivity : ComponentActivity() {
     private fun withNavigatorHint(reply: String, c: Phrasebook.Context, floating: Boolean): String {
         if (!externalRouteOpen) return reply
         externalRouteOpen = false
+        // En Pleos la ruta se cancela desde aquí: no hay nada que cerrar a mano.
+        if (pleosNavigation.available) return reply
         return reply + " " + Phrasebook.closeNavigatorHint(c, floating)
     }
 
@@ -3131,6 +3147,7 @@ class MainActivity : ComponentActivity() {
         // queda cargado para la actividad nueva.
         if (isFinishing) gemma?.release()
         pleosLlm?.release()
+        pleosNavigation.release()
     }
 
     private sealed interface Panel {

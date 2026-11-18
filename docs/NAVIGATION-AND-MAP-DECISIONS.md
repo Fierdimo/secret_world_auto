@@ -94,6 +94,29 @@ to confirm this myself on the Connect Waterfall emulator, once I have an x86_64
 PC to run it. The NaviHelper library itself (version 2.0.2 or later) has not been
 published by Pleos yet.
 
+**Update, 18 November 2026: the hand-over already works without the library.**
+Secret World talks to the navigation service directly (`INaviService`, bound
+with the `ai.pleos.playground.intent.action.NAVI_START` action; the
+`pleos.car.permission.NAVI_ROUTE` permission is a normal one). It sends a
+`RequestRoute` with the destination as JSON (`latitude`, `longitude`,
+`poiName`, `address`, `poiId`, `poiSubId`, `routeOption`) and brings the
+navigation app to the front. The home screen then puts the navigation in the
+large slot and Secret World in the small one. Things learned on the v2.1.5
+emulator:
+
+- The service does not keep requests: if the navigation app has not connected
+  yet, the route is lost. Just after opening it takes a few seconds, so the
+  first request is sent again.
+- Every text field must be present, even empty: without `address` the
+  navigation app closes.
+- Only two intermediate stops are possible (`FIRST`, `SECOND`), so an itinerary
+  hands over one stop at a time.
+- On the emulator the navigation app cannot draw its map (its own Mapbox key
+  is missing), so the route itself cannot be seen there; the logs show that it
+  receives it.
+- The same interface has `SetNumberPins` and `ClearNumberPins`, which may be
+  the way to put our numbered stops on its map. Not tried yet.
+
 One thing I found that contradicts common advice online: Pleos's navigation does
 **not** respond to the standard Android "open this location" request (`geo:`),
 and the Google Maps link format does not apply. The hand-over has to go through

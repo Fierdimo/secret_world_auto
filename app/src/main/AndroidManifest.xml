@@ -26,6 +26,9 @@
         <!-- Los navegadores a los que se entregan las paradas del itinerario (SPEC RF-8.11). -->
         <package android:name="com.google.android.apps.maps" />
         <package android:name="com.waze" />
+        <!-- El navegador de Pleos y su servicio de navegación. -->
+        <package android:name="ai.umos.maps.android.navigation.app" />
+        <package android:name="ai.pleos.playground.service.navi" />
     </queries>
 
     <application
