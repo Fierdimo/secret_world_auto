@@ -13,8 +13,9 @@ hay alrededor.
 Consecuencias:
 
 - **Mapbox no va en el coche.** La licencia de automoción deja de importar.
-- La versión actual, la de `main` con Mapbox, pasa a ser la **prueba de concepto**
-  y la demo en teléfono. La licencia móvil de Mapbox cubre ese uso.
+- La versión actual pasa a ser la **prueba de concepto** y la demo en teléfono.
+  *Actualizado el 2026‑11‑17: sin Mapbox tampoco ahí, porque no tenemos licencia;
+  todas las versiones usan ya el mapa propio de OpenStreetMap.*
 - Lo que más se reaprovecha es justo lo que ya está en el panel: lugares con
   foto, búsquedas, Mis itinerarios, la línea de tiempo del itinerario y la voz.
 
@@ -114,6 +115,9 @@ Las rutas no: las traza el navegador al iniciar. El reparto queda así:
 
 ### Un mapa propio sin Mapbox
 
+*Hecho el 2026‑11‑17, con MapLibre y los estilos de OpenFreeMap: ver
+[MAP-OPTIONS.md](MAP-OPTIONS.md). Ya corre en el emulador local de Pleos.*
+
 Al no tener que trazar rutas, basta con un mapa que pinte puntos:
 
 | Pieza | Opción | Por qué |
@@ -146,9 +150,11 @@ Pleos le parece bien una app de lugares con mapa propio junto al navegador.
 
 ## Lo que queda para después
 
-Nada de esto está en código todavía. Cuando toque:
+Cuando toque:
 
-- Una composición «solo panel» para la versión de Pleos, sin Mapbox.
+- Una composición «solo panel» para la versión de Pleos. *Empezada: la app ya
+  se adapta a los dos huecos de Pleos, y en el pequeño enseña la lista a todo
+  el ancho, sin mapa.*
 - La demo en pantalla dividida para el teléfono, con la mitad del navegador
   limitada a las operaciones de la tabla de arriba.
 - El cliente de NaviHelper detrás del mismo contrato, cuando llegue la librería.

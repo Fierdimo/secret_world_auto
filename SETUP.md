@@ -18,16 +18,9 @@ El repositorio no lleva binarios grandes. Tras clonar hacen falta dos cosas:
    Deja `libs/sherpa-onnx.aar` y las voces en su sitio. Sin esto, `:feature:voice`
    no compila.
 
-2. **El token de descarga de Mapbox**, solo para el sabor `bench` —en el vehículo
-   se usa el mapa del dispositivo y Mapbox no se enlaza—. Es un token `sk.` de
-   lectura de descargas, y va en `~/.gradle/gradle.properties`, **nunca en el
-   repositorio**:
-
-   ```properties
-   MAPBOX_DOWNLOADS_TOKEN=sk....
-   ```
-
-   También vale la variable de entorno del mismo nombre. Ver
+2. **Nada para el mapa.** Es de OpenStreetMap con MapLibre, que está en Maven
+   Central: no hay token ni clave. Mapbox se retiró el 2026‑11‑17; si quedaba
+   `MAPBOX_DOWNLOADS_TOKEN` en `~/.gradle/gradle.properties`, ya no se usa. Ver
    [docs/MAP-OPTIONS.md](docs/MAP-OPTIONS.md).
 
 Con eso: `./gradlew check` y `./gradlew :app:assembleBenchDebug`.

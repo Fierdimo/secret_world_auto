@@ -130,7 +130,14 @@ This version has no voice or AI of its own. It uses the platform's:
 | Listening | Android's `SpeechRecognizer`, which on Pleos is `ai.umos.ambientai/.AmbRecognitionService` |
 | Speaking | The caas, `ITtsOnDeviceStream` |
 | LLM | The caas, `IOnDeviceLLM`, only for what the app's grammar does not understand |
-| Map | Mapbox |
+| Map | OpenStreetMap with MapLibre (needs internet). Mapbox was removed on 17 November 2026 |
+
+If the platform cannot speak the language or listen, or its LLM does not answer
+a test question within 10 seconds, the app notices on start-up, says so once
+with a crossed-out microphone, and works entirely by touch: the itinerary
+questions and the proposal appear as cards over the map with every answer as
+a button. That is how it is being tested on the older local emulator (v2.1.5),
+which has neither voice nor a usable LLM.
 
 Pleos has not published client libraries for these services yet, so I wrote the
 speech and LLM clients by hand from the contract I read out of the caas 4.2.9 in

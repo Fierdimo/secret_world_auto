@@ -1,6 +1,6 @@
 # Secret World Auto: how the app will work with the car's navigation
 
-November 2026
+November 2026 · updated 17 November 2026
 
 ## Summary
 
@@ -18,10 +18,11 @@ These are my decisions:
    starts a trip, Secret World hands over the destination and the stops.
 3. **Secret World still shows its points on a map** while exploring and while
    building an itinerary, because no navigation app will draw them for us. That
-   map will be **our own, without Mapbox**, built on open-source software and
-   OpenStreetMap data.
-4. **Mapbox stays only in the phone version**, which becomes the **proof of
-   concept**. Its licence covers phones, not cars.
+   map is **our own, without Mapbox**, built on open-source software and
+   OpenStreetMap data. *Done: it is already in the app.*
+4. **Mapbox is gone from every version**, the phone one included. We do not
+   have a licence for it, so nothing we show depends on it. The current version
+   is the **proof of concept**.
 5. **Everything built so far still counts.** Above all, the voice commands do not
    depend on how the screen looks, and they carry over as they are.
 
@@ -63,11 +64,14 @@ App Market, and works without a phone.
 | **Split screen, next to the navigation app** | The main mode while driving: Secret World on one side, the navigation map on the other |
 | **Minimised / background** | Secret World keeps narrating by voice while the navigation app takes the whole screen |
 
-Android Automotive supports split screen. How Pleos exposes it (which app
-category we must declare, what sizes we get) is something I still have to
-confirm myself by testing it on the current Pleos emulator, Connect Waterfall.
-That emulator only runs on a PC with an x86_64 processor (Windows or Linux),
-and I do not have one yet: it does not run on my Mac.
+Android Automotive supports split screen. On the older Pleos emulator that runs
+on my Mac (v2.1.5), the home screen gives apps **two slots**: a large landscape
+one (1640 × 1400) and a small portrait one (800 × 1400), next to an area the
+home screen keeps for the driving view. The app now fits both. How the current
+emulator, Connect Waterfall, exposes this (which app category we must declare,
+what sizes we get) is something I still have to confirm myself. That emulator
+only runs on a PC with an x86_64 processor (Windows or Linux), and I do not
+have one yet.
 
 ## The navigation apps
 
@@ -124,23 +128,27 @@ Technically, Mapbox works on Android Automotive. The problem is the licence:
   offering**, which is a separate commercial agreement and an expensive one.
 - The contract that covers the phone app **does not cover the car**.
 
-So Mapbox cannot be the map in the car without a new automotive agreement. It is
-fine for the phone demo, which is what it stays as.
+So Mapbox cannot be the map in the car without a new automotive agreement. And
+since we do not have a Mapbox licence for this project at all, **it has been
+removed from every version** (17 November 2026), the phone demo included.
 
-### The alternative: our own map, without Mapbox
+### What replaced it: OpenStreetMap
 
-Since our map only needs to show **points**, not routes, it can be built with
-open-source pieces and no per-vehicle licence:
+Our map only needs to show **points**, so it is built with open-source pieces
+and no per-vehicle licence. This is what the app uses today:
 
 | Piece | Choice | Why |
 |---|---|---|
-| Map engine | **MapLibre** | The open-source continuation of the engine Mapbox used, BSD licence. Works on Android Automotive and is almost a drop-in replacement, so the change is contained |
-| Map data | **OpenStreetMap**, hosted by us or by a provider such as MapTiler | Free to use with attribution; no contract per car |
-| Style | Our own day and night styles, matching the app's light and dark themes | As the app does today |
-| Offline fallback | The simple map the app already draws itself | Points still show with no network |
+| Map engine | **MapLibre** | The open-source continuation of the engine Mapbox used, BSD licence. Works on Android Automotive; it already runs in the Pleos emulator |
+| Map data and style | **OpenStreetMap**, through OpenFreeMap's free day and night styles | Free to use with attribution; no key and no contract per car |
+| Business search | **Nominatim** (by type: restaurants, fuel, parking…) and **Photon** (by name, tolerant of misheard words) | OpenStreetMap's own search services |
+| Durations and route line for itineraries | **OSRM** | The route the driver follows is still the navigation app's |
+| Business photos | None: the place's initial | Mapbox's satellite view is gone; landmarks keep their Wikipedia photos |
 
-Before committing to it, I want to check that MapLibre runs well on Pleos
-hardware and how much map data the catalogue's regions need.
+The public OpenStreetMap servers are fine for demos, but they limit use (for
+Nominatim, one request per second). For the product we need our own server or
+a paid provider, such as MapTiler. I also still want to check how MapLibre runs
+on real Pleos hardware and how much map data the catalogue's regions need.
 
 ## How the app and the navigation will work together
 
@@ -177,8 +185,8 @@ replaced by the real connection without changing Secret World's side.
 
 ## What the current version proves
 
-The phone version with Mapbox becomes the **proof of concept**. Most of it
-carries over to the car unchanged, because it does not depend on the map:
+The current version, now on OpenStreetMap, is the **proof of concept**. Most of
+it carries over to the car unchanged, because it does not depend on the map:
 
 - **Voice commands.** Wake word, understanding what the driver says (grammar
   first, an on-device language model for anything else), replies spoken aloud,
@@ -192,21 +200,28 @@ carries over to the car unchanged, because it does not depend on the map:
   "radar" search that widens until it finds enough.
 - **Saved itineraries** and settings (language, action radius, theme).
 - **Recovery when the connection drops**, which matters even more in a car.
+- **Use by touch alone.** Everything also works with no voice and no AI: the
+  itinerary questions and the proposal appear as cards over the map with all
+  their answers as buttons. The app detects on start-up whether the car can
+  speak and listen, and if not, it switches to touch without blocking anything.
+  This is how it is being tested now on the Pleos emulator, which has neither.
 
 What changes for the car:
 
 - The **layout**: the panel becomes the app, next to the navigation.
-- The **map**: Mapbox is replaced by our own map, and it shows points only.
+- The **map**: our own OpenStreetMap map, showing points only. *(Mapbox is
+  already gone.)*
 - The **route line and the cinematic flight along it** are dropped: the
   navigation draws the route.
 - The **hand-over** goes through NaviHelper instead of Google Maps or Waze.
 
 ## Next steps
 
-1. Build the split-screen demo for clients, on the current phone version.
-2. Try MapLibre with OpenStreetMap data as the map for the car version, and
-   check how it runs on Pleos hardware.
+1. Build the split-screen demo for clients, on the current version.
+2. Check how the OpenStreetMap map runs on real Pleos hardware, and choose a
+   server or provider for the product.
 3. Adapt the layout to a panel next to the navigation, starting from the
-   current left-hand panel.
+   current left-hand panel. *Started: it already fits Pleos's large and small
+   slots.*
 4. When I have an x86_64 PC, run the Connect Waterfall emulator to check split
    screen, markers on Pleos's map and the hand-over through NaviHelper.

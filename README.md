@@ -8,14 +8,15 @@ construida sobre el contenido, el backend y la marca de Secret World, pero como
 > **Estado: MVP demostrativo funcionando.** Catálogo **real** de Secret World por
 > posición, narración por voz sintetizada en el dispositivo, **órdenes por voz sin
 > tocar la pantalla** —palabra de activación *"Siky"* y vocabulario cerrado— y una
-> interfaz de automoción con el **mapa como lienzo permanente** — Mapbox en el
-> banco de pruebas, lienzo propio en el vehículo. Cuatro pantallas: home, detalle,
+> interfaz de automoción con el **mapa como lienzo permanente** — OpenStreetMap
+> con MapLibre; sin Mapbox, que no tenemos licenciado. Se usa también solo
+> tocando, sin voz ni IA, que es como se prueba ahora en el emulador de Pleos. Cuatro pantallas: home, detalle,
 > itinerario y ajustes. Capturas en [spikes/ui/](spikes/ui/).
 >
 > Sigue sin ser producto. Tres brechas técnicas abiertas, por orden de trabajo:
 > **detección de voz eficiente** (hoy se reabre el reconocedor de AOSP en cada
-> frase, no hay detector de palabra clave), **mapa real en el vehículo** (puente
-> con Mapbox mientras Pleos no entregue el nativo) y **navegación** ("Llévame
+> frase, no hay detector de palabra clave), **mapa real en el vehículo** (el
+> propio de OpenStreetMap, solo para los puntos, junto al navegador) y **navegación** ("Llévame
 > ahí" no fija destino). Y, fuera del código: el contenido no está reescrito para
 > ser oído y no hay cuenta vinculada. Ver
 > [ROADMAP.md § Dónde estamos de verdad](ROADMAP.md#dónde-estamos-de-verdad).
@@ -43,7 +44,7 @@ asistente conversacional abierto, capaz de responder y recomendar con criterio.
 | [docs/BACKEND-REUSE.md](docs/BACKEND-REUSE.md) | Qué se reutiliza del backend actual y por qué la v1 no lo toca |
 | [docs/MONETIZATION.md](docs/MONETIZATION.md) | Los tres modelos de monetización y cuál va en v1 |
 | [docs/B2B-STRATEGY.md](docs/B2B-STRATEGY.md) | Cómo llegar a un acuerdo directo con Hyundai Motor Group |
-| [docs/MAP-OPTIONS.md](docs/MAP-OPTIONS.md) | **El mapa**: lienzo propio, Mapbox o el nativo del vehículo, y qué bloquea cada uno |
+| [docs/MAP-OPTIONS.md](docs/MAP-OPTIONS.md) | **El mapa**: el de OpenStreetMap que usa la app, y por qué se retiró Mapbox |
 | [docs/DEV-ENVIRONMENT.md](docs/DEV-ENVIRONMENT.md) | **Dónde ejecutar el emulador**: por qué este Mac se queda corto y qué alternativas hay |
 | [docs/PLEOS-SDK-SURFACE.md](docs/PLEOS-SDK-SURFACE.md) | **El SDK real, medido**: permisos `pleos.car.permission.*`, servicios vinculables y qué habilita cada uno |
 | [docs/VOICE-OPTIONS.md](docs/VOICE-OPTIONS.md) | **La voz**: la plataforma no la pone, qué alternativas hay y cuál se recomienda |

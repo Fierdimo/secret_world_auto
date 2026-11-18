@@ -227,7 +227,8 @@ la sección grande y nosotros en la pequeña.
   cancela con `cancelRoute` de NaviHelper.
 - **En la demo del móvil se imita con la pantalla dividida de Android**: Google
   Maps en una mitad y Secret World en la otra. Si el teléfono no tiene
-  navegador, se usa la navegación propia con Mapbox como último recurso.
+  navegador, se usa la navegación propia (rutas de OSRM sobre OpenStreetMap)
+  como último recurso.
 - **Todo destino va al navegador del usuario** —"llévame ahí", "llévame al
   Hotel Caribe", las paradas del itinerario—, no solo en pantalla dividida. A
   pantalla completa el navegador queda delante y Secret World se oculta: la voz
@@ -323,7 +324,7 @@ Ver §2.4 para el porqué. Decidido el 2026‑11‑03.
 - RF-8.10 **Horarios de apertura**: hoy no los trae ninguna fuente que usamos. Hasta tenerlos, la app no afirma que un sitio esté abierto.
 
 **Recorrido**
-- RF-8.11 Cada parada se **entrega al navegador** que use el usuario: Waze o Google Maps en el móvil, NaviHelper en Pleos. La navegación propia con Mapbox queda como respaldo cuando no hay navegador.
+- RF-8.11 Cada parada se **entrega al navegador** que use el usuario: Waze o Google Maps en el móvil, NaviHelper en Pleos. La navegación propia, con rutas de OSRM sobre OpenStreetMap, queda como respaldo cuando no hay navegador. Sin Mapbox en ninguna versión: no tenemos licencia.
 - RF-8.12 La llegada a cada parada se detecta con la posición del vehículo. Al llegar, la app **ofrece** la narración y espera un sí (§2.4). Después propone la siguiente parada.
 - RF-8.13 Durante el recorrido valen "siguiente parada", "salta esta", "¿cuánto queda?" y "termina el itinerario".
 

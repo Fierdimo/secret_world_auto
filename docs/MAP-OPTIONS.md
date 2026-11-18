@@ -2,6 +2,22 @@
 
 Actualizado el 2026‑09‑04.
 
+> **2026‑11‑17: fuera Mapbox de todas las versiones**, también la del teléfono: no
+> tenemos licencia. La app usa ahora OpenStreetMap:
+>
+> | Para | Qué | Dónde |
+> |---|---|---|
+> | El mapa | **MapLibre** 13 con los estilos de **OpenFreeMap** (`dark` de noche, `positron` de día), sin rótulos | `app/src/bench/kotlin/.../map/TourFlyover.kt`, compartido por banco de pruebas, demo y Pleos |
+> | Negocios por tipo | **Nominatim**, búsqueda estructurada (`amenity=restaurant`, `fuel`, `parking`…) | `core/data/.../OsmServices.kt` |
+> | Sitios por nombre | **Nominatim** en texto libre y **Photon** a la vez | `OsmServices.kt`, `NominatimAreas.kt` |
+> | Duración y trazado del itinerario | **OSRM** | `OsmServices.kt` |
+> | Dónde se está, sin geocodificador del sistema | **Nominatim**, geocodificación inversa | `NominatimAreas.describe` |
+>
+> Sin clave, sin token de descarga y sin satélite: los negocios sin foto llevan
+> su inicial. Los servidores públicos valen para demos; el producto necesita
+> servidor propio o de pago. El resto de este documento es **historia**: explica
+> cómo se llegó aquí.
+
 > **2026‑11‑06: decidido.** En el coche no hay mapa propio: la app es un panel
 > junto al navegador nativo, al que se le pasa la ruta por NaviHelper. Mapbox
 > queda para la prueba de concepto en teléfono. Ver

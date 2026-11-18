@@ -1,14 +1,20 @@
 # ROADMAP
 
-Versión 0.3, actualizada el 2026‑11‑17. Las fechas son relativas al arranque,
+Versión 0.4, actualizada el 2026‑11‑17. Las fechas son relativas al arranque,
 que **ya se ha producido**: el emulador arm64 de Pleos Connect funciona en local
 desde el 2026‑09‑03. Ver [SETUP.md](SETUP.md).
+
+> Cambios respecto a 0.3: **fuera Mapbox de todas las versiones**, también la del
+> teléfono: no tenemos licencia. Mapa, búsqueda y rutas son ahora de
+> OpenStreetMap (MapLibre, Nominatim, Photon y OSRM). **Por ahora se prueba sin
+> voz ni IA**, en el emulador local de Pleos, que no tiene ninguna de las dos: la
+> app lo detecta al arrancar y se usa entera tocando, itinerarios incluidos.
 
 > Cambios respecto a 0.2: **la guía hablada es del navegador del sistema**; la app
 > no narra maniobras, recálculos ni llegadas, y su narración es siempre a petición
 > del usuario. En el coche **no hay mapa propio de navegación**; la app
-> es un panel junto al navegador nativo y Mapbox queda para la prueba de concepto
-> en teléfono ([docs/NAVIGATION-AND-MAP-DECISIONS.md](docs/NAVIGATION-AND-MAP-DECISIONS.md)).
+> es un panel junto al navegador nativo
+> ([docs/NAVIGATION-AND-MAP-DECISIONS.md](docs/NAVIGATION-AND-MAP-DECISIONS.md)).
 > Hay dos APK de prueba: la demo para teléfono y la versión Pleos con los
 > servicios de la plataforma. La voz se ha medido en un móvil de gama baja
 > (Snapdragon 685) y se ha ajustado para que la IA nunca la frene.
@@ -65,7 +71,8 @@ Actualizado el 2026‑11‑17. Conviene ser exacto, porque es fácil confundir u
 prueba de concepto con un producto.
 
 **Lo construido es una prueba de concepto completa en teléfono**, con una
-versión para Pleos que todavía no se ha visto funcionar en su emulador actual.
+versión para Pleos que ya funciona en el emulador local (v2.1.5) usándose solo
+con el tacto, y que todavía no se ha visto en su emulador actual, Connect‑W.
 Demuestra que el producto se puede hacer y se entiende al usarlo; aún no
 demuestra que funcione dentro del coche.
 
@@ -74,24 +81,32 @@ demuestra que funcione dentro del coche.
 | APK | Para | Voz, escucha e IA | Estado |
 |---|---|---|---|
 | Demo | Un teléfono Android | Propias, dentro del APK (~750 MB) | Probada en un moto g75 y en un Honor con Snapdragon 685 |
-| Pleos | El emulador Connect‑W (x86_64) | Las de la plataforma | Sin probar: el emulador no arranca en Apple Silicon |
+| Pleos | Los emuladores de Pleos | Las de la plataforma, si las hay; si no, solo tacto | Probada en el emulador local v2.1.5 (arm64), sin voz ni IA. En Connect‑W (x86_64), sin probar: no arranca en Apple Silicon |
 
-### Lo que ve hoy quien abre la demo
+### Lo que ve hoy quien abre la app
 
+- **El mapa es de OpenStreetMap** (MapLibre con los estilos de OpenFreeMap, día y
+  noche), sin Mapbox.
 - **«Qué ver»**: los sitios del catálogo y de Wikipedia alrededor, con foto y
   texto. Wikipedia se consulta en inglés, español e italiano y se junta por
   Wikidata, así que **los sitios son los mismos en los tres idiomas**; los
   eventos se filtran.
 - **Búsquedas como un radar** (restaurantes, gasolina, aparcamiento…), que
   empiezan cerca y amplían el radio hasta encontrar bastante, también en otra
-  zona y por nombre de cadena.
+  zona y por nombre de cadena. Los negocios salen de OpenStreetMap (Nominatim
+  por tipo, Photon por nombre); sin foto propia, llevan su inicial.
 - **Órdenes de voz sin tocar nada** en inglés, español e italiano, empezando por
   *"Secret"*. La gramática local resuelve las básicas en milisegundos; una
   batería de pruebas recorre cada orden en los tres idiomas. Con auriculares se
   puede interrumpir a la app mientras habla.
-- **Itinerarios**: sugeridos de viva voz o armados a mano, presentados con un
-  vuelo por el mapa, editables de viva voz, guardados en «Mis itinerarios» y
-  enviados a Google Maps o Waze con la app en una ventana flotante.
+- **Itinerarios**: sugeridos de viva voz o **tocando** —las preguntas y la
+  propuesta salen en una tarjeta sobre el mapa con todas las respuestas como
+  botones—, o armados a mano; presentados con un vuelo por el mapa, editables de
+  viva voz, guardados en «Mis itinerarios» y enviados a Google Maps o Waze con la
+  app en una ventana flotante.
+- **Uso solo táctil**: si el dispositivo no puede hablar o escuchar el idioma, o
+  su IA no contesta a tiempo, la app lo comprueba al arrancar, lo dice una vez
+  con el micrófono tachado y sigue sin bloquear nada.
 - **Narración** sintetizada en el dispositivo, frase a frase; si un sitio no tiene
   texto en el idioma, la app lo dice y pregunta antes de traducirlo.
 - **Primer arranque** con pantalla de carga mientras se instalan voces y modelos;
@@ -124,11 +139,43 @@ construyendo:
 4. Las **voces que mejor suenan no se pueden licenciar** comercialmente.
 5. El **rendimiento** es viable en hardware real, pero el del emulador no sirve
    para decidir nada.
-6. **Mapbox en el coche exige un contrato de automoción aparte.** Decidido: en el
-   coche, panel junto al navegador nativo y, si hace falta mapa, uno propio con
-   MapLibre y OpenStreetMap solo para los puntos.
-7. **Un modelo de IA en el dispositivo no es viable en gama baja** para contestar
+6. **Mapbox en el coche exige un contrato de automoción aparte**, y para este
+   proyecto no tenemos licencia de Mapbox. Hecho: fuera de todas las versiones;
+   mapa propio con MapLibre y OpenStreetMap solo para los puntos, y en el coche
+   el panel junto al navegador nativo.
+7. **Pleos no da a la app la pantalla entera**: la abre en uno de dos huecos
+   (1640 × 1400 apaisado y 800 × 1400 vertical en la v2.1.5) y le pasa las medidas
+   de toda la pantalla. La app mide ahora su ventana real y se adapta a los dos.
+8. **Un modelo de IA en el dispositivo no es viable en gama baja** para contestar
    en marcha: sirve como respaldo, nunca como camino principal.
+
+### Cómo se prueba ahora: sin voz ni IA
+
+Desde el 2026‑11‑17 las pruebas se hacen en el **emulador local de Pleos
+(v2.1.5, arm64)**, que no tiene voz en ningún idioma salvo coreano, cuyo
+reconocedor no recibe audio y cuya IA genera tan despacio que no sirve. La app
+lo detecta al arrancar —la voz con una frase de prueba, la IA con una pregunta
+que debe contestar en 10 s— y pasa a usarse solo tocando. Así se comprueban los
+procesos a mano sin quitar nada: la voz vuelve en cuanto el dispositivo la tenga.
+
+Recorrido probado tocando, de principio a fin:
+
+- Inicio con el mapa, las secciones (qué ver, restaurantes, gasolina…) y la lista.
+- Búsqueda por tipo en OpenStreetMap: en el Centro de Cartagena, 60 restaurantes.
+- «Mis itinerarios» → «Sugerido» → cuánto tiempo → qué gusta → propuesta con su
+  ruta → guardar o empezar.
+- Ficha de un sitio con su texto, que sustituye a escucharlo cuando no hay voz.
+- Los dos huecos de Pleos y el paso de uno a otro.
+
+Pendiente de esta línea de pruebas:
+
+- La tarjeta de ruta enseña la maniobra en bruto de OSRM («depart right…»), sin
+  traducir. Como la guía es del navegador, quizá baste con no enseñarla.
+- La conversación con voz no se ha vuelto a probar en un dispositivo que la
+  tenga después de estos cambios.
+- El emulador y una compilación completa a la vez agotan los 8 GB del Mac y el
+  emulador se cierra: arrancarlo con `-gpu swiftshader_indirect` y no compilar
+  todas las variantes con él en marcha.
 
 ### Lo que falta para que esto sea un MVP
 
@@ -140,11 +187,14 @@ En orden de cuánto acercan el producto a alguien que lo usaría:
    ella, en el coche no se puede fijar destino.
 3. **Probar la versión Pleos en Connect‑W**: voz, escucha y pantalla dividida.
    Hace falta un PC x86_64; la guía de instalación está en `docs/PLEOS-TEST.md`,
-   en la rama `pleos`.
-4. **Interfaz simplificada para conducir**: el panel junto al navegador, según
+   en la rama `pleos`. *Mientras, se prueba en el emulador local sin voz ni IA.*
+4. **Servidor propio de OpenStreetMap** —teselas, búsqueda y rutas— o un
+   proveedor de pago. Los servidores públicos valen para demos pero limitan el
+   uso (Nominatim, una petición por segundo).
+5. **Interfaz simplificada para conducir**: el panel junto al navegador, según
    las normas de distracción.
-5. **Caché sin conexión por zona**: sitios, textos, fotos y narraciones.
-6. **Cuenta vinculada**, para que favoritos e itinerarios aparezcan en el coche.
+6. **Caché sin conexión por zona**: sitios, textos, fotos, narraciones y mapa.
+7. **Cuenta vinculada**, para que favoritos e itinerarios aparezcan en el coche.
 
 ### Lo que falta para poder enviar el APK a un desconocido
 
@@ -194,11 +244,11 @@ a petición del usuario: la app no habla sola en marcha (SPEC RF‑3.3).
 
 - [x] **Superficie de POIs en marcha** y **modo detenido**, en Compose con sistema de diseño propio *(2026‑09‑03)*. Capturas y hallazgos en [spikes/ui/](spikes/ui/).
 - [x] `DrivingModeController` con vehículo simulado; falta engancharlo al Vehicle SDK real.
-- [x] Mapa e itinerarios en modo detenido, en la prueba de concepto con Mapbox. *En el coche, sin Mapbox: ver [docs/NAVIGATION-AND-MAP-DECISIONS.md](docs/NAVIGATION-AND-MAP-DECISIONS.md).*
+- [x] Mapa e itinerarios en modo detenido. *Desde el 2026‑11‑17, con OpenStreetMap y sin Mapbox en ninguna versión: ver [docs/NAVIGATION-AND-MAP-DECISIONS.md](docs/NAVIGATION-AND-MAP-DECISIONS.md).*
 - [ ] **Registrar el CRN del emulador en Playground**: hasta entonces la pantalla solo funciona desactivando el setup wizard.
 - [ ] `TourQueue` v2 sobre la ruta activa: lo que hay por delante en la ruta, para
       ofrecerlo cuando el conductor pregunte, no para narrarlo solo.
-- [ ] Layouts para Connect-S, W y WF, en landscape, portrait y media pantalla. *Prioridad: el panel junto al navegador.*
+- [ ] Layouts para Connect-S, W y WF, en landscape, portrait y media pantalla. *Prioridad: el panel junto al navegador. Hecho para los dos huecos de la v2.1.5: el grande con mapa y panel, el pequeño vertical con la lista a todo el ancho.*
 
 **Hito 2**: recorrido completo, con el coche yendo a un destino y la app
 contando, cuando se le pide, lo que hay en el camino.

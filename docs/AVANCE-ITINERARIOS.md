@@ -146,7 +146,7 @@ The same app, with no voice or AI of its own:
 | Listening | The platform's speech recognizer (`ai.umos.ambientai`) |
 | Speaking | The Pleos caas speech synthesis |
 | LLM | The caas on-device LLM, only for what the grammar does not understand |
-| Map | Mapbox (the emulator needs internet) |
+| Map | OpenStreetMap with MapLibre (the emulator needs internet). No Mapbox |
 
 Pleos has not published the client libraries for these services yet. I wrote the
 clients by hand from the contract I read out of the caas 4.2.9 in the
