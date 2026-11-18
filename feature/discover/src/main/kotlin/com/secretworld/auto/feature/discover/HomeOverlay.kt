@@ -278,7 +278,7 @@ private fun PlaceLine(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = listOfNotNull(formatDistance(origin.distanceTo(place.position)), place.kind).joinToString(" · "),
+                    text = listOfNotNull(formatDistance(origin.distanceTo(place.position)), kindLabel(place.kind)).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

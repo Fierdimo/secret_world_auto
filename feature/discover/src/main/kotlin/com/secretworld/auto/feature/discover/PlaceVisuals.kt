@@ -102,7 +102,7 @@ internal fun PhotoCard(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = listOfNotNull(distance, place.kind).joinToString(" · "),
+                text = listOfNotNull(distance, kindLabel(place.kind)).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.78f),
                 maxLines = 1,

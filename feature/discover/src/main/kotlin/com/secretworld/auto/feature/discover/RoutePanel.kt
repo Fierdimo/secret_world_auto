@@ -614,7 +614,7 @@ internal fun PlaceEntry(
         Spacer(Modifier.height(d.spaceXs))
         // Qué es y dónde, para lo que salió de una búsqueda: es lo que decide si
         // merece la pena ir.
-        val about = listOfNotNull(place.kind, place.address).joinToString(" · ")
+        val about = listOfNotNull(kindLabel(place.kind), place.address).joinToString(" · ")
         if (!hasStory && about.isNotBlank()) {
             Text(
                 text = about,

@@ -104,7 +104,7 @@ fun PlaceDetailPanel(
             Text(
                 // Un sitio con historia es "lugar de interés": la ciudad que trae
                 // Wikipedia puede ser un barrio lejano ("Bocagrande" en el Centro).
-                text = (if (hasStory) stringResource(R.string.sight) else place.kind).orEmpty().uppercase(),
+                text = (if (hasStory) stringResource(R.string.sight) else kindLabel(place.kind)).orEmpty().uppercase(),
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
