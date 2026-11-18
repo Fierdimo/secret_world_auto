@@ -128,3 +128,15 @@ recomendado, carga mientras visitas.
   exige, el modelo A no es viable y la v1 cambia de forma.
 - Si Pleos Account puede usarse para vincular con nuestra cuenta sin teclear.
 - Qué apetito tiene Hyundai por acuerdos de contenido con terceros (modelo C).
+
+## Hueco para socios en la ficha *(2026‑11‑18)*
+
+La ficha de cada sitio tiene ya una sección **«Opiniones»** pensada para socios
+como Tripadvisor: una tarjeta por proveedor con su nombre, la nota sobre 5, el
+número de opiniones, el nivel de precio, una frase de una opinión si el socio
+la deja mostrar, y el enlace «Abrir en …». Hoy no hay ningún socio conectado y
+la sección no sale; conectar uno es rellenar `PartnerInfo`
+(`feature/parked/.../PlaceDetailPanel.kt`), no rehacer la ficha.
+
+Antes de conectar uno hay que revisar sus condiciones: atribución obligatoria,
+qué datos se pueden guardar y si se pueden mostrar en un coche en marcha.

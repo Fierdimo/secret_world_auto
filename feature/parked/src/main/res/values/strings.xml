@@ -25,4 +25,10 @@
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
     <string name="radius_km">%1$d km</string>
+    <string name="see_more">See more</string>
+    <string name="see_less">See less</string>
+    <string name="reviews">Reviews</string>
+    <string name="reviews_count">%1$d reviews</string>
+    <string name="open_in">Open in %1$s</string>
+    <string name="sight">Sight</string>
 </resources>

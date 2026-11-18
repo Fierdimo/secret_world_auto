@@ -25,4 +25,10 @@
     <string name="theme_light">Claro</string>
     <string name="theme_dark">Oscuro</string>
     <string name="radius_km">%1$d km</string>
+    <string name="see_more">Ver más</string>
+    <string name="see_less">Ver menos</string>
+    <string name="reviews">Opiniones</string>
+    <string name="reviews_count">%1$d opiniones</string>
+    <string name="open_in">Abrir en %1$s</string>
+    <string name="sight">Lugar de interés</string>
 </resources>
