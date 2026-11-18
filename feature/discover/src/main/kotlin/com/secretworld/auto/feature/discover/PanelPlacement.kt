@@ -35,3 +35,11 @@ internal fun panelMargins(): PaddingValues {
         PaddingValues(start = d.spaceM, end = d.spaceM, bottom = d.spaceXs)
     }
 }
+
+/**
+ * El fondo del panel: cristal sobre el mapa a un lado; opaco si va abajo, donde
+ * los puntos del mapa se transparentaban sobre el texto.
+ */
+@Composable
+internal fun panelGlass(alpha: Float = 0.84f): androidx.compose.ui.graphics.Color =
+    androidx.compose.material3.MaterialTheme.colorScheme.surface.copy(alpha = if (CarTheme.metrics.stacked) 1f else alpha)

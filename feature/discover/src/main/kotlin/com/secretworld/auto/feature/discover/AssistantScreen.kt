@@ -796,7 +796,7 @@ fun androidx.compose.foundation.layout.BoxScope.ItineraryOverlay(
     onClose: () -> Unit,
 ) {
     val d = CarTheme.dimens
-    val glass = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
+    val glass = panelGlass(0.82f)
     Column(
         Modifier
             .then(panelPlacement())

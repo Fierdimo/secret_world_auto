@@ -1475,7 +1475,8 @@ class MainActivity : ComponentActivity() {
                     )
                 },
                 onLanguage = { code -> VoiceLanguage.fromTag(code)?.let(::switchLanguage) },
-                voiceInstalled = narration.voiceInstalled,
+                // En Pleos la voz es la de la plataforma: no hay nada nuestro que enseñar ni borrar.
+                voiceInstalled = narration.voiceInstalled.takeUnless { BuildConfig.PLEOS_SERVICES },
                 voiceSizeMb = 21,
                 catalogueSource = when (result?.source) {
                     CatalogueRepository.Source.LIVE -> stringResource(com.secretworld.auto.feature.parked.R.string.catalogue_live, result.places.size)

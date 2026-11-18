@@ -57,24 +57,33 @@ fun PlaceDetailPanel(
             .padding(d.spaceM)
             .verticalScroll(rememberScrollState()),
     ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(place.name, style = MaterialTheme.typography.titleLarge)
-                Text(
-                    text = if (hasStory) {
-                        listOfNotNull(place.city, stringResource(R.string.listen_minutes, (place.narrationSeconds + 59) / 60)).joinToString(" · ")
-                    } else {
-                        listOfNotNull(place.kind, place.address, place.city).joinToString(" · ")
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            CarSecondaryButton(label = stringResource(R.string.close), onClick = onClose)
+        // De más a menos peso: qué es (pequeño, de acento) y cerrar, en la misma
+        // línea; el nombre, a todo el ancho; el detalle, en gris. Con el nombre al
+        // lado de "Cerrar", en el hueco pequeño se partía en tres líneas.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = (if (hasStory) place.city else place.kind).orEmpty().uppercase(),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                modifier = Modifier.weight(1f),
+            )
+            CarSecondaryButton(label = stringResource(R.string.close), onClick = onClose, dense = true)
+        }
+        Spacer(Modifier.height(d.spaceXs))
+        Text(place.name, style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+        val detail = if (hasStory) {
+            stringResource(R.string.listen_minutes, (place.narrationSeconds + 59) / 60)
+        } else {
+            listOfNotNull(place.address, place.city).joinToString(" · ")
+        }
+        if (detail.isNotBlank()) {
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         if (place.imageUrl != null) {

@@ -43,7 +43,8 @@ data class LanguageOption(val code: String, val label: String, val selected: Boo
 fun SettingsPanel(
     languages: List<LanguageOption>,
     onLanguage: (String) -> Unit,
-    voiceInstalled: Boolean,
+    /** `null` si la voz no es nuestra —la de la plataforma, en Pleos—: no sale. */
+    voiceInstalled: Boolean?,
     voiceSizeMb: Long,
     catalogueSource: String,
     onRemoveVoice: () -> Unit,
@@ -83,64 +84,41 @@ fun SettingsPanel(
 
         // El idioma de toda la app —pantallas, voz, órdenes—, no solo el de la
         // narración. Al elegirlo la app se vuelve a abrir en él.
-        Text(stringResource(R.string.narration_language), style = MaterialTheme.typography.bodyLarge)
-        Spacer(Modifier.height(d.spaceXs))
-        Row(horizontalArrangement = Arrangement.spacedBy(d.spaceXs)) {
-            languages.forEach { option ->
-                if (option.selected) {
-                    CarButton(label = option.label, onClick = {}, dense = true)
-                } else {
-                    CarSecondaryButton(label = option.label, onClick = { onLanguage(option.code) }, dense = true)
-                }
-            }
-        }
+        SectionLabel(stringResource(R.string.narration_language))
+        OptionGrid(languages.map { Option(it.label, it.selected) { onLanguage(it.code) } })
         // Hasta dónde mira el inicio: lo de alrededor y las búsquedas, dentro de este radio.
         if (radii.isNotEmpty()) {
             Spacer(Modifier.height(d.spaceM))
-            Text(stringResource(R.string.action_radius), style = MaterialTheme.typography.bodyLarge)
-            Spacer(Modifier.height(d.spaceXs))
-            Row(horizontalArrangement = Arrangement.spacedBy(d.spaceXs)) {
-                radii.forEach { km ->
-                    val label = stringResource(R.string.radius_km, km)
-                    if (km == radiusKm) {
-                        CarButton(label = label, onClick = {}, dense = true)
-                    } else {
-                        CarSecondaryButton(label = label, onClick = { onRadius(km) }, dense = true)
-                    }
-                }
-            }
+            SectionLabel(stringResource(R.string.action_radius))
+            OptionGrid(radii.map { km -> Option(stringResource(R.string.radius_km, km), km == radiusKm) { onRadius(km) } })
         }
         // Claro u oscuro: el mapa y los paneles cambian juntos. Al elegirlo la app
         // se vuelve a abrir en él, como con el idioma.
         if (darkTheme != null) {
             Spacer(Modifier.height(d.spaceM))
-            Text(stringResource(R.string.theme), style = MaterialTheme.typography.bodyLarge)
-            Spacer(Modifier.height(d.spaceXs))
-            Row(horizontalArrangement = Arrangement.spacedBy(d.spaceXs)) {
-                listOf(false to R.string.theme_light, true to R.string.theme_dark).forEach { (dark, name) ->
-                    if (dark == darkTheme) {
-                        CarButton(label = stringResource(name), onClick = {}, dense = true)
-                    } else {
-                        CarSecondaryButton(label = stringResource(name), onClick = { onDarkTheme(dark) }, dense = true)
-                    }
-                }
-            }
+            SectionLabel(stringResource(R.string.theme))
+            OptionGrid(
+                listOf(false to R.string.theme_light, true to R.string.theme_dark).map { (dark, name) ->
+                    Option(stringResource(name), dark == darkTheme) { onDarkTheme(dark) }
+                },
+            )
         }
-        Spacer(Modifier.height(d.spaceS))
-        SettingRow(
-            label = stringResource(R.string.installed_voice),
-            value = if (voiceInstalled) stringResource(R.string.voice_on_device, voiceSizeMb) else stringResource(R.string.voice_missing),
-        )
+        Spacer(Modifier.height(d.spaceM))
+        if (voiceInstalled != null) {
+            SettingRow(
+                label = stringResource(R.string.installed_voice),
+                value = if (voiceInstalled) stringResource(R.string.voice_on_device, voiceSizeMb) else stringResource(R.string.voice_missing),
+            )
+        }
         SettingRow(stringResource(R.string.catalogue), catalogueSource)
 
-        Spacer(Modifier.height(d.spaceS))
-        if (voiceInstalled) {
+        if (voiceInstalled == true) {
+            Spacer(Modifier.height(d.spaceS))
             CarSecondaryButton(label = stringResource(R.string.remove_voice), onClick = onRemoveVoice)
         }
 
         Spacer(Modifier.height(d.spaceL))
-        Text(stringResource(R.string.account), style = MaterialTheme.typography.bodyLarge)
-        Spacer(Modifier.height(d.spaceXs))
+        SectionLabel(stringResource(R.string.account))
         Text(
             text = stringResource(R.string.account_hint),
             style = MaterialTheme.typography.bodySmall,
@@ -149,13 +127,57 @@ fun SettingsPanel(
 
         if (testing.isNotEmpty() || testingStatus != null) {
             Spacer(Modifier.height(d.spaceL))
-            Text(stringResource(R.string.testing), style = MaterialTheme.typography.bodyLarge)
+            SectionLabel(stringResource(R.string.testing))
             testingStatus?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(d.spaceXs))
             }
-            Spacer(Modifier.height(d.spaceXs))
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(d.spaceXs)) {
-                testing.forEach { CarSecondaryButton(label = it.label, onClick = it.onClick, dense = true) }
+            OptionGrid(testing.map { Option(it.label, selected = false, onClick = it.onClick) })
+        }
+    }
+}
+
+/** El nombre de una sección: pequeño, en mayúsculas y del color de acento. */
+@Composable
+private fun SectionLabel(text: String) {
+    val d = CarTheme.dimens
+    Text(
+        text = text.uppercase(),
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary,
+    )
+    Spacer(Modifier.height(d.spaceXs))
+}
+
+private class Option(val label: String, val selected: Boolean, val onClick: () -> Unit)
+
+/**
+ * Las opciones de una sección en rejilla regular: todas del mismo ancho y con
+ * tantas columnas como quepan. En una fila sin más, en el hueco pequeño de
+ * Pleos "Español" salía cortado.
+ */
+@Composable
+private fun OptionGrid(options: List<Option>) {
+    if (options.isEmpty()) return
+    val d = CarTheme.dimens
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val minWidth = d.actionMinWidth
+        val fits = ((maxWidth + d.spaceXs) / (minWidth + d.spaceXs)).toInt().coerceIn(1, options.size)
+        val rows = (options.size + fits - 1) / fits
+        val columns = (options.size + rows - 1) / rows
+        Column(verticalArrangement = Arrangement.spacedBy(d.spaceXs)) {
+            options.chunked(columns).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(d.spaceXs)) {
+                    row.forEach { option ->
+                        if (option.selected) {
+                            CarButton(label = option.label, onClick = {}, dense = true, modifier = Modifier.weight(1f))
+                        } else {
+                            CarSecondaryButton(label = option.label, onClick = option.onClick, dense = true, modifier = Modifier.weight(1f))
+                        }
+                    }
+                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                }
             }
         }
     }

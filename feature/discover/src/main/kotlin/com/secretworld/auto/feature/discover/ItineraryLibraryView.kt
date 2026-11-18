@@ -96,7 +96,7 @@ fun BoxScope.ItineraryLibraryOverlay(
 ) {
     val d = CarTheme.dimens
     val accent = MaterialTheme.colorScheme.primary
-    val glass = MaterialTheme.colorScheme.surface.copy(alpha = 0.84f)
+    val glass = panelGlass(0.84f)
     val shape = RoundedCornerShape(d.cardCorner)
     Column(
         Modifier
