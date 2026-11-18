@@ -1,5 +1,7 @@
 package com.secretworld.auto.feature.parked
 
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
@@ -73,10 +75,13 @@ data class PartnerInfo(
 /**
  * La ficha de un lugar, con el vehículo detenido.
  *
- * De más a menos peso: qué es y cerrar; la foto, si la hay; el nombre; las
- * acciones, del mismo ancho; la historia, recortada con "Ver más" si es larga;
- * y, al final, lo de los socios. Un negocio no tiene historia: se enseña qué es
- * y dónde, y se ofrece ir.
+ * Arriba, **fijo**, un hero: la foto de fondo y, encima, qué es, el nombre,
+ * cerrar e ir. Debajo, lo que se lee —la historia, las opiniones—, que es lo
+ * único que se desplaza. Antes la foto se llevaba media ficha, "Llévame" era
+ * una barra a todo el ancho y, al bajar a leer, las acciones se perdían.
+ *
+ * Sin foto —un negocio—, el mismo hero sobre el degradado de la marca, con la
+ * inicial grande y tenue de fondo.
  */
 @Composable
 fun PlaceDetailPanel(
@@ -90,120 +95,223 @@ fun PlaceDetailPanel(
     partners: List<PartnerInfo> = emptyList(),
 ) {
     val d = CarTheme.dimens
+    // Lo que salió de una búsqueda —un restaurante, una gasolinera— no tiene
+    // historia: se enseña qué es y dónde, y se ofrece ir.
     val hasStory = place.kind == null && place.summary != null
-    Column(
-        modifier = modifier
+    val detail = if (hasStory) {
+        // Lo que dura escucharla, solo si se puede escuchar.
+        if (onListen != null) stringResource(R.string.listen_minutes, (place.narrationSeconds + 59) / 60) else ""
+    } else {
+        listOfNotNull(place.address, place.city).joinToString(" · ")
+    }
+    // Un sitio con historia es "lugar de interés": la ciudad que trae Wikipedia
+    // puede ser un barrio lejano ("Bocagrande" en el Centro).
+    val eyebrow = (if (hasStory) stringResource(R.string.sight) else kindLabel(place.kind)).orEmpty()
+    BoxWithConstraints(
+        modifier
             .fillMaxHeight()
             .background(MaterialTheme.colorScheme.surface)
-            .panelInsetsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(d.spaceM),
+            .panelInsetsPadding(),
     ) {
-        // Qué es (pequeño, de acento) y cerrar, en la misma línea.
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                // Un sitio con historia es "lugar de interés": la ciudad que trae
-                // Wikipedia puede ser un barrio lejano ("Bocagrande" en el Centro).
-                text = (if (hasStory) stringResource(R.string.sight) else kindLabel(place.kind)).orEmpty().uppercase(),
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+        val heroHeight = maxHeight * (if (maxWidth > maxHeight * WIDE_RATIO) HERO_SHARE_WIDE else HERO_SHARE_NARROW)
+        Column(Modifier.fillMaxSize()) {
+            Hero(
+                place = place,
+                eyebrow = eyebrow,
+                detail = detail,
+                onClose = onClose,
+                onListen = onListen.takeIf { hasStory },
+                onNavigate = onNavigate,
+                // Un mínimo, y más si el nombre y la dirección lo piden: con un alto
+                // fijo, en el hueco pequeño "Cerrar" pisaba el nombre y "Llévame" se cortaba.
+                modifier = Modifier.fillMaxWidth().heightIn(min = heroHeight),
             )
-            CarSecondaryButton(label = stringResource(R.string.close), onClick = onClose, dense = true)
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = d.spaceM, vertical = d.spaceS),
+            ) {
+                place.summary?.takeIf { it.isNotBlank() }?.let { Story(it) }
+                if (partners.isNotEmpty()) {
+                    Spacer(Modifier.height(d.spaceM))
+                    SectionLabel(stringResource(R.string.reviews))
+                    partners.forEach { partner ->
+                        PartnerCard(partner)
+                        Spacer(Modifier.height(d.spaceXs))
+                    }
+                }
+                Spacer(Modifier.height(d.spaceM))
+            }
         }
-        Spacer(Modifier.height(d.spaceS))
+    }
+}
 
-        val detail = if (hasStory) {
-            // Lo que dura escucharla, solo si se puede escuchar.
-            if (onListen != null) stringResource(R.string.listen_minutes, (place.narrationSeconds + 59) / 60) else ""
-        } else {
-            listOfNotNull(place.address, place.city).joinToString(" · ")
-        }
+/**
+ * La cabecera de la ficha: foto (o degradado con la inicial), y encima, en
+ * blanco sobre un velo oscuro, todo lo que identifica el sitio y lo que se
+ * puede hacer con él.
+ */
+@Composable
+private fun Hero(
+    place: Place,
+    eyebrow: String,
+    detail: String,
+    onClose: () -> Unit,
+    onListen: (() -> Unit)?,
+    onNavigate: () -> Unit,
+    modifier: Modifier,
+) {
+    val d = CarTheme.dimens
+    val accent = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
+    val white = androidx.compose.ui.graphics.Color.White
+    Box(modifier.clip(RoundedCornerShape(bottomStart = d.cardCorner, bottomEnd = d.cardCorner))) {
         if (place.imageUrl != null) {
-            // La foto manda: ancha y con proporción de foto, no una franja.
             AsyncImage(
                 model = place.imageUrl,
                 contentDescription = place.name,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(PHOTO_RATIO)
-                    .heightIn(max = d.minTouchTarget * 3)
-                    .clip(RoundedCornerShape(d.cardCorner)),
+                modifier = Modifier.matchParentSize(),
             )
-            Spacer(Modifier.height(d.spaceS))
-            Title(place.name, detail)
         } else {
-            // Sin foto, la inicial junto al nombre, como en la lista: el hueco de
-            // una foto vacía era lo primero que se veía.
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Initial(place.name)
-                Spacer(Modifier.width(d.spaceS))
-                Column(Modifier.weight(1f)) { Title(place.name, detail) }
+            Box(
+                Modifier.matchParentSize().background(Brush.linearGradient(listOf(secondary, accent))),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                // La inicial, grande y tenue: da forma sin fingir una foto.
+                Text(
+                    text = place.name.take(1).uppercase(),
+                    style = MaterialTheme.typography.displayMedium.copy(fontSize = MaterialTheme.typography.displayMedium.fontSize * 3),
+                    color = white.copy(alpha = 0.18f),
+                    modifier = Modifier.padding(end = d.spaceL),
+                )
             }
         }
-
-        // Las acciones, del mismo ancho: la principal rellena.
-        Spacer(Modifier.height(d.spaceM))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(d.spaceXs)) {
-            if (hasStory && onListen != null) {
-                CarButton(label = stringResource(R.string.listen), onClick = onListen, modifier = Modifier.weight(1f))
-                CarSecondaryButton(label = stringResource(R.string.take_me_there), onClick = onNavigate, modifier = Modifier.weight(1f))
-            } else {
-                CarButton(label = stringResource(R.string.take_me_there), onClick = onNavigate, modifier = Modifier.weight(1f))
-            }
-        }
-
-        place.summary?.takeIf { it.isNotBlank() }?.let { story ->
-            Spacer(Modifier.height(d.spaceM))
-            Story(story)
-        }
-
-        if (partners.isNotEmpty()) {
-            Spacer(Modifier.height(d.spaceM))
-            SectionLabel(stringResource(R.string.reviews))
-            partners.forEach { partner ->
-                PartnerCard(partner)
-                Spacer(Modifier.height(d.spaceXs))
-            }
-        }
-
-        Spacer(Modifier.height(d.spaceL))
-    }
-}
-
-@Composable
-private fun Title(name: String, detail: String) {
-    Text(name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-    if (detail.isNotBlank()) {
-        Text(
-            text = detail,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        // El velo: arriba, para que se lea "Cerrar"; abajo, para el nombre.
+        Box(
+            Modifier.matchParentSize().background(
+                Brush.verticalGradient(
+                    0f to androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.35f),
+                    0.3f to androidx.compose.ui.graphics.Color.Transparent,
+                    0.4f to androidx.compose.ui.graphics.Color.Transparent,
+                    1f to androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.85f),
+                ),
+            ),
         )
+        HeroPill(stringResource(R.string.close), Modifier.align(Alignment.TopEnd).padding(d.spaceS), onClick = onClose)
+        // Abajo, sobre lo más oscuro del velo: qué es y el nombre; y las acciones,
+        // a su lado si hay sitio, o debajo.
+        // Arriba deja el hueco de "Cerrar"; el resto da el alto del hero.
+        BoxWithConstraints(
+            Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(start = d.spaceM, end = d.spaceM, bottom = d.spaceM, top = d.minTouchTarget * 0.7f + d.spaceM),
+        ) {
+            val side = maxWidth > HERO_SIDE_BY_SIDE
+            val identity: @Composable (Modifier) -> Unit = { m ->
+                Column(m) {
+                    if (eyebrow.isNotBlank()) {
+                        Text(
+                            text = eyebrow.uppercase(),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = white.copy(alpha = 0.9f),
+                            maxLines = 1,
+                        )
+                    }
+                    Text(
+                        text = place.name,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = white,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (detail.isNotBlank()) {
+                        Text(detail, style = MaterialTheme.typography.bodyMedium, color = white.copy(alpha = 0.85f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            val actions: @Composable () -> Unit = {
+                Row(horizontalArrangement = Arrangement.spacedBy(d.spaceXs), verticalAlignment = Alignment.CenterVertically) {
+                    onListen?.let { ActionPill(stringResource(R.string.listen), filled = false, onClick = it) }
+                    ActionPill(stringResource(R.string.take_me_there), filled = true, arrow = true, onClick = onNavigate)
+                }
+            }
+            if (side) {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    identity(Modifier.weight(1f))
+                    Spacer(Modifier.width(d.spaceM))
+                    actions()
+                }
+            } else {
+                Column {
+                    identity(Modifier)
+                    Spacer(Modifier.height(d.spaceS))
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) { actions() }
+                }
+            }
+        }
     }
 }
 
+/** "Cerrar" sobre la foto: oscuro y translúcido, se lee sobre cualquier imagen. */
 @Composable
-private fun Initial(name: String) {
+private fun HeroPill(label: String, modifier: Modifier, onClick: () -> Unit) {
     val d = CarTheme.dimens
-    val accent = MaterialTheme.colorScheme.primary
-    val secondary = MaterialTheme.colorScheme.secondary
+    val interaction = remember { MutableInteractionSource() }
     Box(
-        Modifier
-            .size(d.minTouchTarget * 1.1f)
-            .clip(RoundedCornerShape(d.cardCorner))
-            .background(Brush.linearGradient(listOf(secondary.copy(alpha = 0.55f), accent.copy(alpha = 0.55f)))),
+        modifier
+            .pressable(interaction)
+            .clip(RoundedCornerShape(50))
+            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.45f))
+            .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onClick)
+            .defaultMinSize(minHeight = d.minTouchTarget * 0.7f)
+            .padding(horizontal = d.spaceM, vertical = d.spaceXs),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = name.take(1).uppercase(),
-            style = MaterialTheme.typography.displayMedium,
-            color = MaterialTheme.colorScheme.surface,
-        )
+        Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color.White)
+    }
+}
+
+/** Una acción en píldora sobre la foto: la principal, rellena y con flecha; la otra, con borde blanco. */
+@Composable
+private fun ActionPill(label: String, filled: Boolean, arrow: Boolean = false, onClick: () -> Unit) {
+    val d = CarTheme.dimens
+    val accent = MaterialTheme.colorScheme.primary
+    val white = androidx.compose.ui.graphics.Color.White
+    val ink = if (filled) MaterialTheme.colorScheme.onPrimary else white
+    val shape = RoundedCornerShape(50)
+    val interaction = remember { MutableInteractionSource() }
+    Row(
+        Modifier
+            .pressable(interaction)
+            .clip(shape)
+            .background(if (filled) accent else androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.3f))
+            .border(1.5.dp, if (filled) accent else white, shape)
+            .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onClick)
+            .defaultMinSize(minHeight = d.minTouchTarget * 0.8f)
+            .padding(horizontal = d.spaceM, vertical = d.spaceXs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (arrow) {
+            // La flecha de "ir": un triángulo de navegación, como en los mapas.
+            androidx.compose.foundation.Canvas(Modifier.size(d.spaceS * 1.2f)) {
+                val p = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(size.width * 0.9f, size.height * 0.1f)
+                    lineTo(size.width * 0.1f, size.height * 0.45f)
+                    lineTo(size.width * 0.45f, size.height * 0.55f)
+                    lineTo(size.width * 0.55f, size.height * 0.9f)
+                    close()
+                }
+                drawPath(p, ink)
+            }
+            Spacer(Modifier.width(d.spaceXs))
+        }
+        Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 1)
     }
 }
 
@@ -340,5 +448,12 @@ private fun PartnerCard(partner: PartnerInfo) {
 /** Las líneas de historia que se ven antes de "Ver más". */
 private const val STORY_LINES = 6
 
-/** Proporción de la foto de cabecera. */
-private const val PHOTO_RATIO = 16f / 9f
+/** Más ancha que esto respecto a su alto, la ventana cuenta como ancha. */
+private const val WIDE_RATIO = 0.9f
+
+/** Lo que se lleva el hero del alto de la ficha: en ancha, algo más. */
+private const val HERO_SHARE_WIDE = 0.42f
+private const val HERO_SHARE_NARROW = 0.36f
+
+/** Con más ancho que esto, el nombre y las acciones van en la misma línea. */
+private val HERO_SIDE_BY_SIDE = 900.dp
