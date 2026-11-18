@@ -31,4 +31,6 @@
     <string name="reviews_count">%1$d recensioni</string>
     <string name="open_in">Apri in %1$s</string>
     <string name="sight">Luogo di interesse</string>
+    <string name="show_map">Mostra sulla mappa</string>
+    <string name="hide_map">Nascondi mappa</string>
 </resources>

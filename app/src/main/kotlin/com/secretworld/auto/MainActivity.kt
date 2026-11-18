@@ -1448,6 +1448,13 @@ class MainActivity : ComponentActivity() {
                     onPanel(Panel.Home)
                 },
                 onClose = { onPanel(Panel.Home) },
+                // El sitio en el mapa, si la build lo tiene: no en el vehículo, donde
+                // el mapa es del navegador.
+                map = if (com.secretworld.auto.map.hasSpotMap) {
+                    { modifier -> com.secretworld.auto.map.SpotMap(panel.place.position, modifier) }
+                } else {
+                    null
+                },
             )
 
             Panel.Itinerary -> ItineraryPanel(

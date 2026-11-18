@@ -31,4 +31,6 @@
     <string name="reviews_count">%1$d reviews</string>
     <string name="open_in">Open in %1$s</string>
     <string name="sight">Sight</string>
+    <string name="show_map">Show on map</string>
+    <string name="hide_map">Hide map</string>
 </resources>

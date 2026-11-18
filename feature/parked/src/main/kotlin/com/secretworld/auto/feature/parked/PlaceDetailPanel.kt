@@ -93,6 +93,8 @@ fun PlaceDetailPanel(
     modifier: Modifier = Modifier,
     /** Opiniones y datos de socios. Vacío, la sección no sale. */
     partners: List<PartnerInfo> = emptyList(),
+    /** Un mapa que señala el sitio; `null` si la build no tiene mapa propio. */
+    map: (@Composable (Modifier) -> Unit)? = null,
 ) {
     val d = CarTheme.dimens
     // Lo que salió de una búsqueda —un restaurante, una gasolinera— no tiene
@@ -113,7 +115,22 @@ fun PlaceDetailPanel(
             .background(MaterialTheme.colorScheme.surface)
             .panelInsetsPadding(),
     ) {
-        val heroHeight = maxHeight * (if (maxWidth > maxHeight * WIDE_RATIO) HERO_SHARE_WIDE else HERO_SHARE_NARROW)
+        val wide = maxWidth > maxHeight * WIDE_RATIO
+        val heroHeight = maxHeight * (if (wide) HERO_SHARE_WIDE else HERO_SHARE_NARROW)
+        val story = place.summary?.takeIf { it.isNotBlank() }
+        val reading: @Composable (Int) -> Unit = { lines ->
+            story?.let { Story(it, lines) }
+            if (partners.isNotEmpty()) {
+                Spacer(Modifier.height(d.spaceM))
+                SectionLabel(stringResource(R.string.reviews))
+                partners.forEach { partner ->
+                    PartnerCard(partner)
+                    Spacer(Modifier.height(d.spaceXs))
+                }
+            }
+            Spacer(Modifier.height(d.spaceM))
+        }
+        val mapShape = RoundedCornerShape(d.cardCorner)
         Column(Modifier.fillMaxSize()) {
             Hero(
                 place = place,
@@ -126,23 +143,51 @@ fun PlaceDetailPanel(
                 // fijo, en el hueco pequeño "Cerrar" pisaba el nombre y "Llévame" se cortaba.
                 modifier = Modifier.fillMaxWidth().heightIn(min = heroHeight),
             )
-            Column(
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = d.spaceM, vertical = d.spaceS),
-            ) {
-                place.summary?.takeIf { it.isNotBlank() }?.let { Story(it) }
-                if (partners.isNotEmpty()) {
-                    Spacer(Modifier.height(d.spaceM))
-                    SectionLabel(stringResource(R.string.reviews))
-                    partners.forEach { partner ->
-                        PartnerCard(partner)
+            if (wide && map != null) {
+                // Ancha: lo que se lee a la izquierda y el mapa a la derecha.
+                Row(Modifier.weight(1f).fillMaxWidth().padding(d.spaceM), horizontalArrangement = Arrangement.spacedBy(d.spaceM)) {
+                    // Tantas líneas como quepan en la columna: un recorte fijo dejaba
+                    // media columna vacía.
+                    BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
+                        val lines = linesFitting(maxHeight - toggleHeight())
+                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { reading(lines) }
+                    }
+                    map(Modifier.weight(1f).fillMaxHeight().clip(mapShape))
+                }
+            } else {
+                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                val bodyHeight = maxHeight
+                // Estrecha: el mapa arriba, plegable. Cerrado si hay que leer,
+                // para que mande el texto; abierto si no hay nada que leer.
+                var shown by rememberSaveable(place.id) { mutableStateOf(story == null && partners.isEmpty()) }
+                val mapHeight = this@BoxWithConstraints.maxHeight * MAP_SHARE_NARROW
+                val lines = linesFitting(
+                    bodyHeight - d.spaceS * 2 - toggleHeight() -
+                        (if (map != null) toggleHeight() + d.spaceXs else 0.dp) -
+                        (if (map != null && shown) mapHeight + d.spaceS + d.spaceXs else 0.dp),
+                )
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = d.spaceM, vertical = d.spaceS),
+                ) {
+                    if (map != null) {
+                        Toggle(stringResource(if (shown) R.string.hide_map else R.string.show_map), up = shown) { shown = !shown }
+                        androidx.compose.animation.AnimatedVisibility(visible = shown) {
+                            map(
+                                Modifier
+                                    .padding(top = d.spaceXs, bottom = d.spaceS)
+                                    .fillMaxWidth()
+                                    .height(mapHeight)
+                                    .clip(mapShape),
+                            )
+                        }
                         Spacer(Modifier.height(d.spaceXs))
                     }
+                    reading(lines)
                 }
-                Spacer(Modifier.height(d.spaceM))
+                }
             }
         }
     }
@@ -193,10 +238,13 @@ private fun Hero(
         Box(
             Modifier.matchParentSize().background(
                 Brush.verticalGradient(
+                    // Oscuro ya desde la mitad: en el hueco pequeño el nombre cae ahí,
+                    // y sobre una foto clara no se leía.
                     0f to androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.35f),
+                    0.18f to androidx.compose.ui.graphics.Color.Transparent,
                     0.3f to androidx.compose.ui.graphics.Color.Transparent,
-                    0.4f to androidx.compose.ui.graphics.Color.Transparent,
-                    1f to androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.85f),
+                    0.55f to androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f),
+                    1f to androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.88f),
                 ),
             ),
         )
@@ -322,7 +370,7 @@ private fun ActionPill(label: String, filled: Boolean, arrow: Boolean = false, o
  * para recogerlo había que bajar hasta el final. Solo sale si hay más.
  */
 @Composable
-private fun Story(text: String) {
+private fun Story(text: String, previewLines: Int) {
     val d = CarTheme.dimens
     var expanded by rememberSaveable(text) { mutableStateOf(false) }
     var overflows by remember(text) { mutableStateOf(false) }
@@ -337,7 +385,7 @@ private fun Story(text: String) {
         text = text,
         style = MaterialTheme.typography.bodyLarge,
         color = MaterialTheme.colorScheme.onSurface,
-        maxLines = if (expanded) Int.MAX_VALUE else STORY_LINES,
+        maxLines = if (expanded) Int.MAX_VALUE else previewLines,
         overflow = TextOverflow.Ellipsis,
         onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow },
         modifier = Modifier.animateContentSize(Motion.settle(Motion.reduced)),
@@ -445,8 +493,25 @@ private fun PartnerCard(partner: PartnerInfo) {
     }
 }
 
-/** Las líneas de historia que se ven antes de "Ver más". */
-private const val STORY_LINES = 6
+/** Lo menos que se enseña de una historia antes de "Ver más", quepa o no. */
+private const val MIN_STORY_LINES = 4
+
+/** Las líneas de historia que caben en [height]. */
+@Composable
+@Suppress("UNUSED_VARIABLE")
+private fun linesFitting(height: androidx.compose.ui.unit.Dp): Int {
+    // Medida de verdad: el alto de una línea con la letra de la historia.
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val style = MaterialTheme.typography.bodyLarge
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val line = remember(style, density) { measurer.measure("Ag\nAg", style).size.height / 2f }
+    val room = with(density) { height.toPx() }
+    return (room / line).toInt().coerceAtLeast(MIN_STORY_LINES)
+}
+
+/** Lo que ocupa "Ver más" o "Ver mapa" con su margen. */
+@Composable
+private fun toggleHeight(): androidx.compose.ui.unit.Dp = CarTheme.dimens.minTouchTarget * 0.7f + CarTheme.dimens.spaceXs * 2
 
 /** Más ancha que esto respecto a su alto, la ventana cuenta como ancha. */
 private const val WIDE_RATIO = 0.9f
@@ -454,6 +519,9 @@ private const val WIDE_RATIO = 0.9f
 /** Lo que se lleva el hero del alto de la ficha: en ancha, algo más. */
 private const val HERO_SHARE_WIDE = 0.42f
 private const val HERO_SHARE_NARROW = 0.36f
+
+/** Lo que mide el mapa desplegado en una ventana estrecha, respecto al alto. */
+private const val MAP_SHARE_NARROW = 0.32f
 
 /** Con más ancho que esto, el nombre y las acciones van en la misma línea. */
 private val HERO_SIDE_BY_SIDE = 900.dp
