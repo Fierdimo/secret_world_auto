@@ -747,16 +747,6 @@ class MainActivity : ComponentActivity() {
                         destination = Phrasebook.shortName(current.destination),
                         remaining = Phrasebook.spokenDistance(progress.remainingMeters, language).replace("right here", "here").replace("aquí mismo", "aquí").replace("proprio qui", "qui"),
                         eta = Phrasebook.spokenDuration(progress.remainingSeconds, language).replace(Regex(" minut(es|os|e|o|i)"), " min"),
-                        instruction = progress.nextStep?.instruction,
-                        instructionDistance = progress.nextStep?.let {
-                            when {
-                                progress.metersToNextStep < 100 -> language.say(en = "now", es = "ahora", it = "ora")
-                                else -> {
-                                    val distance = Phrasebook.spokenDistance(progress.metersToNextStep, language)
-                                    language.say(en = "in $distance", es = "en $distance", it = "tra $distance")
-                                }
-                            }
-                        },
                         arrived = progress.arrived,
                     )
                     // En silencio: la guía hablada es del navegador del sistema. Aquí
@@ -1885,8 +1875,9 @@ class MainActivity : ComponentActivity() {
             voiceInput.acknowledge()
             make()?.let { itineraryStep(it, c) }
         }
-        // En "Mis itinerarios" el que se ve ya tiene sus botones: empezar, editar, borrar.
-        if (library.value != null) return null
+        // En "Mis itinerarios" el que se ve ya tiene sus botones: empezar, editar,
+        // borrar. Y con un recorrido en marcha no queda nada que preguntar.
+        if (library.value != null || tour.value != null) return null
         val labels = ItineraryReplies.Labels
         val cancel = PromptOption(labels.cancel(language), onClick = step { itinerary.decline() })
         return when (val state = itinerary.state) {

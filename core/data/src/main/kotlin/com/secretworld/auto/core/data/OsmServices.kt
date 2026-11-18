@@ -54,8 +54,8 @@ private fun osmGet(url: String): String? {
 
 /**
  * Rutas por OSRM. Lo que se usa de ellas es el trazado y la duración —para
- * dibujar el itinerario y repartir el tiempo—: la guía la da el navegador del
- * sistema, así que las maniobras no se dicen.
+ * dibujar el itinerario y repartir el tiempo—. **Sin maniobras**: la guía es del
+ * navegador instalado, ni se dicen ni se enseñan, así que ni se piden.
  */
 class OsmRouter : Router {
 
@@ -63,28 +63,18 @@ class OsmRouter : Router {
         runCatching {
             val url = String.format(
                 Locale.ROOT,
-                "https://router.project-osrm.org/route/v1/driving/%f,%f;%f,%f?overview=full&geometries=geojson&steps=true",
+                "https://router.project-osrm.org/route/v1/driving/%f,%f;%f,%f?overview=full&geometries=geojson&steps=false",
                 from.longitude, from.latitude, to.position.longitude, to.position.latitude,
             )
             val body = osmGet(url) ?: return@runCatching null
             val best = osmJson.parseToJsonElement(body).jsonObject["routes"]?.jsonArray?.firstOrNull()?.jsonObject ?: return@runCatching null
             val points = best["geometry"]?.jsonObject?.get("coordinates")?.jsonArray.orEmpty().mapNotNull { it.jsonArray.toCoordinates() }
             if (points.size < 2) return@runCatching null
-            val steps = best["legs"]?.jsonArray.orEmpty().flatMap { leg ->
-                leg.jsonObject["steps"]?.jsonArray.orEmpty().mapNotNull { element ->
-                    val step = element.jsonObject
-                    val maneuver = step["maneuver"]?.jsonObject ?: return@mapNotNull null
-                    val at = maneuver["location"]?.jsonArray?.toCoordinates() ?: return@mapNotNull null
-                    val what = listOfNotNull(maneuver.text("type"), maneuver.text("modifier"), step.text("name")?.takeIf { it.isNotBlank() })
-                    Route.Step(what.joinToString(" "), at, step.number("distance") ?: 0.0)
-                }
-            }
             Route(
                 destination = to,
                 points = points,
                 distanceMeters = best.number("distance") ?: 0.0,
                 durationSeconds = best.number("duration") ?: 0.0,
-                steps = steps,
             )
         }.onFailure { Log.w(OSM_TAG, "ruta a ${to.name}: ${it.message}") }.getOrNull()
     }

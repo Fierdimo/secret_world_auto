@@ -265,10 +265,6 @@ data class NavigationUi(
     val remaining: String,
     /** "6 min". */
     val eta: String,
-    /** "Turn left onto Via Sacra", o null si el proveedor no da maniobras. */
-    val instruction: String?,
-    /** "in 200 m". */
-    val instructionDistance: String?,
     val arrived: Boolean = false,
 )
 
@@ -282,22 +278,26 @@ internal fun NavigationCard(state: NavigationUi, onStop: () -> Unit) {
             .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f))
             .padding(d.spaceS),
     ) {
+        // El destino una vez, en grande; encima, solo la llegada.
+        if (state.arrived) {
+            Text(
+                text = stringResource(R.string.nav_arrived),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        // Las maniobras no son nuestras: las da el navegador instalado. Aquí,
+        // solo adónde se va y cuánto falta.
         Text(
-            text = if (state.arrived) stringResource(R.string.nav_arrived) else stringResource(R.string.nav_to, state.destination),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.secondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        // La maniobra es lo grande: es lo que hay que hacer ahora.
-        Text(
-            text = state.instruction ?: state.destination,
+            text = state.destination,
             style = MaterialTheme.typography.titleLarge,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = listOfNotNull(state.instructionDistance, "${state.remaining} · ${state.eta}").joinToString("  ·  "),
+            text = "${state.remaining} · ${state.eta}",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,

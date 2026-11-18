@@ -14,7 +14,6 @@
     <string name="listen">Escuchar</string>
     <string name="take_me">Ruta</string>
     <string name="details">Detalles</string>
-    <string name="nav_to">Hacia %1$s</string>
     <string name="nav_arrived">Has llegado</string>
     <string name="nav_end">Terminar ruta</string>
     <string name="more_when_stopped">%1$d más al parar</string>

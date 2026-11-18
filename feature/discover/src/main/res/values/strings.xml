@@ -14,7 +14,6 @@
     <string name="listen">Listen</string>
     <string name="take_me">Take me</string>
     <string name="details">Details</string>
-    <string name="nav_to">To %1$s</string>
     <string name="nav_arrived">You have arrived</string>
     <string name="nav_end">End route</string>
     <string name="more_when_stopped">%1$d more when you stop</string>
