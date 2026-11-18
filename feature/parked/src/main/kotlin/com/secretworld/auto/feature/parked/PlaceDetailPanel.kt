@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -207,14 +208,23 @@ private fun Initial(name: String) {
 }
 
 /**
- * La historia, recortada si es larga, con "Ver más". Entera de golpe empujaba
- * todo lo demás fuera de la pantalla; "Ver más" solo sale si de verdad hay más.
+ * La historia, recortada si es larga. "Ver más" va **encima**, con un chevron
+ * que apunta hacia donde se mueve el texto: abajo para desplegarlo, arriba
+ * para recogerlo. Debajo del texto quedaba fuera de la vista al desplegarlo y
+ * para recogerlo había que bajar hasta el final. Solo sale si hay más.
  */
 @Composable
 private fun Story(text: String) {
     val d = CarTheme.dimens
     var expanded by rememberSaveable(text) { mutableStateOf(false) }
     var overflows by remember(text) { mutableStateOf(false) }
+    if (overflows || expanded) {
+        Toggle(
+            label = stringResource(if (expanded) R.string.see_less else R.string.see_more),
+            up = expanded,
+        ) { expanded = !expanded }
+        Spacer(Modifier.height(d.spaceXs))
+    }
     Text(
         text = text,
         style = MaterialTheme.typography.bodyLarge,
@@ -224,12 +234,52 @@ private fun Story(text: String) {
         onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow },
         modifier = Modifier.animateContentSize(Motion.settle(Motion.reduced)),
     )
-    if (overflows || expanded) {
-        Spacer(Modifier.height(d.spaceXs))
-        TextLink(stringResource(if (expanded) R.string.see_less else R.string.see_more)) { expanded = !expanded }
+}
+
+/** "Ver más" o "Ver menos" con su chevron, que gira al cambiar. */
+@Composable
+private fun Toggle(label: String, up: Boolean, onClick: () -> Unit) {
+    val d = CarTheme.dimens
+    val accent = MaterialTheme.colorScheme.primary
+    val interaction = remember { MutableInteractionSource() }
+    val turn by androidx.compose.animation.core.animateFloatAsState(if (up) 180f else 0f, Motion.settle(Motion.reduced), label = "chevron")
+    Row(
+        Modifier
+            .pressable(interaction)
+            .clip(RoundedCornerShape(50))
+            .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onClick)
+            .defaultMinSize(minHeight = d.minTouchTarget * 0.7f)
+            .padding(vertical = d.spaceXs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = accent)
+        Spacer(Modifier.width(d.spaceXs))
+        // Un chevron dibujado: abajo, y girado media vuelta, arriba.
+        androidx.compose.foundation.Canvas(
+            Modifier
+                .size(d.spaceS)
+                .graphicsLayer { rotationZ = turn },
+        ) {
+            val stroke = size.minDimension * 0.16f
+            val path = androidx.compose.ui.graphics.Path().apply {
+                moveTo(size.width * 0.15f, size.height * 0.35f)
+                lineTo(size.width * 0.5f, size.height * 0.7f)
+                lineTo(size.width * 0.85f, size.height * 0.35f)
+            }
+            drawPath(
+                path,
+                accent,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = stroke,
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                    join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                ),
+            )
+        }
     }
 }
 
+/** Un enlace de texto, de acento y sin caja: "Abrir en Tripadvisor". */
 @Composable
 private fun TextLink(label: String, onClick: () -> Unit) {
     val d = CarTheme.dimens
