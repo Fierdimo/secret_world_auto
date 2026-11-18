@@ -432,7 +432,7 @@ object Phrasebook {
             VoiceLanguage.ENGLISH -> when {
                 minutes < 60 -> "$minutes ${if (minutes == 1) "minute" else "minutes"}"
                 rest < 5 -> "$hours ${if (hours == 1) "hour" else "hours"}"
-                else -> "$hours hours $rest"
+                else -> "$hours ${if (hours == 1) "hour" else "hours"} $rest"
             }
         }
     }

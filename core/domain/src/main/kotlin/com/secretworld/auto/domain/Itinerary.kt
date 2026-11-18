@@ -244,6 +244,9 @@ object ItineraryDesigner {
     /** Sin decir cuánto: lo que dura una tarde corriente. */
     const val DEFAULT_MINUTES = 180
 
+    /** Lo mínimo que dura un itinerario: dos horas. */
+    const val MIN_MINUTES = 120
+
     /**
      * @param startMinute la hora de empezar, en minutos desde medianoche. Decide
      *   cuánto dura "esta tarde" y si toca comer.
@@ -431,18 +434,19 @@ object ItineraryDesigner {
 
     /**
      * Cuánto tiempo hay. Lo dicho manda; si no, la franja: la mañana hasta la
-     * una, la tarde de dos a siete, la noche tres horas. Nunca menos de hora y
-     * media: pedir una tarde a las seis y media no es pedir veinte minutos.
+     * una, la tarde de dos a siete, la noche tres horas. Nunca menos de dos
+     * horas ([MIN_MINUTES]), tampoco si se pidió menos: pedir una tarde a las
+     * seis y media no es pedir veinte minutos, y en una hora no cabe un itinerario.
      */
     fun budgetMinutes(request: ItineraryRequest, nowMinute: Int): Int {
-        request.minutes?.let { return it }
+        request.minutes?.let { return it.coerceAtLeast(MIN_MINUTES) }
         val start = startOf(request, nowMinute)
         val until = when (request.dayPart) {
             DayPart.MORNING -> 13 * 60
             DayPart.AFTERNOON, DayPart.FULL_DAY -> 19 * 60
             DayPart.EVENING, null -> start + DEFAULT_MINUTES
         }
-        val floor = if (request.dayPart == DayPart.FULL_DAY) 4 * 60 else 90
+        val floor = if (request.dayPart == DayPart.FULL_DAY) 4 * 60 else MIN_MINUTES
         return (until - start).coerceAtLeast(floor)
     }
 

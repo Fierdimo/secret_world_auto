@@ -310,6 +310,8 @@ Ver §2.4 para el porqué. Decidido el 2026‑11‑03.
   | Ritmo: tranquilo o "aprovechar al máximo" | Normal |
   | Comida o descanso | Una parada para comer si el plan cruza la hora de comer |
 
+  Un itinerario dura **como mínimo 2 horas**, aunque se pida menos. Al tocar, las respuestas de tiempo son 2 h, 3 h, 6 h y todo el día.
+
 - RF-8.3 Como mucho **una pregunta**, combinada, y solo si falta algo que el perfil no cubre. Un turista al volante no rellena formularios.
 - RF-8.4 **Confirmación obligatoria** antes de empezar: número de paradas, duración total y nombres. Se acepta "sí", se ajusta ("menos iglesias", "añade dónde comer", "quita el museo") o se descarta.
 

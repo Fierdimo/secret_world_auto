@@ -83,7 +83,6 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
-import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
@@ -213,7 +212,9 @@ fun TourFlyover(
     val overlayShare = CarTheme.metrics.overlayShare
     // Márgenes: izquierda, arriba, derecha, abajo, en píxeles.
     fun px(dp: Dp) = with(density) { dp.toPx().toDouble() }
-    val introPadding = doubleArrayOf(px(FRAME_SIDE), px(FRAME_TOP), px(FRAME_SIDE), px(FRAME_BOTTOM))
+    // La presentación: arriba el título y abajo la tarjeta de la parada, que crece
+    // con la pantalla. Con márgenes fijos el sitio caía encima de la tarjeta.
+    val introPadding = doubleArrayOf(px(FRAME_SIDE), px(height * INTRO_TOP_SHARE), px(FRAME_SIDE), px(height * INTRO_BOTTOM_SHARE))
     // Apilada, el panel tapa la parte de abajo y la barra de iconos va arriba a
     // la derecha; si no, el panel tapa la izquierda.
     val stacked = CarTheme.metrics.stacked
@@ -283,10 +284,19 @@ fun TourFlyover(
                 .target((state.stops.firstOrNull()?.position ?: state.start).latLng())
                 .zoom(EMPTY_ZOOM).tilt(pitch).bearing(FINAL_BEARING).padding(viewPadding).build()
         } else {
-            val bounds = LatLngBounds.Builder().includes(framed.map { it.latLng() }).build()
             val pad = if (state.intro) introPadding else viewPadding
-            ready.getCameraForLatLngBounds(bounds, pad.map { it.toInt() }.toIntArray(), FINAL_BEARING, pitch)
-                ?.let { CameraPosition.Builder(it).zoom(minOf(it.zoom, STOP_ZOOM)).tilt(pitch).bearing(FINAL_BEARING).build() }
+            // El encuadre, calculado con el mapa ya girado: el de MapLibre
+            // centraba la caja sin girar y, en la ventana estrecha, las paradas
+            // quedaban pegadas al borde.
+            val dp = density.density.toDouble()
+            val (center, zoom) = fitTurned(
+                framed,
+                FINAL_BEARING,
+                freeWidthDp = width.value - (pad[0] + pad[2]) / dp,
+                freeHeightDp = height.value - (pad[1] + pad[3]) / dp,
+            )
+            CameraPosition.Builder().target(center.latLng()).zoom(minOf(zoom, STOP_ZOOM))
+                .tilt(pitch).bearing(FINAL_BEARING).padding(pad).build()
         }
         finale = camera
         if (!state.intro && camera != null) ready.fly(camera, REFRAME_MS)
@@ -306,14 +316,24 @@ fun TourFlyover(
         state.stops.forEachIndexed { index, stop ->
             val legEnd = state.legEnds.getOrElse(index) { state.path.size }.toFloat()
             launch { revealed.animateTo(legEnd, tween(LEG_MS.toInt(), easing = FastOutSlowInEasing)) }
+            // La tarjeta de la parada anterior se va mientras la cámara viaja: si
+            // no, decía "03" llegando a la cuarta.
+            focus = null
+            // De una parada a la siguiente, cerca y sin alejarse: un vuelo en
+            // arco subía hasta ver media ciudad entre una y otra. Solo la primera
+            // llega volando, desde el plano de conjunto.
             ready.fly(
                 CameraPosition.Builder()
                     .target(stop.position.latLng())
-                    .zoom(STOP_ZOOM)
+                    .zoom(INTRO_STOP_ZOOM)
                     .tilt(STOP_PITCH)
                     .bearing(if (index == 0) FIRST_BEARING else previous.bearingTo(stop.position))
+                    // El margen de la presentación, explícito: sin él la cámara se
+                    // quedaba con el del panel y el sitio caía a un lado.
+                    .padding(introPadding)
                     .build(),
                 if (index == 0) FIRST_LEG_MS else LEG_MS,
+                glide = index > 0,
             )
             shownStops = index + 1
             focus = index
@@ -448,7 +468,8 @@ fun TourFlyover(
             }
             state.stops.take(shownStops).forEachIndexed { index, stop ->
                 androidx.compose.runtime.key(stop.id) {
-                    Anchored(ready, moved, stop.position) { StopMarker(number = index + 1, place = stop, highlighted = focus == index) }
+                    // En la vista de conjunto, pequeñas: se ven todas sin taparse.
+                    Anchored(ready, moved, stop.position) { StopMarker(number = index + 1, place = stop, highlighted = focus == index, small = !state.intro) }
                 }
             }
             state.me?.let { me -> Anchored(ready, moved, me) { MeMarker() } }
@@ -494,7 +515,10 @@ fun TourFlyover(
             )
             Text(
                 text = state.summary,
-                style = MaterialTheme.typography.displayMedium,
+                // En la ventana estrecha, en una línea: a dos, tapaba media pantalla.
+                style = if (stacked) MaterialTheme.typography.displaySmall.let { it.copy(fontSize = it.fontSize * 0.68f) } else MaterialTheme.typography.displayMedium,
+                maxLines = if (stacked) 1 else Int.MAX_VALUE,
+                overflow = TextOverflow.Ellipsis,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground,
             )
@@ -508,7 +532,7 @@ fun TourFlyover(
             label = "parada",
             modifier = Modifier.align(Alignment.BottomStart).padding(d.spaceL),
         ) { index ->
-            if (index != null) StopCaption(index + 1, state.stops[index], state.times.getOrNull(index).orEmpty())
+            if (index != null) StopCaption(index + 1, state.stops[index], state.times.getOrNull(index).orEmpty(), compact = stacked)
         }
         Text(
             text = "▸▸",
@@ -537,16 +561,21 @@ private fun Anchored(map: MapLibreMap, moved: MutableIntState, at: Coordinates, 
     ) { content() }
 }
 
-/** Un vuelo de cámara que se puede esperar. */
-private suspend fun MapLibreMap.fly(camera: CameraPosition, durationMs: Long) = suspendCancellableCoroutine { done ->
-    animateCamera(
-        CameraUpdateFactory.newCameraPosition(camera),
-        durationMs.toInt(),
-        object : MapLibreMap.CancelableCallback {
-            override fun onCancel() { if (done.isActive) done.resume(Unit) }
-            override fun onFinish() { if (done.isActive) done.resume(Unit) }
-        },
-    )
+/**
+ * Un movimiento de cámara que se puede esperar. Un vuelo sube en arco para
+ * cambiar de escala; con [glide], se desliza a la misma altura, que es lo que
+ * pide ir de una parada a la vecina.
+ */
+private suspend fun MapLibreMap.fly(camera: CameraPosition, durationMs: Long, glide: Boolean = false) = suspendCancellableCoroutine { done ->
+    val callback = object : MapLibreMap.CancelableCallback {
+        override fun onCancel() { if (done.isActive) done.resume(Unit) }
+        override fun onFinish() { if (done.isActive) done.resume(Unit) }
+    }
+    if (glide) {
+        easeCamera(CameraUpdateFactory.newCameraPosition(camera), durationMs.toInt(), true, callback)
+    } else {
+        animateCamera(CameraUpdateFactory.newCameraPosition(camera), durationMs.toInt(), callback)
+    }
 }
 
 private fun Coordinates.latLng(): LatLng = LatLng(latitude, longitude)
@@ -565,6 +594,11 @@ private const val STOP_HOLD_MS = 1_300L
 private const val FINALE_MS = 2_800L
 private const val CLOSING_MS = 1_500L
 private const val STOP_ZOOM = 15.6
+/** En la presentación, cada parada de cerca: la calle y lo que la rodea, no el barrio. */
+private const val INTRO_STOP_ZOOM = 18.0
+/** Lo que tapan, en la presentación, el título de arriba y la tarjeta de abajo. */
+private const val INTRO_TOP_SHARE = 0.22f
+private const val INTRO_BOTTOM_SHARE = 0.36f
 private const val STOP_PITCH = 60.0
 private const val FINAL_PITCH = 48.0
 private const val FINAL_BEARING = 30.0
@@ -582,6 +616,8 @@ private val RING_RAIL = 80.dp
 /** Metros por dp en el ecuador a zoom 0, con teselas de 512. */
 private const val METERS_PER_DP_Z0 = 78_271.517
 private const val RING_FRAME_POINTS = 8
+private const val MIN_SPAN_M = 150.0
+private const val FIT_SLACK = 0.8
 private const val UNFOCUS_MS = 2_000L
 private const val FOCUS_ZOOM = 17.0
 private const val FOCUS_TURN = 35.0
@@ -718,13 +754,21 @@ private fun MeMarker() {
 
 /** El marcador de una parada: su foto en un círculo, con el número, entrando con un rebote. */
 @Composable
-private fun StopMarker(number: Int?, place: Place, highlighted: Boolean) {
+private fun StopMarker(number: Int?, place: Place, highlighted: Boolean, small: Boolean = false) {
     val accent = MaterialTheme.colorScheme.primary
     val reduced = Motion.reduced
     val pop = remember { Animatable(if (reduced) 1f else 0f) }
     LaunchedEffect(Unit) { pop.animateTo(1f, Motion.reward(reduced)) }
     // La parada de la que se habla crece; antes saltaba de golpe.
-    val size by animateDpAsState(if (highlighted) grownDp(76f) else grownDp(56f), Motion.settle(reduced), label = "parada")
+    val size by animateDpAsState(
+        when {
+            highlighted -> grownDp(76f)
+            small -> grownDp(38f)
+            else -> grownDp(56f)
+        },
+        Motion.settle(reduced),
+        label = "parada",
+    )
     Box(
         Modifier.graphicsLayer {
             scaleX = pop.value
@@ -736,7 +780,7 @@ private fun StopMarker(number: Int?, place: Place, highlighted: Boolean) {
             Modifier
                 .size(size)
                 .clip(CircleShape)
-                .border(3.dp, if (highlighted) accent else Color.White, CircleShape)
+                .border(if (small && !highlighted) 2.dp else 3.dp, if (highlighted) accent else Color.White, CircleShape)
                 .background(accent.copy(alpha = 0.6f)),
             contentAlignment = Alignment.Center,
         ) {
@@ -747,7 +791,7 @@ private fun StopMarker(number: Int?, place: Place, highlighted: Boolean) {
         }
         if (number != null) {
             Box(
-                Modifier.size(grownDp(24f)).clip(CircleShape).background(accent),
+                Modifier.size(grownDp(if (small && !highlighted) 18f else 24f)).clip(CircleShape).background(accent),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(number.toString(), color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
@@ -757,7 +801,7 @@ private fun StopMarker(number: Int?, place: Place, highlighted: Boolean) {
 }
 
 @Composable
-private fun StopCaption(number: Int, place: Place, time: String) {
+private fun StopCaption(number: Int, place: Place, time: String, compact: Boolean) {
     val d = CarTheme.dimens
     val accent = MaterialTheme.colorScheme.primary
     Row(
@@ -771,18 +815,57 @@ private fun StopCaption(number: Int, place: Place, time: String) {
     ) {
         Text(
             text = number.toString().padStart(2, '0'),
-            style = MaterialTheme.typography.displayMedium,
+            style = if (compact) MaterialTheme.typography.displaySmall else MaterialTheme.typography.displayMedium,
             fontWeight = FontWeight.Bold,
             color = accent,
         )
         Spacer(Modifier.width(d.spaceS))
         Column {
-            Text(place.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(time, style = MaterialTheme.typography.bodyLarge, color = Color.White.copy(alpha = 0.75f))
+            Text(
+                place.name,
+                style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                time,
+                style = if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
+                color = Color.White.copy(alpha = 0.75f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
 
+
+/**
+ * Centro y zoom con los que [points] llenan un hueco de [freeWidthDp] ×
+ * [freeHeightDp] con el mapa girado [bearing] grados: el centro es el de lo que
+ * ocupan en pantalla, no el de su caja de latitudes y longitudes.
+ */
+private fun fitTurned(points: List<Coordinates>, bearing: Double, freeWidthDp: Double, freeHeightDp: Double): Pair<Coordinates, Double> {
+    val lat0 = points.map { it.latitude }.average()
+    val lon0 = points.map { it.longitude }.average()
+    val metersPerDegree = 111_320.0
+    val shrink = cos(Math.toRadians(lat0))
+    val b = Math.toRadians(bearing)
+    // Metros este-norte, girados a la pantalla: x a la derecha, y hacia arriba.
+    val turned = points.map {
+        val x = (it.longitude - lon0) * metersPerDegree * shrink
+        val y = (it.latitude - lat0) * metersPerDegree
+        (x * cos(b) - y * kotlin.math.sin(b)) to (x * kotlin.math.sin(b) + y * cos(b))
+    }
+    val midX = (turned.minOf { it.first } + turned.maxOf { it.first }) / 2
+    val midY = (turned.minOf { it.second } + turned.maxOf { it.second }) / 2
+    val x = midX * cos(b) + midY * kotlin.math.sin(b)
+    val y = -midX * kotlin.math.sin(b) + midY * cos(b)
+    val center = Coordinates(lat0 + y / metersPerDegree, lon0 + x / (metersPerDegree * shrink))
+    val spanX = (turned.maxOf { it.first } - turned.minOf { it.first }).coerceAtLeast(MIN_SPAN_M)
+    val spanY = (turned.maxOf { it.second } - turned.minOf { it.second }).coerceAtLeast(MIN_SPAN_M)
+    // Metros por dp a zoom z: METERS_PER_DP_Z0 · cos(lat) / 2^z. Con algo de
+    // holgura, porque inclinado lo cercano se ve más grande.
+    val scale = METERS_PER_DP_Z0 * shrink * FIT_SLACK
+    val zoom = minOf(ln(scale * freeWidthDp.coerceAtLeast(1.0) / spanX), ln(scale * freeHeightDp.coerceAtLeast(1.0) / spanY)) / ln(2.0)
+    return center to zoom
+}
 
 /** Centro y zoom que abarcan todos los puntos, sin necesitar el mapa ya montado. */
 private fun overviewOf(points: List<Coordinates>): Pair<Coordinates, Double> {

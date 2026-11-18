@@ -164,7 +164,8 @@ class ItineraryDesignerTest {
     @Test
     fun `la tarde llega hasta las siete y nunca es un rato`() {
         assertEquals(4 * 60, ItineraryDesigner.budgetMinutes(ItineraryRequest(dayPart = DayPart.AFTERNOON), threePm))
-        assertEquals(90, ItineraryDesigner.budgetMinutes(ItineraryRequest(dayPart = DayPart.AFTERNOON), 18 * 60 + 30))
+        assertEquals(120, ItineraryDesigner.budgetMinutes(ItineraryRequest(dayPart = DayPart.AFTERNOON), 18 * 60 + 30))
+        assertEquals(120, ItineraryDesigner.budgetMinutes(ItineraryRequest(minutes = 60), threePm))
         assertEquals(120, ItineraryDesigner.budgetMinutes(ItineraryRequest(minutes = 120, dayPart = DayPart.AFTERNOON), threePm))
     }
 

@@ -42,9 +42,9 @@ object ItineraryReplies {
     }
 
     fun time(language: VoiceLanguage): List<Reply> = listOf(
-        Reply("1 h", language.say(en = "one hour", es = "una hora", it = "un'ora")),
         Reply("2 h", language.say(en = "two hours", es = "dos horas", it = "due ore")),
         Reply("3 h", language.say(en = "three hours", es = "tres horas", it = "tre ore")),
+        Reply("6 h", language.say(en = "six hours", es = "seis horas", it = "sei ore")),
         language.say(en = "All day", es = "Todo el día", it = "Tutto il giorno").let { Reply(it, it.lowercase()) },
     )
 
