@@ -77,7 +77,16 @@ fun Modifier.collapseMenuOnOutsideTap(state: MenuRailState): Modifier = pointerI
  * Si no se toca nada, se recoge solo.
  */
 @Composable
-fun MenuRail(entries: List<MenuEntry>, state: MenuRailState, modifier: Modifier = Modifier) {
+fun MenuRail(
+    entries: List<MenuEntry>,
+    state: MenuRailState,
+    modifier: Modifier = Modifier,
+    /**
+     * En fila y más pequeña, dentro de la cabecera del panel: en una ventana
+     * estrecha la columna de la derecha se comía un tercio del ancho.
+     */
+    inline: Boolean = false,
+) {
     val d = CarTheme.dimens
     var open by state::open
     LaunchedEffect(open) {
@@ -86,10 +95,11 @@ fun MenuRail(entries: List<MenuEntry>, state: MenuRailState, modifier: Modifier 
         open = null
     }
     // Descendente, pegada al borde derecho: el nombre se despliega hacia dentro.
-    Column(modifier.onGloballyPositioned { state.bounds = it.boundsInRoot() }, verticalArrangement = Arrangement.spacedBy(d.spaceS), horizontalAlignment = Alignment.End) {
+    val size = if (inline) d.minTouchTarget * INLINE_SHARE else SIZE
+    val buttons: @Composable () -> Unit = {
         entries.forEach { entry ->
             val expanded = open == entry.icon
-            MenuButton(entry, expanded) {
+            MenuButton(entry, expanded, size) {
                 if (expanded) {
                     open = null
                     entry.onActivate()
@@ -99,10 +109,16 @@ fun MenuRail(entries: List<MenuEntry>, state: MenuRailState, modifier: Modifier 
             }
         }
     }
+    val tracked = modifier.onGloballyPositioned { state.bounds = it.boundsInRoot() }
+    if (inline) {
+        Row(tracked, horizontalArrangement = Arrangement.spacedBy(d.spaceXs), verticalAlignment = Alignment.CenterVertically) { buttons() }
+    } else {
+        Column(tracked, verticalArrangement = Arrangement.spacedBy(d.spaceS), horizontalAlignment = Alignment.End) { buttons() }
+    }
 }
 
 @Composable
-private fun MenuButton(entry: MenuEntry, expanded: Boolean, onClick: () -> Unit) {
+private fun MenuButton(entry: MenuEntry, expanded: Boolean, size: Dp, onClick: () -> Unit) {
     val d = CarTheme.dimens
     val accent = MaterialTheme.colorScheme.primary
     val shape = RoundedCornerShape(50)
@@ -131,11 +147,14 @@ private fun MenuButton(entry: MenuEntry, expanded: Boolean, onClick: () -> Unit)
                 maxLines = 1,
             )
         }
-        Box(Modifier.size(SIZE).clip(CircleShape), contentAlignment = Alignment.Center) {
-            GlyphIcon(entry.icon.glyph, if (expanded) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface, SIZE * 0.42f)
+        Box(Modifier.size(size).clip(CircleShape), contentAlignment = Alignment.Center) {
+            GlyphIcon(entry.icon.glyph, if (expanded) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface, size * 0.42f)
         }
     }
 }
 
 private val SIZE: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(52.dp)
+
+/** En la cabecera, algo menores que el objetivo táctil del coche: siguen siendo fáciles de tocar. */
+private const val INLINE_SHARE = 0.75f
 private const val COLLAPSE_MS = 3_500L

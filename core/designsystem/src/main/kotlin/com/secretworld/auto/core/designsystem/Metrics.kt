@@ -56,9 +56,19 @@ class CarMetrics(
      * letras y botones más pequeños: se mide contra otra referencia.
      */
     val handheld: Boolean = false,
+    /**
+     * El lado corto de la **pantalla**, si es mayor que el de la ventana. El
+     * tamaño de las cosas depende de a qué distancia se mira, y eso es de la
+     * pantalla, no del hueco: en el pequeño de Pleos (800 dp) todo salía a un
+     * 60 % del grande en la misma pantalla. La composición sí sale de la ventana.
+     */
+    screenShortSideDp: Float = 0f,
 ) {
     /** El lado corto manda: es el que limita cuánto cabe sin apretar. */
     private val shortSideDp: Float = min(widthDp.value, heightDp.value)
+
+    /** Con qué lado se escala: el de la pantalla, o el de la ventana si es mayor. */
+    private val scaleSideDp: Float = maxOf(shortSideDp, screenShortSideDp)
 
     /**
      * Cuánto se agranda todo respecto a la ventana de referencia.
@@ -78,14 +88,14 @@ class CarMetrics(
         if (density >= LOW_DENSITY) {
             1f
         } else {
-            val ramp = ((shortSideDp - RAMP_START) / (RAMP_END - RAMP_START)).coerceIn(0f, 1f)
+            val ramp = ((scaleSideDp - RAMP_START) / (RAMP_END - RAMP_START)).coerceIn(0f, 1f)
             1f + (DENSITY_BOOST - 1f) * ramp
         }
 
     private val referenceShortSide: Float =
         if (handheld) HANDHELD_REFERENCE_SHORT_SIDE else REFERENCE_SHORT_SIDE
 
-    val scale: Float = (sqrt(shortSideDp / referenceShortSide) * densityCompensation)
+    val scale: Float = (sqrt(scaleSideDp / referenceShortSide) * densityCompensation)
         .coerceIn(if (handheld) HANDHELD_MIN_SCALE else MIN_SCALE, MAX_SCALE)
 
     /**
@@ -107,6 +117,16 @@ class CarMetrics(
      * pestañas.
      */
     val overlayShare: Float get() = if (handheld) 0.40f else 0.50f
+
+    /**
+     * Ventana alta y estrecha —el hueco pequeño de Pleos, 800 × 1400—: el mapa
+     * arriba y el panel debajo, a todo el ancho. Con el panel a la izquierda
+     * quedaba una columna en la que no cabía ni el título.
+     */
+    val stacked: Boolean get() = heightDp > widthDp && widthDp.value < STACK_MAX_WIDTH
+
+    /** Lo que se lleva el panel de abajo cuando la ventana está apilada. */
+    val sheetShare: Float get() = SHEET_SHARE
 
     /** Ventana estrecha: móvil, media pantalla del vehículo, o una Connect pequeña. */
     val isCompact: Boolean get() = shortSideDp < COMPACT_SHORT_SIDE
@@ -244,6 +264,8 @@ class CarMetrics(
         const val RAMP_END = 1200f
         const val DENSITY_BOOST = 1.35f
         const val COMPACT_SHORT_SIDE = 600f
+        const val STACK_MAX_WIDTH = 1200f
+        const val SHEET_SHARE = 0.60f
         /** La escala del móvil apaisado en el que se afinaron las medidas fijas (411 dp de alto). */
         const val PHONE_SCALE = 0.625f
         const val PANEL_SHARE = 0.34f

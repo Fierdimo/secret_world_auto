@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -100,6 +101,8 @@ fun BoxScope.HomeOverlay(
     onClearSearch: () -> Unit,
     /** Sin mapa al lado —ventana estrecha—: todo el ancho, sin cristal. */
     fullWidth: Boolean = false,
+    /** Los botones de la app —itinerarios, ajustes— en la cabecera, si no van aparte. */
+    menu: (@Composable () -> Unit)? = null,
 ) {
     val d = CarTheme.dimens
     val accent = MaterialTheme.colorScheme.primary
@@ -107,21 +110,33 @@ fun BoxScope.HomeOverlay(
     val shape = RoundedCornerShape(d.cardCorner)
     Column(
         Modifier
-            .align(Alignment.CenterStart)
-            .fillMaxHeight()
-            .fillMaxWidth(if (fullWidth) 1f else CarTheme.metrics.overlayShare)
+            .then(if (fullWidth) Modifier.align(Alignment.CenterStart).fillMaxSize() else panelPlacement())
             .panelInsetsPadding()
-            // Del borde de la barra de estado a casi el de la pantalla: todo el alto.
-            // A todo el ancho, deja sitio a la barra de iconos de la derecha.
-            .padding(start = d.spaceM, end = if (fullWidth) d.spaceM * 2 + CarTheme.metrics.grown(MENU_RAIL) else d.spaceM, bottom = d.spaceXs)
-            .clip(shape)
-            .background(glass)
-            .border(1.dp, accent.copy(alpha = 0.35f), shape)
-            .padding(d.spaceS),
+            .then(
+                if (fullWidth) {
+                    // A todo el ancho no flota sobre nada: sin marco de tarjeta ni
+                    // márgenes, que en el hueco pequeño se comían el sitio de la lista.
+                    Modifier
+                        .padding(end = if (menu == null) d.spaceS + CarTheme.metrics.grown(MENU_RAIL) else 0.dp)
+                        .padding(horizontal = d.spaceXs, vertical = d.spaceXs)
+                } else {
+                    // Del borde de la barra de estado a casi el de la pantalla: todo el alto.
+                    Modifier
+                        .padding(panelMargins())
+                        .clip(shape)
+                        .background(glass)
+                        .border(1.dp, accent.copy(alpha = 0.35f), shape)
+                        .padding(d.spaceS)
+                },
+            ),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { WhereHeader(city, offline) }
             VoiceStatusChip(voice.status, labelled = false)
+            menu?.let {
+                Spacer(Modifier.width(d.spaceXs))
+                it()
+            }
         }
         // Lo que se acaba de oír o contestar, mientras dura; nada fijo.
         (voice.answer ?: voice.heard?.let { "“$it”" })?.let { said ->

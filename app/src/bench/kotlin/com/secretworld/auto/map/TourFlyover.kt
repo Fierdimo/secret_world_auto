@@ -214,8 +214,21 @@ fun TourFlyover(
     // Márgenes: izquierda, arriba, derecha, abajo, en píxeles.
     fun px(dp: Dp) = with(density) { dp.toPx().toDouble() }
     val introPadding = doubleArrayOf(px(FRAME_SIDE), px(FRAME_TOP), px(FRAME_SIDE), px(FRAME_BOTTOM))
-    val ringPadding = doubleArrayOf(px(width * overlayShare + RING_SIDE), px(RING_SIDE), px(RING_RAIL), px(RING_SIDE))
-    val viewPadding = doubleArrayOf(px(width * overlayShare + FRAME_SIDE), px(FRAME_SIDE), px(FRAME_SIDE), px(FRAME_BOTTOM))
+    // Apilada, el panel tapa la parte de abajo y la barra de iconos va arriba a
+    // la derecha; si no, el panel tapa la izquierda.
+    val stacked = CarTheme.metrics.stacked
+    val sheet = height * CarTheme.metrics.sheetShare
+    val ringPadding = if (stacked) {
+        doubleArrayOf(px(RING_SIDE), px(RING_SIDE), px(RING_RAIL), px(sheet + RING_SIDE))
+    } else {
+        doubleArrayOf(px(width * overlayShare + RING_SIDE), px(RING_SIDE), px(RING_RAIL), px(RING_SIDE))
+    }
+    val viewPadding = if (stacked) {
+        // A la derecha y arriba, la barra de iconos o el "Cerrar": que no tapen paradas.
+        doubleArrayOf(px(FRAME_SIDE / 2), px(FRAME_SIDE), px(RING_RAIL + FRAME_SIDE / 2), px(sheet + FRAME_SIDE / 2))
+    } else {
+        doubleArrayOf(px(width * overlayShare + FRAME_SIDE), px(FRAME_SIDE), px(FRAME_SIDE), px(FRAME_BOTTOM))
+    }
 
     // La ruta, hasta donde se ha dibujado.
     LaunchedEffect(style, state.path) {
@@ -246,7 +259,8 @@ fun TourFlyover(
     }
 
     // El encuadre de conjunto: todas las paradas, el anillo entero o lo tocable.
-    LaunchedEffect(map, state.stops, state.intro, state.candidates.map { it.id }, state.radiusMeters, state.ringCenter) {
+    // También al cambiar la ventana de tamaño —Pleos pasa la app de un hueco a otro—.
+    LaunchedEffect(map, state.stops, state.intro, state.candidates.map { it.id }, state.radiusMeters, state.ringCenter, width, height, stacked) {
         val ready = map ?: return@LaunchedEffect
         val ring = ringAt?.let { me -> state.radiusMeters?.let { ringOf(me, it, RING_FRAME_POINTS) } }
         val framed = when {
@@ -259,8 +273,8 @@ fun TourFlyover(
         val radius = state.radiusMeters
         val camera = if (ringAt != null && radius != null && state.stops.isEmpty()) {
             // El zoom con el que el anillo llena el hueco a la derecha del panel.
-            val freeWidth = width.value * (1 - overlayShare) - RING_SIDE.value - RING_RAIL.value
-            val freeHeight = height.value - 2 * RING_SIDE.value
+            val freeWidth = if (stacked) width.value - RING_SIDE.value - RING_RAIL.value else width.value * (1 - overlayShare) - RING_SIDE.value - RING_RAIL.value
+            val freeHeight = (if (stacked) height.value - sheet.value else height.value) - 2 * RING_SIDE.value
             val fit = minOf(freeWidth, freeHeight) * RING_FILL
             val zoom = ln(METERS_PER_DP_Z0 * cos(Math.toRadians(ringAt.latitude)) * fit / (2 * radius)) / ln(2.0)
             CameraPosition.Builder().target(ringAt.latLng()).zoom(zoom).tilt(pitch).bearing(0.0).padding(ringPadding).build()
@@ -446,12 +460,13 @@ fun TourFlyover(
         }
 
         // Viñeta: la luz en el centro de lo que queda de mapa, no en el de la pantalla.
-        val lightX = if (state.intro) 0.5f else overlayShare + (1 - overlayShare) / 2
+        val lightX = if (state.intro || stacked) 0.5f else overlayShare + (1 - overlayShare) / 2
+        val lightY = if (stacked && !state.intro) (1 - CarTheme.metrics.sheetShare) / 2 else 0.5f
         Box(
             Modifier
                 .fillMaxSize()
                 .drawWithCache {
-                    val center = androidx.compose.ui.geometry.Offset(size.width * lightX, size.height / 2)
+                    val center = androidx.compose.ui.geometry.Offset(size.width * lightX, size.height * lightY)
                     val radius = maxOf(size.width * (1 - lightX), size.width * lightX, size.height) * VIGNETTE_REACH
                     val vignette = Brush.radialGradient(
                         0.55f to Color.Transparent,

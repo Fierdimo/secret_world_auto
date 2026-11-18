@@ -84,14 +84,18 @@ fun SecretWorldTheme(
     val window = LocalWindowInfo.current.containerSize
     val widthDp = if (window.width > 0) window.width / density else configuration.screenWidthDp.toFloat()
     val heightDp = if (window.height > 0) window.height / density else configuration.screenHeightDp.toFloat()
+    // La pantalla, para el tamaño de las cosas; la ventana, para su sitio.
+    val screenShort = minOf(configuration.screenWidthDp, configuration.screenHeightDp).toFloat()
     val metrics = remember(
         widthDp,
         heightDp,
+        screenShort,
         density,
         fontScale,
         handheld,
     ) {
         CarMetrics(
+            screenShortSideDp = screenShort,
             widthDp = widthDp.dp,
             heightDp = heightDp.dp,
             density = density,

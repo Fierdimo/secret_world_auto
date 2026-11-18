@@ -100,12 +100,10 @@ fun BoxScope.ItineraryLibraryOverlay(
     val shape = RoundedCornerShape(d.cardCorner)
     Column(
         Modifier
-            .align(Alignment.CenterStart)
-            .fillMaxHeight()
-            .fillMaxWidth(CarTheme.metrics.overlayShare)
+            .then(panelPlacement())
             .panelInsetsPadding()
             // Del borde de la barra de estado a casi el de la pantalla: todo el alto.
-            .padding(start = d.spaceM, end = d.spaceM, bottom = d.spaceXs)
+            .padding(panelMargins())
             .clip(shape)
             .background(glass)
             .border(1.dp, accent.copy(alpha = 0.35f), shape)

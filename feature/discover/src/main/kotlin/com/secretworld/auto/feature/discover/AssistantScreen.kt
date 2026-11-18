@@ -799,12 +799,10 @@ fun androidx.compose.foundation.layout.BoxScope.ItineraryOverlay(
     val glass = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
     Column(
         Modifier
-            .align(Alignment.CenterStart)
-            .fillMaxHeight()
-            .fillMaxWidth(CarTheme.metrics.overlayShare)
+            .then(panelPlacement())
             .panelInsetsPadding()
             // Del borde de la barra de estado a casi el de la pantalla: todo el alto.
-            .padding(start = d.spaceM, end = d.spaceM, bottom = d.spaceXs)
+            .padding(panelMargins())
             .clip(RoundedCornerShape(d.cardCorner))
             .background(glass)
             .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), RoundedCornerShape(d.cardCorner))
@@ -857,9 +855,14 @@ fun androidx.compose.foundation.layout.BoxScope.ItineraryOverlay(
         enter = androidx.compose.animation.fadeIn(Motion.settle(Motion.reduced)) +
             androidx.compose.animation.slideInVertically(Motion.settle(Motion.reduced)) { it / 2 },
         exit = androidx.compose.animation.fadeOut(Motion.exit(Motion.reduced)),
-        modifier = Modifier
-            .align(Alignment.BottomEnd)
-            .fillMaxWidth(1f - CarTheme.metrics.overlayShare)
+        // Sobre el mapa: a la derecha del panel, o arriba si el panel va abajo.
+        modifier = (
+            if (CarTheme.metrics.stacked) {
+                Modifier.align(Alignment.TopCenter).fillMaxWidth()
+            } else {
+                Modifier.align(Alignment.BottomEnd).fillMaxWidth(1f - CarTheme.metrics.overlayShare)
+            }
+            )
             .panelInsetsPadding()
             .padding(d.spaceM),
     ) {

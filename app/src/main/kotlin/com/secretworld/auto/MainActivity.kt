@@ -1023,7 +1023,9 @@ class MainActivity : ComponentActivity() {
                 val split by multiWindow.collectAsState()
                 // Pleos abre todas las apps en multiventana, aunque la ventana
                 // mida 1600 dp: compartir pantalla solo compacta si de verdad estrecha.
-                val compact = metrics.widthDp < COMPACT_WIDTH || (split && metrics.widthDp < SPLIT_COMPACT_WIDTH)
+                // Estrecha pero alta —el hueco pequeño de Pleos—: el mapa arriba y el
+                // panel abajo. Solo la estrecha y apaisada se queda sin mapa.
+                val compact = (metrics.widthDp < COMPACT_WIDTH || (split && metrics.widthDp < SPLIT_COMPACT_WIDTH)) && !metrics.stacked
                 val plan by shownPlan.collectAsState()
                 val shownPlanUi = plan?.takeIf {
                     currentTour != null || itinerary.state is ItineraryConversation.State.Proposed || itinerary.state is ItineraryConversation.State.Saved
@@ -1059,6 +1061,14 @@ class MainActivity : ComponentActivity() {
                                 val text = label(language)
                                 SearchShortcut(label = text.replaceFirstChar { it.uppercase() }, category = category) { findPlaces(text, category, announce = true) }
                             }
+                // Itinerarios y ajustes: a la derecha sobre el mapa, o en la cabecera.
+                val menuCtx = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
+                val menuEntries = listOf(
+                    MenuEntry(MenuIcon.ITINERARIES, myItineraries(language)) {
+                        answer = openLibrary(menuCtx).ifEmpty { null }
+                    },
+                    MenuEntry(MenuIcon.SETTINGS, settingsLabel(language)) { panel = Panel.Settings },
+                )
                 val homeAt by homeSelected.collectAsState()
                 val toldAt by homeFocus.collectAsState()
                 val menu = rememberMenuRailState()
@@ -1269,6 +1279,7 @@ class MainActivity : ComponentActivity() {
                                 onStopNavigation = { endNavigation() },
                                 onClearSearch = ::clearSearch,
                                 fullWidth = true,
+                                menu = { MenuRail(entries = menuEntries, state = menu, inline = true) },
                             )
                         }
                     } else if (panel is Panel.Home || inPip) {
@@ -1341,15 +1352,10 @@ class MainActivity : ComponentActivity() {
                     // incluidos—, en vez de una barra fija que estorbaba.
                     // Arriba a la derecha, la barra de iconos: un toque enseña qué es,
                     // otro lo abre. Con la vista de un itinerario delante, solo los ajustes.
-                    if (panel is Panel.Home && !inPip && itineraryMap == null) {
-                        val ctx = Phrasebook.Context(vehicleState.position, upcoming, memory, language)
+                    // En ventana estrecha van en la cabecera del panel, no aparte.
+                    if (panel is Panel.Home && !inPip && itineraryMap == null && !compact) {
                         MenuRail(
-                            entries = listOfNotNull(
-                                MenuEntry(MenuIcon.ITINERARIES, myItineraries(language)) {
-                                    answer = openLibrary(ctx).ifEmpty { null }
-                                }.takeIf { itineraryMap == null },
-                                MenuEntry(MenuIcon.SETTINGS, settingsLabel(language)) { panel = Panel.Settings },
-                            ),
+                            entries = menuEntries,
                             state = menu,
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
@@ -1879,32 +1885,33 @@ class MainActivity : ComponentActivity() {
         // borrar. Y con un recorrido en marcha no queda nada que preguntar.
         if (library.value != null || tour.value != null) return null
         val labels = ItineraryReplies.Labels
-        val cancel = PromptOption(labels.cancel(language), onClick = step { itinerary.decline() })
+        val eyebrow = labels.newItinerary(language)
+        val start = PromptOption(labels.start(language), onClick = step { itinerary.answer(ItineraryReply.START) })
         return when (val state = itinerary.state) {
             is ItineraryConversation.State.Asking -> {
                 val missing = state.request.missing(profiles.load())
                 PromptUi(
+                    eyebrow = eyebrow,
                     question = ItineraryReplies.question(missing, language),
-                    options = ItineraryReplies.forMissing(missing, language).map { reply ->
+                    choices = ItineraryReplies.forMissing(missing, language).map { reply ->
                         PromptOption(reply.label) { voiceInput.inject(reply.says) }
-                    } + cancel,
+                    },
+                    dismiss = PromptOption(labels.cancel(language), onClick = step { itinerary.decline() }),
                 )
             }
             is ItineraryConversation.State.Proposed -> PromptUi(
+                eyebrow = eyebrow,
                 question = labels.ready(language),
-                options = listOf(
-                    PromptOption(labels.start(language), primary = true, onClick = step { itinerary.answer(ItineraryReply.START) }),
-                    PromptOption(labels.save(language), onClick = step { itinerary.answer(ItineraryReply.SAVE) }),
-                    PromptOption(labels.discard(language), onClick = step { itinerary.decline() }),
-                ),
+                primary = start,
+                secondary = PromptOption(labels.save(language), onClick = step { itinerary.answer(ItineraryReply.SAVE) }),
+                dismiss = PromptOption(labels.discard(language), onClick = step { itinerary.decline() }),
                 atBottom = true,
             )
             is ItineraryConversation.State.Saved -> PromptUi(
+                eyebrow = eyebrow,
                 question = labels.saved(language),
-                options = listOf(
-                    PromptOption(labels.start(language), primary = true, onClick = step { itinerary.answer(ItineraryReply.START) }),
-                    PromptOption(labels.later(language), onClick = step { itinerary.decline() }),
-                ),
+                primary = start,
+                dismiss = PromptOption(labels.later(language), onClick = step { itinerary.decline() }),
                 atBottom = true,
             )
             ItineraryConversation.State.Idle -> null

@@ -31,6 +31,7 @@ object ItineraryReplies {
 
     /** Los textos de la tarjeta cuando ya hay un itinerario sobre el mapa. */
     object Labels {
+        fun newItinerary(language: VoiceLanguage) = language.say(en = "New itinerary", es = "Nuevo itinerario", it = "Nuovo itinerario")
         fun ready(language: VoiceLanguage) = language.say(en = "Your itinerary is ready", es = "Tu itinerario está listo", it = "Il tuo itinerario è pronto")
         fun saved(language: VoiceLanguage) = language.say(en = "Saved. Shall we go?", es = "Guardado. ¿Empezamos?", it = "Salvato. Partiamo?")
         fun start(language: VoiceLanguage) = language.say(en = "Start", es = "Empezar", it = "Inizia")
