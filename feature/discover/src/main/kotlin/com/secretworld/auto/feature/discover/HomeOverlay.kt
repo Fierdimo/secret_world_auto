@@ -188,16 +188,15 @@ fun BoxScope.HomeOverlay(
                 modifier = Modifier.padding(top = d.spaceXs),
             )
         }
-        if (tour != null && !tour.proposed && !tour.saved) {
-            Spacer(Modifier.height(d.spaceS))
-            CurrentStops(tour)
-        }
+        // El itinerario en curso va en la lista, como su primera fila: fijo
+        // encima, en el hueco pequeño ocupaba el panel y los sitios no se veían.
+        val touring = tour != null && !tour.proposed && !tour.saved
         Spacer(Modifier.height(d.spaceS))
         val places = if (searching) emptyList() else search?.places ?: nearby
         val list = rememberLazyListState()
         LaunchedEffect(selected?.id) {
             val at = places.indexOfFirst { it.id == selected?.id }
-            if (at >= 0) list.animateScrollToItem(at)
+            if (at >= 0) list.animateScrollToItem(at + if (touring) 1 else 0)
         }
         if (places.isEmpty() && !searching) {
             Text(
@@ -211,6 +210,9 @@ fun BoxScope.HomeOverlay(
         // cuando cambian unos pocos al moverse el coche.
         val entrance = rememberListEntrance(search?.title, places.isNotEmpty())
         LazyColumn(Modifier.fillMaxWidth().weight(1f), state = list, verticalArrangement = Arrangement.spacedBy(d.spaceXs)) {
+            if (touring && tour != null) {
+                item(key = TOUR_ROW) { Box(Modifier.padding(bottom = d.spaceXs)) { CurrentStops(tour) } }
+            }
             itemsIndexed(places, key = { _, place -> place.id }) { index, place ->
                 PlaceLine(
                     modifier = Modifier.animateItem().entering(entrance, index),
@@ -285,14 +287,18 @@ private fun PlaceLine(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            // Las acciones, solo en el elegido y en la misma línea: nada apilado.
-            if (selected) {
-                Spacer(Modifier.width(d.spaceXs))
-                Row(horizontalArrangement = Arrangement.spacedBy(d.spaceXs)) {
-                    if (place.kind == null && place.summary != null) RoundAction(Glyph.LISTEN, onListen, filled = true, diameter = ACTION)
-                    RoundAction(Glyph.ADD, onAdd, filled = false, diameter = ACTION)
-                    RoundAction(Glyph.GO, onNavigate, filled = false, diameter = ACTION)
-                }
+        }
+        // Las acciones, solo en el elegido y en su propia fila, a la derecha: en
+        // la misma línea que el nombre lo dejaban en "Pu…" en un panel estrecho.
+        if (selected) {
+            Spacer(Modifier.height(d.spaceXs))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(d.spaceXs, Alignment.End),
+            ) {
+                if (place.kind == null && place.summary != null) RoundAction(Glyph.LISTEN, onListen, filled = true, diameter = ACTION)
+                RoundAction(Glyph.ADD, onAdd, filled = false, diameter = ACTION)
+                RoundAction(Glyph.GO, onNavigate, filled = false, diameter = ACTION)
             }
         }
     }
@@ -376,6 +382,7 @@ private fun glyphOf(category: String?): Glyph = when (category) {
 private val MENU_RAIL = 52.dp
 /** La pestaña de "Qué ver", que no es una búsqueda. */
 private const val AROUND = "\u0000around"
+private const val TOUR_ROW = "\u0000tour"
 private val THUMB: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(44.dp)
 private val ACTION: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(36.dp)
 private val TAB_ICON: Dp @Composable @ReadOnlyComposable get() = CarTheme.metrics.grown(20.dp)
