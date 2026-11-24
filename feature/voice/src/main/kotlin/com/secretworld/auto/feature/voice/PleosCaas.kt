@@ -1,366 +1,470 @@
 package com.secretworld.auto.feature.voice
 
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.CoroutineScope
-import android.content.ComponentName
+import android.Manifest
 import android.content.Context
-import android.content.Intent
-import android.content.ServiceConnection
+import android.content.pm.PackageManager
 import android.media.AudioAttributes
-import android.os.Binder
-import android.os.IBinder
-import android.os.Parcel
 import android.util.Log
-import com.secretworld.auto.domain.LanguageModel
 import com.secretworld.auto.domain.VoiceLanguage
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
+import java.util.Locale
+import ai.pleos.playground.stt.SpeechToText
+import ai.pleos.playground.stt.constant.ErrorType as SttError
+import ai.pleos.playground.stt.constant.Mode as SttMode
+import ai.pleos.playground.stt.listener.OnInitializeListener as SttInit
+import ai.pleos.playground.stt.listener.OnServerConnectionListener as SttServer
+import ai.pleos.playground.stt.listener.ResultListener
+import ai.pleos.playground.tts.TextToSpeech
+import ai.pleos.playground.tts.constant.ErrorType as TtsError
+import ai.pleos.playground.tts.constant.Mode as TtsMode
+import ai.pleos.playground.tts.listener.EventListener
+import ai.pleos.playground.tts.listener.OnInitializeListener as TtsInit
+import ai.pleos.playground.tts.listener.OnServerConnectionListener as TtsServer
 
 /**
- * Los servicios de voz e IA de Pleos (la caas, `ai.pleos.playground.caas`).
+ * La voz y la escucha de Pleos, con sus SDK oficiales (`TextToSpeech` y
+ * `SpeechToText` 3.3.1, del Maven de Pleos). Los dos hablan con la caas
+ * (`ai.pleos.playground.caas`).
  *
- * **Sin librería oficial**: Pleos no publica todavía los clientes de
- * `sdk.tts`, `sdk.stt` ni el del LLM. El contrato —descriptores, códigos de
- * transacción y orden de los argumentos— está leído del bytecode de la caas
- * 4.2.9 (imagen Connect-W de agosto de 2026) y coincide con el medido en la
- * 2.2.7.1 (v2.1.5). Puede romperse con otra versión: cuando lleguen las
- * librerías, esto se sustituye por ellas. Ver docs/PLEOS-SDK-SURFACE.md.
+ * Sin credenciales, solo en el dispositivo (`ON_DEVICE`). Con el Client ID y el
+ * Client Secret de *My Project* —ver [PleosCredentials]—, `HYBRID`: el servidor
+ * cuando hay red y el dispositivo si no.
  *
- * Se vincula con el componente explícito: las acciones que `onBind` reconoce
- * no están en el intent-filter del servicio.
+ * Idiomas según la documentación: `en-US` y `es-US`/`es-MX`, entre otros. **Sin
+ * italiano.** Ver docs/PLEOS-WATERFALL-PC.md.
  */
-internal object PleosCaas {
+object PleosCaas {
     const val PACKAGE = "ai.pleos.playground.caas"
-    const val SPEECH_SERVICE = "ai.pleos.playground.caas.service.speech.SpeechService"
-    const val LLM_SERVICE = "ai.pleos.playground.caas.service.llm.LLMService"
-    const val TTS_ON_DEVICE_ACTION = "ai.pleos.playground.caas.intent.action.TTS_STREAM_ON_DEVICE_START"
-    const val LLM_ON_DEVICE_ACTION = "ai.pleos.playground.caas.intent.action.LLM_ON_DEVICE_START"
 
     /** Si la caas está instalada: fuera de Pleos, no. */
     fun installed(context: Context): Boolean =
         runCatching { context.packageManager.getPackageInfo(PACKAGE, 0) }.isSuccess
 
-    /** Vincula y devuelve el binder cuando llega; `null` si el servicio no lo da. */
-    fun bind(context: Context, service: String, action: String, onBinder: (IBinder?) -> Unit): ServiceConnection? {
-        val intent = Intent(action).setComponent(ComponentName(PACKAGE, service))
-        val connection = object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) = onBinder(binder)
-            override fun onServiceDisconnected(name: ComponentName?) = onBinder(null)
-            override fun onNullBinding(name: ComponentName?) = onBinder(null)
-        }
-        val bound = runCatching { context.bindService(intent, connection, Context.BIND_AUTO_CREATE) }
-            .onFailure { Log.e(TAG, "no se pudo vincular $action", it) }
-            .getOrDefault(false)
-        return connection.takeIf { bound }
-    }
-
-    /** Una llamada AIDL a mano: el descriptor y, en orden, los argumentos. */
-    fun call(target: IBinder, descriptor: String, code: Int, vararg args: Any?) {
-        val data = Parcel.obtain()
-        val reply = Parcel.obtain()
-        try {
-            data.writeInterfaceToken(descriptor)
-            args.forEach { arg ->
-                when (arg) {
-                    is String -> data.writeString(arg)
-                    is Boolean -> data.writeInt(if (arg) 1 else 0)
-                    is Int -> data.writeInt(arg)
-                    is IBinder -> data.writeStrongBinder(arg)
-                    // AudioAttributesParcel de la caas: marca de no nulo y, dentro, el AudioAttributes.
-                    is AudioAttributes -> {
-                        data.writeInt(1)
-                        data.writeParcelable(arg, 0)
-                    }
-                    null -> data.writeString(null)
-                    else -> error("argumento no soportado: ${arg::class}")
-                }
-            }
-            target.transact(code, data, reply, 0)
-            reply.readException()
-        } finally {
-            data.recycle()
-            reply.recycle()
-        }
-    }
-
-    /**
-     * Un callback AIDL con un solo método, `onResponse`, de [strings] cadenas.
-     * Se devuelve el binder: hay que guardarlo mientras se use, o se lo lleva el GC.
-     */
-    fun callback(descriptor: String, strings: Int, onResponse: (List<String?>) -> Unit): Binder =
-        object : Binder() {
-            override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
-                if (code == INTERFACE_TRANSACTION) {
-                    reply?.writeString(descriptor)
-                    return true
-                }
-                if (code == FIRST_CALL_TRANSACTION) {
-                    data.enforceInterface(descriptor)
-                    val values = (0 until strings).map { data.readString() }
-                    runCatching { onResponse(values) }.onFailure { Log.e(TAG, "callback", it) }
-                    reply?.writeNoException()
-                    return true
-                }
-                return super.onTransact(code, data, reply, flags)
-            }
-        }.apply { attachInterface(null, descriptor) }
-
-    /** El código de idioma que espera la caas. */
-    fun localeOf(language: VoiceLanguage): String = when (language) {
-        VoiceLanguage.SPANISH -> "es-ES"
-        VoiceLanguage.ITALIAN -> "it-IT"
-        else -> "en-US"
+    /** El idioma que entiende Pleos: español de América, no de España. */
+    fun localeOf(language: VoiceLanguage): Locale = when (language) {
+        VoiceLanguage.SPANISH -> Locale.forLanguageTag("es-US")
+        VoiceLanguage.ITALIAN -> Locale.forLanguageTag("it-IT")
+        else -> Locale.forLanguageTag("en-US")
     }
 
     const val TAG = "SWPleos"
+
+    /** El tiempo que se espera a que el SDK se conecte a la caas. */
+    internal const val INIT_TIMEOUT_MS = 8_000L
 }
 
 /**
- * La voz de Pleos (`ITtsOnDeviceStream`): habla ella misma, no devuelve audio.
- * `speak` es asíncrono; se sabe que terminó por `UpdateTtsDone`. Medido en la
- * v2.1.5: on-device solo sintetiza coreano, y con es, it o en responde
- * `UpdateTtsError` ("Unsupported locale"). Aquí no se esconde: se registra y la
- * frase queda escrita en pantalla.
+ * Las credenciales de la app en Pleos (*My Project*). Sin ellas, solo lo que
+ * funciona en el dispositivo.
  */
-class PleosSpeaker(private val context: Context) : LiveSpeaker {
+data class PleosCredentials(val clientId: String, val clientSecret: String) {
+    companion object {
+        fun of(clientId: String, clientSecret: String): PleosCredentials? =
+            PleosCredentials(clientId, clientSecret).takeIf { clientId.isNotBlank() && clientSecret.isNotBlank() }
+    }
+}
 
-    private var binder: IBinder? = null
-    private var connection: ServiceConnection? = null
-    private val connected = CompletableDeferred<IBinder?>()
-    private var locale: String? = null
-    private var pending: CompletableDeferred<Boolean>? = null
+/**
+ * La voz de Pleos: habla ella misma, no devuelve audio. Se sabe que terminó por
+ * `onDone`. Si da error —en Waterfall, `ON_DEVICE_ENGINE_ERROR` por falta del
+ * modelo—, se registra y la frase queda escrita en pantalla.
+ */
+class PleosSpeaker(
+    private val context: Context,
+    private val credentials: PleosCredentials? = null,
+) : LiveSpeaker {
+
+    private var tts: TextToSpeech? = null
+    private var initialized: CompletableDeferred<Boolean>? = null
+    private var locale: Locale? = null
+
+    @Volatile private var pending: CompletableDeferred<Boolean>? = null
 
     /** Si la frase en curso llegó a sonar: `false` si dio error antes. */
-    private var starting: CompletableDeferred<Boolean>? = null
+    @Volatile private var starting: CompletableDeferred<Boolean>? = null
 
-    private val callback = PleosCaas.callback(CALLBACK, 2) { (cmd, data) ->
-        Log.i(PleosCaas.TAG, "TTS <= $cmd ${data.orEmpty().take(160)}")
-        when (cmd) {
-            "UpdateTtsStart" -> starting?.complete(true)
-            "UpdateTtsDone", "UpdateTtsStop" -> {
-                starting?.complete(true)
-                pending?.complete(true)
-            }
-            "UpdateTtsError" -> {
-                starting?.complete(false)
-                pending?.complete(false)
-            }
+    private val events = object : EventListener {
+        override fun onStart() {
+            Log.i(PleosCaas.TAG, "TTS empieza")
+            starting?.complete(true)
         }
+
+        override fun onReady() = Unit
+
+        override fun onDone() {
+            starting?.complete(true)
+            pending?.complete(true)
+        }
+
+        override fun onStop() = onDone()
+
+        override fun onError(error: TtsError) {
+            Log.w(PleosCaas.TAG, "TTS error: $error")
+            starting?.complete(false)
+            pending?.complete(false)
+        }
+
+        override fun onUpdatedRms(rms: Double) = Unit
     }
 
     override val available: Boolean get() = PleosCaas.installed(context)
 
-    private suspend fun ready(): IBinder? {
-        if (connection == null) {
-            connection = PleosCaas.bind(context, PleosCaas.SPEECH_SERVICE, PleosCaas.TTS_ON_DEVICE_ACTION) { b ->
-                binder = b
-                if (b != null) {
-                    runCatching { PleosCaas.call(b, DESCRIPTOR, REGISTER, callback, context.packageName) }
-                        .onFailure { Log.e(PleosCaas.TAG, "TTS registerCallback", it) }
-                }
-                connected.complete(b)
+    /** Crea el cliente y espera a que conecte. Todo en el hilo principal: el SDK lo da por hecho. */
+    private suspend fun ready(): TextToSpeech? = withContext(Dispatchers.Main) {
+        val waiting = initialized ?: CompletableDeferred<Boolean>().also { done ->
+            initialized = done
+            val mode = if (credentials != null) TtsMode.HYBRID else TtsMode.ON_DEVICE
+            val client = runCatching { TextToSpeech(context, mode) }
+                .onFailure { Log.e(PleosCaas.TAG, "TTS: no se pudo crear", it) }
+                .getOrNull()
+            tts = client
+            if (client == null) {
+                done.complete(false)
+                return@also
             }
-            if (connection == null) connected.complete(null)
+            runCatching {
+                client.initialize(object : TtsInit {
+                    override fun onSuccess() {
+                        Log.i(PleosCaas.TAG, "TTS de Pleos listo ($mode)")
+                        // Solo ahora: antes de inicializar, el SDK no tiene motor y se cae.
+                        val wired = runCatching {
+                            client.addEventListener(events)
+                            client.setAudioAttributes(
+                                AudioAttributes.Builder()
+                                    .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                                    .build(),
+                            )
+                        }.onFailure { Log.e(PleosCaas.TAG, "TTS: no se pudo preparar", it) }.isSuccess
+                        if (!wired) {
+                            done.complete(false)
+                            return
+                        }
+                        credentials?.let { keys ->
+                            client.registerApp(keys.clientId, keys.clientSecret, object : TtsServer {
+                                override fun onConnected() {
+                                    Log.i(PleosCaas.TAG, "TTS: app registrada en el servidor")
+                                }
+
+                                override fun onFailed(error: TtsError) {
+                                    Log.w(PleosCaas.TAG, "TTS: registro en el servidor: $error")
+                                }
+                            })
+                        }
+                        // El registro no bloquea: en HYBRID, sin servidor, habla el dispositivo.
+                        done.complete(true)
+                    }
+
+                    override fun onFailure(error: TtsError) {
+                        Log.w(PleosCaas.TAG, "TTS: no inicializa: $error")
+                        done.complete(false)
+                    }
+                })
+            }.onFailure {
+                Log.e(PleosCaas.TAG, "TTS initialize", it)
+                done.complete(false)
+            }
         }
-        return withTimeoutOrNull(BIND_TIMEOUT_MS) { connected.await() } ?: binder
+        val ok = withTimeoutOrNull(PleosCaas.INIT_TIMEOUT_MS) { waiting.await() } ?: false
+        tts.takeIf { ok }
     }
 
-    override suspend fun speak(text: String, language: VoiceLanguage): Boolean = withContext(Dispatchers.IO) {
-        val b = ready() ?: return@withContext false.also { Log.w(PleosCaas.TAG, "TTS: sin servicio") }
-        val app = context.packageName
-        val wanted = PleosCaas.localeOf(language)
+    override suspend fun speak(text: String, language: VoiceLanguage): Boolean {
+        val client = ready() ?: return false.also { Log.w(PleosCaas.TAG, "TTS: sin servicio") }
         val done = CompletableDeferred<Boolean>()
         val began = CompletableDeferred<Boolean>()
         pending = done
         starting = began
-        runCatching {
-            // El idioma se guarda por app: solo se cambia si hace falta.
-            if (locale != wanted) {
-                PleosCaas.call(b, DESCRIPTOR, SET_LOCALE, wanted, app)
-                locale = wanted
-            }
-            val attrs = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ASSISTANT)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .build()
-            PleosCaas.call(b, DESCRIPTOR, SPEAK, text, true, app, attrs)
-        }.onFailure {
-            Log.e(PleosCaas.TAG, "TTS speak", it)
-            return@withContext false
+        val sent = withContext(Dispatchers.Main) {
+            runCatching {
+                val wanted = PleosCaas.localeOf(language)
+                if (locale != wanted) {
+                    client.setLocale(wanted)
+                    locale = wanted
+                }
+                client.speak(text, true)
+            }.onFailure { Log.e(PleosCaas.TAG, "TTS speak", it) }.isSuccess
         }
-        // Primero, que empiece a sonar. En la v2.1.5 acepta la frase, dice
-        // "lista" y el error de idioma llega veinte segundos después, al
-        // reproducir: esperando así, la app tardaba 80 s en saber que no hay voz.
+        if (!sent) return false
+        // Primero, que empiece a sonar: un error de idioma o de motor puede
+        // llegar tarde, y la app no debe esperar la frase entera para saberlo.
         val sounding = withTimeoutOrNull(START_TIMEOUT_MS) { began.await() } ?: false
         if (!sounding) {
             Log.w(PleosCaas.TAG, "TTS: no empezó a sonar en ${START_TIMEOUT_MS / 1000} s")
-            runCatching { PleosCaas.call(b, DESCRIPTOR, STOP, app) }
-            return@withContext false
+            stop()
+            return false
         }
         // Lo que tarde en decirse, con margen; si no llega el final, se sigue.
-        withTimeoutOrNull(text.length * MS_PER_CHAR + SPEAK_MARGIN_MS) { done.await() } ?: true
+        return withTimeoutOrNull(text.length * MS_PER_CHAR + SPEAK_MARGIN_MS) { done.await() } ?: true
     }
 
     override fun stop() {
         pending?.complete(true)
-        binder?.let { b -> runCatching { PleosCaas.call(b, DESCRIPTOR, STOP, context.packageName) } }
+        tts?.let { client -> runCatching { client.stop() } }
     }
 
     override fun release() {
         stop()
-        connection?.let { runCatching { context.unbindService(it) } }
-        connection = null
+        tts?.let { client ->
+            runCatching {
+                client.removeEventListener(events)
+                client.release()
+            }
+        }
+        tts = null
+        initialized = null
     }
 
     private companion object {
         /** Lo más que se espera a que una frase empiece a sonar. */
         const val START_TIMEOUT_MS = 10_000L
-        const val DESCRIPTOR = "ai.pleos.playground.caas.service.speech.aidl.ITtsOnDeviceStream"
-        const val CALLBACK = "ai.pleos.playground.caas.service.speech.aidl.ITtsCallback"
-        const val REGISTER = 1
-        const val SPEAK = 4
-        const val STOP = 5
-        const val SET_LOCALE = 6
-        const val BIND_TIMEOUT_MS = 5_000L
         const val MS_PER_CHAR = 90L
         const val SPEAK_MARGIN_MS = 5_000L
     }
 }
 
 /**
- * El LLM de Pleos (`IOnDeviceLLM`): un modelo pequeño (0,5B en la v2.1.5). La
- * gramática sigue atendiendo casi todo; esto es para lo que ella no entiende.
- * La respuesta llega a trozos por `ILLMCallback.onResponse(cmd, requestId, data)`.
+ * La escucha de Pleos. Como [SystemVoiceInput], se cierra en cada frase y
+ * [HandsFree] la reabre; la palabra de activación se busca en el texto.
  */
-class PleosLanguageModel(private val context: Context) : LanguageModel {
+class PleosVoiceInput(
+    private val context: Context,
+    private val language: VoiceLanguage,
+    private val scope: CoroutineScope,
+    private val credentials: PleosCredentials? = null,
+) : VoiceInput {
 
-    @Volatile
-    private var binder: IBinder? = null
-    private var connection: ServiceConnection? = null
-    private val requests = ConcurrentHashMap<String, Request>()
+    private val _state = MutableStateFlow<VoiceInput.State>(VoiceInput.State.Idle)
+    override val state: StateFlow<VoiceInput.State> = _state.asStateFlow()
 
-    @Volatile
-    override var ready: Boolean = false
-        private set
+    private var stt: SpeechToText? = null
+    private var initialized: CompletableDeferred<Boolean>? = null
+    private var direct = true
+    private var answerTurn = false
 
-    @Volatile
-    override var failed: Boolean = false
-        private set
+    /** Lo último que se oyó en esta frase: si no llega el final, vale esto. */
+    private var lastHeard = ""
+    private var delivered = false
 
-    private class Request(val text: StringBuilder = StringBuilder(), val done: CompletableDeferred<String> = CompletableDeferred())
+    /** El turno de escucha en curso: si se cancela mientras el SDK conecta, no se abre el micrófono. */
+    private var turn = 0
+    private var requested = false
 
-    private val callback = PleosCaas.callback(CALLBACK, 3) { (cmd, id, data) ->
-        val request = id?.let(requests::get) ?: return@callback
-        when (cmd) {
-            "GenerateContentStreamPartialResponse" -> synchronized(request.text) { request.text.append(data.orEmpty()) }
-            "GenerateContentStreamFullResponse", "GenerateContentResponse" -> {
-                val partial = synchronized(request.text) { request.text.toString() }
-                request.done.complete(partial.ifBlank { data.orEmpty() })
+    private var hardFailures = 0
+    @Volatile private var gaveUp = false
+
+    override val available: Boolean get() = !gaveUp && PleosCaas.installed(context)
+    override val continuous: Boolean = false
+
+    override val hasPermission: Boolean
+        get() = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+    private val results = object : ResultListener {
+        override fun onUpdated(text: String, isFinal: Boolean) {
+            if (text.isNotBlank()) lastHeard = text
+            if (isFinal) deliver(text)
+        }
+
+        override fun onUpdatedEpdData(epdOn: Long, epdOff: Long) = Unit
+        override fun onStartedRecognition() = Unit
+
+        override fun onEndedRecognition() {
+            if (!delivered) deliver(lastHeard)
+        }
+
+        override fun onError(error: SttError) {
+            Log.w(TAG, "error de reconocimiento: $error")
+            delivered = true
+            if (error != SttError.TIMEOUT && ++hardFailures >= GIVE_UP_AFTER && !gaveUp) {
+                gaveUp = true
+                Log.w(TAG, "la escucha de Pleos no responde: sin escucha, se usa tocando")
             }
-            else -> Log.i(PleosCaas.TAG, "LLM <= $cmd ${data.orEmpty().take(120)}")
+            answerTurn = false
+            _state.value = VoiceInput.State.Failed(reasonOf(error), quiet = error == SttError.TIMEOUT && !direct)
+        }
+
+        override fun onReady() = Unit
+        override fun onUpdatedRms(rms: Double) = Unit
+    }
+
+    private fun deliver(text: String) {
+        if (delivered) return
+        delivered = true
+        hardFailures = 0
+        Log.i(TAG, "oido: «$text»${if (direct) " (respuesta)" else ""}")
+        answerTurn = false
+        _state.value = if (text.isBlank()) {
+            VoiceInput.State.Failed(reasonOf(SttError.TIMEOUT), quiet = !direct)
+        } else {
+            VoiceInput.State.Heard(text, direct)
         }
     }
 
-    /** Vincula e inicializa. El modelo carga en segundo plano: no se espera aquí. */
-    fun load() {
-        if (!PleosCaas.installed(context)) {
-            failed = true
+    /** Crea el cliente y espera a que conecte, en el hilo principal. */
+    private suspend fun ready(): SpeechToText? = withContext(Dispatchers.Main) {
+        val waiting = initialized ?: CompletableDeferred<Boolean>().also { done ->
+            initialized = done
+            val mode = if (credentials != null) SttMode.HYBRID else SttMode.ON_DEVICE
+            val client = runCatching { SpeechToText(context, mode) }
+                .onFailure { Log.e(TAG, "STT: no se pudo crear", it) }
+                .getOrNull()
+            stt = client
+            if (client == null) {
+                done.complete(false)
+                return@also
+            }
+            runCatching {
+                client.initialize(object : SttInit {
+                    override fun onSuccess() {
+                        Log.i(TAG, "STT de Pleos listo ($mode)")
+                        // Solo ahora: antes de inicializar, el SDK no tiene motor y se cae.
+                        val wired = runCatching {
+                            client.addListener(results)
+                            client.setLocale(PleosCaas.localeOf(language))
+                        }.onFailure { Log.e(TAG, "STT: no se pudo preparar", it) }.isSuccess
+                        if (!wired) {
+                            done.complete(false)
+                            return
+                        }
+                        credentials?.let { keys ->
+                            client.registerApp(keys.clientId, keys.clientSecret, object : SttServer {
+                                override fun onConnected() {
+                                    Log.i(TAG, "STT: app registrada en el servidor")
+                                }
+
+                                override fun onFailed(error: SttError) {
+                                    Log.w(TAG, "STT: registro en el servidor: $error")
+                                }
+                            })
+                        }
+                        done.complete(true)
+                    }
+
+                    override fun onFailure(error: SttError) {
+                        Log.w(TAG, "STT: no inicializa: $error")
+                        done.complete(false)
+                    }
+                })
+            }.onFailure {
+                Log.e(TAG, "STT initialize", it)
+                done.complete(false)
+            }
+        }
+        val ok = withTimeoutOrNull(PleosCaas.INIT_TIMEOUT_MS) { waiting.await() } ?: false
+        stt.takeIf { ok }
+    }
+
+    override fun listen(direct: Boolean) {
+        if (direct) answerTurn = true
+        // Vigilar la palabra no interrumpe un turno de respuesta en curso.
+        if (!direct && answerTurn && _state.value is VoiceInput.State.Listening) return
+        this.direct = direct || answerTurn
+        if (!available) {
+            answerTurn = false
+            _state.value = VoiceInput.State.Idle
             return
         }
-        connection = PleosCaas.bind(context, PleosCaas.LLM_SERVICE, PleosCaas.LLM_ON_DEVICE_ACTION) { b ->
-            binder = b
-            if (b == null) {
-                ready = false
-                failed = true
-                return@bind
-            }
-            val app = context.packageName
-            runCatching {
-                PleosCaas.call(b, DESCRIPTOR, REGISTER, callback, app)
-                PleosCaas.call(b, DESCRIPTOR, INITIALIZE, app)
-            }.onSuccess {
-                Log.i(PleosCaas.TAG, "LLM de Pleos vinculado: se comprueba que conteste")
-                probe(b)
-            }.onFailure {
-                failed = true
-                Log.e(PleosCaas.TAG, "LLM initialize", it)
-            }
+        if (!hasPermission) {
+            _state.value = VoiceInput.State.Failed(
+                language.say(en = "Microphone permission not granted", es = "Falta el permiso del micrófono", it = "Manca il permesso del microfono"),
+            )
+            return
         }
-        if (connection == null) failed = true
-    }
-
-    /**
-     * Vincularse no es tener modelo: en el emulador la caas acepta las
-     * peticiones y no contesta nunca, y cada orden y cada traducción esperaba
-     * 30 s para nada. Solo cuenta como listo si responde a una prueba.
-     */
-    private fun probe(b: IBinder) {
-        probing = CoroutineScope(Dispatchers.IO).launch {
-            val started = System.nanoTime()
-            // Entera y a tiempo: a medias al acabarse el plazo es un modelo que
-            // genera, pero tan despacio que cada orden esperaría por él.
-            val answered = runCatching { generate(b, "Reply with: OK", PROBE_TIMEOUT_MS, partial = false) }.getOrNull()
-            val took = (System.nanoTime() - started) / 1_000_000
-            if (answered.isNullOrBlank()) {
-                failed = true
-                Log.w(PleosCaas.TAG, "el LLM de Pleos no contesta en ${PROBE_TIMEOUT_MS / 1000} s: se sigue sin IA")
-            } else {
-                ready = true
-                Log.i(PleosCaas.TAG, "LLM de Pleos listo: contestó en $took ms")
+        cancel()
+        lastHeard = ""
+        delivered = false
+        _state.value = VoiceInput.State.Listening
+        val mine = turn
+        scope.launch {
+            val client = ready()
+            if (mine != turn) return@launch
+            if (client == null) {
+                gaveUp = true
+                Log.w(TAG, "sin escucha de Pleos: se usa tocando")
+                answerTurn = false
+                _state.value = VoiceInput.State.Idle
+                return@launch
+            }
+            withContext(Dispatchers.Main) {
+                if (mine != turn) return@withContext
+                requested = true
+                runCatching { client.request() }.onFailure {
+                    Log.e(TAG, "STT request", it)
+                    requested = false
+                    delivered = true
+                    _state.value = VoiceInput.State.Failed(it.message ?: "could not start listening")
+                }
             }
         }
     }
 
-    private var probing: Job? = null
-
-    override suspend fun complete(prefix: String, request: String, singleLine: Boolean): String = withContext(Dispatchers.IO) {
-        val b = binder?.takeIf { ready } ?: error("el LLM de Pleos no está disponible")
-        val text = runCatching { generate(b, prefix + request, TIMEOUT_MS) }.getOrNull()
-        if (text.isNullOrBlank()) {
-            // Un modelo que deja de contestar no se vuelve a esperar en cada frase.
-            ready = false
-            failed = true
-            error("el LLM de Pleos no contestó a tiempo: se sigue sin IA")
-        }
-        if (singleLine) text.trim().lineSequence().firstOrNull { it.isNotBlank() }.orEmpty() else text
+    /** Apaga la escucha para siempre en este arranque: sin voz que conteste, no sirve. */
+    fun turnOff() {
+        gaveUp = true
+        cancel()
+        _state.value = VoiceInput.State.Idle
     }
 
-    /** Lo que conteste a [prompt], o lo que llevara escrito al acabarse el tiempo. */
-    private suspend fun generate(b: IBinder, prompt: String, timeoutMs: Long, partial: Boolean = true): String? {
-        val id = "sw-" + UUID.randomUUID().toString().take(8)
-        val pending = Request()
-        requests[id] = pending
-        try {
-            PleosCaas.call(b, DESCRIPTOR, GENERATE_STREAM, context.packageName, id, prompt)
-            return withTimeoutOrNull(timeoutMs) { pending.done.await() }
-                ?: if (partial) synchronized(pending.text) { pending.text.toString() } else null
-        } finally {
-            requests.remove(id)
-        }
+    override fun stopListening() = cancel()
+
+    override fun cancel() {
+        turn++
+        delivered = true
+        // Solo si se pidió: parar lo que no empezó avisa de un final que no existe.
+        if (requested) stt?.let { client -> runCatching { client.stop() } }
+        requested = false
+        if (_state.value is VoiceInput.State.Listening) _state.value = VoiceInput.State.Idle
+    }
+
+    override fun acknowledge() {
+        if (_state.value !is VoiceInput.State.Listening) _state.value = VoiceInput.State.Idle
+    }
+
+    override fun inject(text: String) {
+        _state.value = VoiceInput.State.Heard(text, direct = true)
     }
 
     fun release() {
-        probing?.cancel()
-        connection?.let { runCatching { context.unbindService(it) } }
-        connection = null
-        binder = null
-        ready = false
+        cancel()
+        stt?.let { client ->
+            runCatching {
+                client.removeListener(results)
+                client.release()
+            }
+        }
+        stt = null
+        initialized = null
+    }
+
+    private fun reasonOf(error: SttError): String = when (error) {
+        SttError.TIMEOUT -> language.say(en = "I didn't catch that", es = "No te he oído", it = "Non ti ho sentito")
+        SttError.MIC_ERROR, SttError.PERMISSION_DENIED -> language.say(
+            en = "The microphone is not available", es = "El micrófono no está disponible", it = "Il microfono non è disponibile",
+        )
+        SttError.NETWORK_ERROR -> language.say(
+            en = "Speech recognition needs a connection here",
+            es = "Aquí el reconocimiento de voz necesita conexión",
+            it = "Qui il riconoscimento vocale ha bisogno di connessione",
+        )
+        SttError.UNAVAILABLE_LANGUAGE -> language.say(
+            en = "Speech recognition doesn't support this language",
+            es = "El reconocimiento de voz no admite este idioma",
+            it = "Il riconoscimento vocale non supporta questa lingua",
+        )
+        else -> language.say(en = "Speech recognition failed ($error)", es = "Falló el reconocimiento de voz ($error)", it = "Riconoscimento vocale non riuscito ($error)")
     }
 
     private companion object {
-        const val DESCRIPTOR = "ai.pleos.playground.caas.data.llm.aidl.IOnDeviceLLM"
-        const val CALLBACK = "ai.pleos.playground.caas.data.llm.aidl.ILLMCallback"
-        const val REGISTER = 1
-        const val INITIALIZE = 3
-        const val GENERATE_STREAM = 5
-        const val TIMEOUT_MS = 30_000L
-        /** Lo que se espera a la prueba: un modelo que sirva contesta "OK" en mucho menos. */
-        const val PROBE_TIMEOUT_MS = 10_000L
+        const val GIVE_UP_AFTER = 3
+        const val TAG = "SWVoiceInput"
     }
 }
 

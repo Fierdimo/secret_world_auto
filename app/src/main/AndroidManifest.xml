@@ -11,8 +11,7 @@
     <!-- Capa propia de Pleos: ver docs/PLEOS-SDK-SURFACE.md -->
     <uses-permission android:name="pleos.car.permission.NAVI_ROUTE" />
     <uses-permission android:name="pleos.car.permission.NAVI_ROUTE_SEARCH" />
-    <uses-permission android:name="pleos.car.permission.CAR_INFO" />
-    <uses-permission android:name="pleos.car.permission.CAR_DRIVE" />
+    <!-- Ni CAR_INFO ni CAR_DRIVE: no se usan, y uno no aprobado hace fallar la revisión. -->
 
     <!--
         Desde Android 11 una app solo ve los servicios que declara. Sin esto,
@@ -28,6 +27,7 @@
         <package android:name="com.waze" />
         <!-- El navegador de Pleos y su servicio de navegación. -->
         <package android:name="ai.umos.maps.android.navigation.app" />
+        <package android:name="com.autoever.navi" />
         <package android:name="ai.pleos.playground.service.navi" />
     </queries>
 

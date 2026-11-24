@@ -158,8 +158,11 @@ import com.secretworld.auto.feature.voice.SharedLanguageModel
 import com.secretworld.auto.feature.voice.VoiceInstaller
 import com.secretworld.auto.feature.voice.NarrationController
 import com.secretworld.auto.feature.voice.OnDeviceVoiceInput
+import com.secretworld.auto.feature.voice.PleosCaas
+import com.secretworld.auto.feature.voice.PleosCredentials
 import com.secretworld.auto.feature.voice.PleosLanguageModel
 import com.secretworld.auto.feature.voice.PleosSpeaker
+import com.secretworld.auto.feature.voice.PleosVoiceInput
 import com.secretworld.auto.feature.voice.SystemVoiceInput
 import com.secretworld.auto.feature.voice.TranslatingNarrationTexts
 import com.secretworld.auto.feature.voice.VoiceInput
@@ -452,9 +455,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var resolver: IntentResolver
     private val voiceInstaller by lazy { VoiceInstaller(this) }
 
-    /** Con la voz de Pleos, cualquiera: lo que no sepa decir lo dirá la plataforma. */
+    /** Con la voz de Pleos, los que admite: inglés y español, sin italiano. */
     private fun availableLanguages(): List<VoiceLanguage> =
-        if (BuildConfig.PLEOS_SERVICES) VoiceLanguage.entries.toList() else voiceInstaller.availableLanguages()
+        if (BuildConfig.PLEOS_SERVICES) VoiceLanguage.entries - VoiceLanguage.ITALIAN else voiceInstaller.availableLanguages()
     private val areas = NominatimAreas()
     private val whereAmI by lazy { WhereAmI(this) { at -> areas.describe(at, language) } }
     private val grammar by lazy { GrammarIntentResolver(language) }
@@ -520,6 +523,11 @@ class MainActivity : ComponentActivity() {
 
     /** El LLM de la plataforma, en la versión para Pleos. */
     private var pleosLlm: PleosLanguageModel? = null
+
+    /** Las credenciales de *My Project* en Pleos, si se compiló con ellas. */
+    private val pleosCredentials: PleosCredentials? by lazy {
+        PleosCredentials.of(BuildConfig.PLEOS_CLIENT_ID, BuildConfig.PLEOS_CLIENT_SECRET)
+    }
 
     /**
      * Si el micrófono está listo para escuchar. Los modelos en el dispositivo
@@ -621,14 +629,17 @@ class MainActivity : ComponentActivity() {
             texts,
             lifecycleScope,
             language,
-            speaker = if (BuildConfig.PLEOS_SERVICES) PleosSpeaker(this) else null,
+            speaker = if (BuildConfig.PLEOS_SERVICES) PleosSpeaker(this, pleosCredentials) else null,
         )
         if (BuildConfig.PLEOS_SERVICES) {
             // Sin voz no hay conversación: la escucha se apaga y la app se usa tocando.
             narration.probe(getString(com.secretworld.auto.feature.discover.R.string.brand))
             lifecycleScope.launch {
                 narration.silent.first { it }
-                (voiceInput as? SystemVoiceInput)?.turnOff()
+                when (val input = voiceInput) {
+                    is PleosVoiceInput -> input.turnOff()
+                    is SystemVoiceInput -> input.turnOff()
+                }
                 handsFree.disable()
             }
         }
@@ -2949,15 +2960,22 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * La versión para Pleos: nada propio. Escucha con el reconocedor estándar de
-     * Android, que en Pleos es el de la plataforma (`ai.umos.ambientai`), y lo
-     * que la gramática no entiende va al LLM de la caas. La voz la pone
-     * [PleosSpeaker], en el [NarrationController].
+     * La versión para Pleos: nada propio. Escucha con el `SpeechToText` de Pleos
+     * y habla con su `TextToSpeech` ([PleosSpeaker], en el [NarrationController]).
+     * Sin la caas, el reconocedor estándar de Android, si lo hay.
+     *
+     * Lo que la gramática no entiende va al LLM de la caas, si contesta: Pleos
+     * retiró su SDK en la v2.1.0 (docs/PLEOS-WATERFALL-PC.md).
      */
     private fun setUpPleosVoice() {
-        // Sin reconocedor en el sistema, sin escucha desde el principio: se usa tocando.
+        val caas = PleosCaas.installed(this)
         val system = SystemVoiceInput(this, language)
-        voiceInput = if (system.available) system else NoVoiceInput(language)
+        voiceInput = when {
+            caas -> PleosVoiceInput(this, language, lifecycleScope, pleosCredentials)
+            system.available -> system
+            // Sin reconocedor, sin escucha desde el principio: se usa tocando.
+            else -> NoVoiceInput(language)
+        }
         handsFree = HandsFree(voiceInput, lifecycleScope)
         val llm = PleosLanguageModel(this).also { pleosLlm = it }
         resolver = LayeredIntentResolver(
@@ -2966,16 +2984,15 @@ class MainActivity : ComponentActivity() {
                 Log.e("SWVoice", "el LLM de Pleos no contestó", it)
             },
         )
-        // Para quien lo pruebe: qué reconocedor resuelve el sistema y si está la caas.
-        val recognizers = packageManager.queryIntentServices(android.content.Intent(android.speech.RecognitionService.SERVICE_INTERFACE), 0)
-            .joinToString { "${it.serviceInfo.packageName}/${it.serviceInfo.name}" }
+        llm.load()
+        // Para quien lo pruebe: qué escucha se usa, en qué modo y qué caas hay.
         Log.i(
             "SWPleos",
-            "reconocedores: ${recognizers.ifEmpty { "ninguno" }} · " +
-                "disponible: ${android.speech.SpeechRecognizer.isRecognitionAvailable(this)} · " +
-                "caas: ${runCatching { packageManager.getPackageInfo("ai.pleos.playground.caas", 0).versionName }.getOrNull() ?: "no instalada"}",
+            "escucha: ${voiceInput::class.simpleName} · " +
+                "modo: ${if (pleosCredentials != null) "HYBRID" else "ON_DEVICE"} · " +
+                "caas: ${runCatching { packageManager.getPackageInfo(PleosCaas.PACKAGE, 0).versionName }.getOrNull() ?: "no instalada"} · " +
+                "navegación: ${if (pleosNavigation.available) "sí" else "no"}",
         )
-        llm.load()
         voiceReady.value = true
     }
 
@@ -3146,6 +3163,7 @@ class MainActivity : ComponentActivity() {
         // Solo al salir de verdad: al reabrirse —cambio de idioma— el modelo se
         // queda cargado para la actividad nueva.
         if (isFinishing) gemma?.release()
+        (voiceInput as? PleosVoiceInput)?.release()
         pleosLlm?.release()
         pleosNavigation.release()
     }

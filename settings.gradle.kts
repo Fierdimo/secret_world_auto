@@ -15,6 +15,14 @@ dependencyResolutionManagement {
         // no como fichero suelto: un `files(...aar)` rompe al ensamblar la
         // libreria que lo usa.
         flatDir { dirs("libs") }
+        // Los SDK de Pleos (NaviHelper, TextToSpeech, SpeechToText). Publico,
+        // sin credenciales; solo para sus grupos.
+        maven("https://nexus-playground.pleos.ai/repository/maven-releases/") {
+            content {
+                includeGroup("ai.pleos.playground")
+                includeGroup("ai.pleos.playground.security")
+            }
+        }
     }
 }
 

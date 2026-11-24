@@ -19,6 +19,13 @@ class CarMetricsTest {
     private val halfScreen = CarMetrics(1920.dp, 1440.dp, density = 1f)
 
     @Test
+    fun `solo se apila una ventana claramente mas alta que ancha`() {
+        assertTrue(CarMetrics(800.dp, 1400.dp, density = 1f).stacked, "el hueco pequeño de la v2.1.5")
+        assertTrue(CarMetrics(411.dp, 890.dp, density = 2.5f).stacked, "un móvil en vertical")
+        assertTrue(!CarMetrics(800.dp, 810.dp, density = 1f).stacked, "el hueco pequeño de Waterfall")
+    }
+
+    @Test
     fun `el texto crece con la pantalla, pero menos que ella`() {
         // Comparado a igual densidad: mezclar pantallas que declaran densidades
         // distintas compara peras con manzanas, porque un dp no mide lo mismo.

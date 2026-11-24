@@ -1,11 +1,12 @@
 package com.secretworld.auto
 
-import android.content.ComponentName
+import ai.pleos.playground.navi.constants.NaviErrorCode
+import ai.pleos.playground.navi.constants.RouteOption
+import ai.pleos.playground.navi.data.RouteInfo
+import ai.pleos.playground.navi.helper.NaviHelper
+import ai.pleos.playground.navi.helper.listener.NaviHelperEventListener
 import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
-import android.os.IBinder
-import android.os.Parcel
 import android.util.Log
 import com.secretworld.auto.domain.Place
 import kotlinx.coroutines.CompletableDeferred
@@ -13,40 +14,41 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import org.json.JSONObject
 
 /**
- * El navegador de Pleos, a través de su servicio de navegación (el que usará
- * NaviHelper cuando Pleos lo publique). Su app no responde a `geo:` ni a
- * enlaces: el destino se le pide al servicio, que se lo pasa al navegador.
- *
- * Sin la biblioteca, se habla con el servicio directamente: la interfaz
- * `INaviService` recibe pedidos de texto —quién pide, qué y los datos en JSON—.
- * Los nombres de los pedidos y de los campos son los del navegador del
- * emulador v2.1.5 (docs/NAVIGATION-AND-MAP-DECISIONS.md).
+ * El navegador de Pleos, con su SDK oficial (`NaviHelper` 3.0.5). El destino se
+ * le pide al servicio de navegación, que se lo pasa al navegador que tenga el
+ * coche: no depende de un paquete concreto. En Waterfall el navegador es
+ * `com.autoever.navi`, no el `ai.umos.maps…` de la v2.1.5.
  */
 class PleosNavigation(private val context: Context) {
 
-    private var binder: IBinder? = null
-    private var connecting: CompletableDeferred<IBinder?>? = null
+    private var helper: NaviHelper? = null
+    private var initialized: CompletableDeferred<Boolean>? = null
+    private var warmedUp = false
 
-    private val connection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName, service: IBinder) {
-            binder = service
-            connecting?.complete(service)
+    private val events = object : NaviHelperEventListener {
+        override fun onRouteStarted(info: ai.pleos.playground.navi.data.RouteStartInfo) {
+            Log.i(TAG, "ruta iniciada")
         }
 
-        override fun onServiceDisconnected(name: ComponentName) {
-            binder = null
+        override fun onRouteCancelled() {
+            Log.i(TAG, "ruta cancelada")
+        }
+
+        override fun onError(code: NaviErrorCode) {
+            Log.w(TAG, "el navegador no pudo: $code")
         }
     }
 
-    private val serviceIntent = Intent(ACTION).setPackage(SERVICE_PACKAGE)
-
-    /** Si este coche tiene el navegador de Pleos. */
+    /**
+     * Si este coche tiene el servicio de navegación de Pleos y un navegador que
+     * lo atienda. En Waterfall el navegador viene oculto y su motor no carga:
+     * entregarle la ruta sería dejar al conductor sin ninguna, y la app usa la suya.
+     */
     val available: Boolean by lazy {
-        context.packageManager.resolveService(serviceIntent, 0) != null &&
-            context.packageManager.getLaunchIntentForPackage(NAVIGATOR_PACKAGE) != null
+        context.packageManager.resolveService(Intent(ACTION).setPackage(SERVICE_PACKAGE), 0) != null &&
+            NAVIGATORS.any { context.packageManager.getLaunchIntentForPackage(it) != null }
     }
 
     /**
@@ -58,98 +60,109 @@ class PleosNavigation(private val context: Context) {
      * primera vez se repite cuando ya escucha.
      */
     suspend fun open(place: Place): Boolean {
+        val navi = ready() ?: return false
         val cold = !warmedUp
-        if (!show()) return false
-        val sent = routeTo(place)
+        show()
+        val sent = routeTo(navi, place)
         if (sent && cold) {
             delay(WARM_UP_MS)
-            routeTo(place)
+            routeTo(navi, place)
         }
         warmedUp = sent
         return sent
     }
 
-    private var warmedUp = false
-
-    /** Pide la ruta hasta [place]. */
-    private suspend fun routeTo(place: Place): Boolean {
-        val data = JSONObject()
-            .put("latitude", place.position.latitude)
-            .put("longitude", place.position.longitude)
-            .put("poiName", place.name)
-            // Todos los textos, aunque vayan vacíos: el navegador se cierra si
-            // falta alguno (la dirección, la primera vez que se probó).
-            .put("address", place.address ?: listOfNotNull(place.name, place.city).joinToString(", "))
-            .put("poiId", "")
-            .put("poiSubId", "")
-            .put("routeOption", "RECOMMENDED")
-        return request(REQUEST_ROUTE, data.toString())
-    }
-
     /** Cancela la ruta que esté guiando. */
-    suspend fun cancel(): Boolean = request(REQUEST_ROUTE_CANCEL, "{}")
-
-    /** El navegador delante: Pleos lo pone en el hueco grande y a nosotros en el pequeño. */
-    private fun show(): Boolean {
-        val intent = context.packageManager.getLaunchIntentForPackage(NAVIGATOR_PACKAGE) ?: return false
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        return runCatching { context.startActivity(intent) }
-            .onFailure { Log.w(TAG, "no se pudo abrir el navegador", it) }
-            .isSuccess
+    suspend fun cancel(): Boolean {
+        val navi = ready() ?: return false
+        return call("cancelRoute") { navi.cancelRoute() }
     }
 
     fun release() {
-        if (binder != null || connecting != null) runCatching { context.unbindService(connection) }
-        binder = null
-        connecting = null
-    }
-
-    private suspend fun request(type: String, data: String): Boolean {
-        val service = connect() ?: return false
-        return withContext(Dispatchers.IO) {
-            val input = Parcel.obtain()
-            val reply = Parcel.obtain()
-            try {
-                input.writeInterfaceToken(DESCRIPTOR)
-                input.writeString(context.packageName)
-                input.writeString(type)
-                input.writeString(data)
-                service.transact(TRANSACTION_REQUEST_TO_NAVI, input, reply, 0)
-                reply.readException()
-                Log.i(TAG, "$type → $data")
-                true
-            } catch (e: Exception) {
-                Log.w(TAG, "el navegador no aceptó $type", e)
-                false
-            } finally {
-                input.recycle()
-                reply.recycle()
+        helper?.let { navi ->
+            runCatching {
+                navi.removeListener(events)
+                navi.release()
             }
         }
+        helper = null
+        initialized = null
     }
 
-    private suspend fun connect(): IBinder? {
-        binder?.takeIf { it.isBinderAlive }?.let { return it }
-        val waiting = CompletableDeferred<IBinder?>().also { connecting = it }
-        val bound = runCatching { context.bindService(serviceIntent, connection, Context.BIND_AUTO_CREATE) }
-            .onFailure { Log.w(TAG, "no se pudo conectar con el servicio de navegación", it) }
-            .getOrDefault(false)
-        if (!bound) return null
-        return withTimeoutOrNull(CONNECT_MS) { waiting.await() }
+    private suspend fun routeTo(navi: NaviHelper, place: Place): Boolean {
+        val route = RouteInfo(
+            latitude = place.position.latitude,
+            longitude = place.position.longitude,
+            poiName = place.name,
+            // Todos los textos, aunque vayan vacíos: el navegador de la v2.1.5 se
+            // cerraba si faltaba alguno.
+            poiId = "",
+            address = place.address ?: listOfNotNull(place.name, place.city).joinToString(", "),
+            poiSubId = "",
+            routeOption = RouteOption.RECOMMENDED,
+        )
+        return call("requestRoute ${place.name}") { navi.requestRoute(route) }
+    }
+
+    /**
+     * El navegador delante: Pleos lo pone en el hueco grande y a nosotros en el
+     * pequeño. Se abre él mismo, no con `requestNavigationScreen`: ese pide
+     * `NAVI_CUSTOM_MAP`, que la app no tiene aprobado.
+     */
+    private fun show() {
+        val launch = NAVIGATORS.firstNotNullOfOrNull { context.packageManager.getLaunchIntentForPackage(it) } ?: return
+        runCatching { context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            .onFailure { Log.w(TAG, "no se pudo abrir el navegador", it) }
+    }
+
+    /** Crea el cliente y espera a que se conecte al servicio. En el hilo principal. */
+    private suspend fun ready(): NaviHelper? = withContext(Dispatchers.Main) {
+        if (!available) return@withContext null
+        val waiting = initialized ?: CompletableDeferred<Boolean>().also { done ->
+            initialized = done
+            val navi = runCatching { NaviHelper(context) }
+                .onFailure { Log.e(TAG, "NaviHelper: no se pudo crear", it) }
+                .getOrNull()
+            helper = navi
+            if (navi == null) {
+                done.complete(false)
+                return@also
+            }
+            navi.addListener(events)
+            runCatching {
+                navi.initialize(
+                    { done.complete(true) },
+                    { error ->
+                        Log.w(TAG, "NaviHelper no se conecta", error)
+                        done.complete(false)
+                    },
+                )
+            }.onFailure {
+                Log.e(TAG, "NaviHelper initialize", it)
+                done.complete(false)
+            }
+        }
+        val ok = withTimeoutOrNull(CONNECT_MS) { waiting.await() } ?: false
+        // Un fallo no se queda para siempre: el siguiente pedido lo vuelve a intentar.
+        if (!ok) release()
+        helper.takeIf { ok }
+    }
+
+    private suspend fun call(what: String, block: () -> Unit): Boolean = withContext(Dispatchers.Main) {
+        runCatching(block)
+            .onSuccess { Log.i(TAG, what) }
+            .onFailure { Log.w(TAG, "el navegador no aceptó $what", it) }
+            .isSuccess
     }
 
     private companion object {
         const val TAG = "SWPleosNavi"
         const val SERVICE_PACKAGE = "ai.pleos.playground.service.navi"
-        const val NAVIGATOR_PACKAGE = "ai.umos.maps.android.navigation.app"
         const val ACTION = "ai.pleos.playground.intent.action.NAVI_START"
-        const val DESCRIPTOR = "ai.pleos.playground.navi.INaviService"
 
-        /** `requestToNavi(applicationId, type, data)`, la tercera de la interfaz. */
-        const val TRANSACTION_REQUEST_TO_NAVI = IBinder.FIRST_CALL_TRANSACTION + 2
-        const val REQUEST_ROUTE = "RequestRoute"
-        const val REQUEST_ROUTE_CANCEL = "RequestRouteCancel"
-        const val CONNECT_MS = 3_000L
+        /** Los navegadores conocidos: el de la v2.1.5 y el de Waterfall. */
+        val NAVIGATORS = listOf("ai.umos.maps.android.navigation.app", "com.autoever.navi")
+        const val CONNECT_MS = 5_000L
         const val WARM_UP_MS = 10_000L
     }
 }

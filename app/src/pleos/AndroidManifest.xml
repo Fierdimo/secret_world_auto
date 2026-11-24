@@ -10,6 +10,8 @@
         android:name="android.hardware.type.automotive"
         android:required="true" />
 
+    <!-- LLM_SERVICE, solo para verificarlo: antes de publicar hay que quitarlo, porque Pleos retiró su SDK
+         y declarar un permiso no aprobado hace fallar la revisión. -->
     <uses-permission android:name="pleos.car.permission.TTS_SERVICE" />
     <uses-permission android:name="pleos.car.permission.STT_SERVICE" />
     <uses-permission android:name="pleos.car.permission.LLM_SERVICE" />
@@ -28,5 +30,19 @@
             android:name="com.secretworld.auto.MainActivity"
             android:screenOrientation="unspecified"
             tools:replace="android:screenOrientation" />
+        <!-- Verifica TTS, STT, LLM y navegación por separado. Solo en esta variante. -->
+        <activity
+            android:name="com.secretworld.auto.PleosCheckActivity"
+            android:exported="true"
+            android:label="Pleos check"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation|locale|layoutDirection|fontScale"
+            android:launchMode="singleTop"
+            android:taskAffinity="com.secretworld.auto.pleos.check"
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>

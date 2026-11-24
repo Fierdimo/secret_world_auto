@@ -1,7 +1,17 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+// Las credenciales de la app en Pleos (*My Project*), fuera del repositorio:
+// `pleos.clientId` y `pleos.clientSecret` en local.properties. Sin ellas, la voz
+// y la escucha de Pleos van solo en el dispositivo.
+val pleosKeys = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+fun pleosKey(name: String): String = "\"" + pleosKeys.getProperty("pleos.$name", "").replace("\"", "") + "\""
 
 android {
     namespace = "com.secretworld.auto"
@@ -20,6 +30,9 @@ android {
         ndk {
             abiFilters += "arm64-v8a"
         }
+
+        buildConfigField("String", "PLEOS_CLIENT_ID", "\"\"")
+        buildConfigField("String", "PLEOS_CLIENT_SECRET", "\"\"")
     }
 
     buildFeatures {
@@ -64,6 +77,8 @@ android {
             applicationIdSuffix = ".pleos"
             versionNameSuffix = "-pleos"
             buildConfigField("boolean", "PLEOS_SERVICES", "true")
+            buildConfigField("String", "PLEOS_CLIENT_ID", pleosKey("clientId"))
+            buildConfigField("String", "PLEOS_CLIENT_SECRET", pleosKey("clientSecret"))
             ndk {
                 abiFilters += "x86_64"
             }
@@ -116,6 +131,12 @@ dependencies {
     "benchImplementation"(libs.maplibre)
     "demoImplementation"(libs.maplibre)
     "pleosImplementation"(libs.maplibre)
+    // Para la pantalla de verificación (PleosCheckActivity), que los usa tal cual.
+    "pleosImplementation"(libs.pleos.tts)
+    "pleosImplementation"(libs.pleos.stt)
+
+    // El navegador de Pleos: el destino se le pide a su servicio de navegación.
+    implementation(libs.pleos.navihelper)
 
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)

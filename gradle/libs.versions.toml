@@ -15,10 +15,13 @@ maplibre = "13.6.1"
 mediapipeGenai = "0.10.35"
 # Sucesor de MediaPipe LLM Inference. Solo en spikes/llm-bench, de momento.
 litertlm = "0.18.1"
+# SDK de Pleos: https://document.pleos.ai
+pleosNaviHelper = "3.0.5"
+pleosSpeech = "3.3.1"
 
-# Android
+# Android. Pleos exige minSdk 28 o mas.
 compileSdk = "37"
-minSdk = "27"
+minSdk = "28"
 targetSdk = "34"
 
 [libraries]
@@ -45,6 +48,9 @@ maplibre = { module = "org.maplibre.gl:android-sdk", version.ref = "maplibre" }
 # LLM en el dispositivo (Gemma 3 1B). Ver feature/voice/.../GemmaLanguageModel.kt
 mediapipe-tasks-genai = { module = "com.google.mediapipe:tasks-genai", version.ref = "mediapipeGenai" }
 litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
+pleos-navihelper = { module = "ai.pleos.playground:NaviHelper", version.ref = "pleosNaviHelper" }
+pleos-tts = { module = "ai.pleos.playground:TextToSpeech", version.ref = "pleosSpeech" }
+pleos-stt = { module = "ai.pleos.playground:SpeechToText", version.ref = "pleosSpeech" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

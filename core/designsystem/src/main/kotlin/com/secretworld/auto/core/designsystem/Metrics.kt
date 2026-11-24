@@ -122,8 +122,11 @@ class CarMetrics(
      * Ventana alta y estrecha —el hueco pequeño de Pleos, 800 × 1400—: el mapa
      * arriba y el panel debajo, a todo el ancho. Con el panel a la izquierda
      * quedaba una columna en la que no cabía ni el título.
+     *
+     * Claramente más alta que ancha: en el hueco pequeño de Waterfall (800 × 810)
+     * apilar dejaba los botones del lugar elegido fuera de la vista.
      */
-    val stacked: Boolean get() = heightDp > widthDp && widthDp.value < STACK_MAX_WIDTH
+    val stacked: Boolean get() = heightDp >= widthDp * STACK_MIN_RATIO && widthDp.value < STACK_MAX_WIDTH
 
     /** Lo que se lleva el panel de abajo cuando la ventana está apilada. */
     val sheetShare: Float get() = SHEET_SHARE
@@ -265,6 +268,7 @@ class CarMetrics(
         const val DENSITY_BOOST = 1.35f
         const val COMPACT_SHORT_SIDE = 600f
         const val STACK_MAX_WIDTH = 1200f
+        const val STACK_MIN_RATIO = 1.3f
         const val SHEET_SHARE = 0.60f
         /** La escala del móvil apaisado en el que se afinaron las medidas fijas (411 dp de alto). */
         const val PHONE_SCALE = 0.625f
