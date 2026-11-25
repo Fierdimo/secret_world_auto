@@ -455,9 +455,15 @@ class MainActivity : ComponentActivity() {
     private lateinit var resolver: IntentResolver
     private val voiceInstaller by lazy { VoiceInstaller(this) }
 
-    /** Con la voz de Pleos, los que admite: inglés y español, sin italiano. */
-    private fun availableLanguages(): List<VoiceLanguage> =
-        if (BuildConfig.PLEOS_SERVICES) VoiceLanguage.entries - VoiceLanguage.ITALIAN else voiceInstaller.availableLanguages()
+    /** Los que habla Pleos y los que traiga nuestra voz. */
+    private fun availableLanguages(): List<VoiceLanguage> {
+        val own = voiceInstaller.availableLanguages()
+        return VoiceLanguage.entries.filter { speaksWithPleos(it) || it in own }
+    }
+
+    /** Si en [language] habla la voz de Pleos: en la versión para Pleos, en los idiomas que tiene. */
+    private fun speaksWithPleos(language: VoiceLanguage): Boolean =
+        (BuildConfig.PLEOS_VOICE || BuildConfig.PLEOS_SERVICES) && PleosCaas.speaks(language) && PleosCaas.installed(this)
     private val areas = NominatimAreas()
     private val whereAmI by lazy { WhereAmI(this) { at -> areas.describe(at, language) } }
     private val grammar by lazy { GrammarIntentResolver(language) }
@@ -629,9 +635,9 @@ class MainActivity : ComponentActivity() {
             texts,
             lifecycleScope,
             language,
-            speaker = if (BuildConfig.PLEOS_SERVICES) PleosSpeaker(this, pleosCredentials) else null,
+            speaker = if (speaksWithPleos(language)) PleosSpeaker(this, pleosCredentials) else null,
         )
-        if (BuildConfig.PLEOS_SERVICES) {
+        if (narration.speaksLive) {
             // Sin voz no hay conversación: la escucha se apaga y la app se usa tocando.
             narration.probe(getString(com.secretworld.auto.feature.discover.R.string.brand))
             lifecycleScope.launch {
@@ -1495,8 +1501,8 @@ class MainActivity : ComponentActivity() {
                     )
                 },
                 onLanguage = { code -> VoiceLanguage.fromTag(code)?.let(::switchLanguage) },
-                // En Pleos la voz es la de la plataforma: no hay nada nuestro que enseñar ni borrar.
-                voiceInstalled = narration.voiceInstalled.takeUnless { BuildConfig.PLEOS_SERVICES },
+                // Con la voz de la plataforma no hay nada nuestro que enseñar ni borrar.
+                voiceInstalled = narration.voiceInstalled.takeUnless { narration.speaksLive },
                 voiceSizeMb = 21,
                 catalogueSource = when (result?.source) {
                     CatalogueRepository.Source.LIVE -> stringResource(com.secretworld.auto.feature.parked.R.string.catalogue_live, result.places.size)

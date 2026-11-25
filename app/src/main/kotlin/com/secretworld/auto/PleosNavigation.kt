@@ -1,6 +1,7 @@
 package com.secretworld.auto
 
 import ai.pleos.playground.navi.constants.NaviErrorCode
+import ai.pleos.playground.navi.constants.NavigationStatus
 import ai.pleos.playground.navi.constants.RouteOption
 import ai.pleos.playground.navi.data.RouteInfo
 import ai.pleos.playground.navi.helper.NaviHelper
@@ -11,7 +12,6 @@ import android.util.Log
 import com.secretworld.auto.domain.Place
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -25,18 +25,32 @@ class PleosNavigation(private val context: Context) {
 
     private var helper: NaviHelper? = null
     private var initialized: CompletableDeferred<Boolean>? = null
-    private var warmedUp = false
+
+    /** Se completa con la primera noticia del navegador tras pedirle una ruta. */
+    @Volatile private var answered = CompletableDeferred<Unit>()
 
     private val events = object : NaviHelperEventListener {
         override fun onRouteStarted(info: ai.pleos.playground.navi.data.RouteStartInfo) {
+            answered.complete(Unit)
             Log.i(TAG, "ruta iniciada")
         }
 
+        override fun onRoutingCompleted() {
+            answered.complete(Unit)
+            Log.i(TAG, "ruta calculada")
+        }
+
+        override fun onNavigationStatus(status: NavigationStatus) {
+            answered.complete(Unit)
+        }
+
         override fun onRouteCancelled() {
+            answered.complete(Unit)
             Log.i(TAG, "ruta cancelada")
         }
 
         override fun onError(code: NaviErrorCode) {
+            answered.complete(Unit)
             Log.w(TAG, "el navegador no pudo: $code")
         }
     }
@@ -56,20 +70,20 @@ class PleosNavigation(private val context: Context) {
      * servicio la aceptó.
      *
      * El servicio no guarda los pedidos: si el navegador aún no se ha conectado
-     * a él, la ruta se pierde. Recién abierto tarda unos segundos, así que la
-     * primera vez se repite cuando ya escucha.
+     * a él, la ruta se pierde. Por eso se repite, pero solo si no ha dado señal
+     * de vida: si ya la atiende, enseña las alternativas unos nueve segundos
+     * antes de arrancar, y un segundo pedido lo hacía empezar de nuevo.
      */
     suspend fun open(place: Place): Boolean {
         val navi = ready() ?: return false
-        val cold = !warmedUp
         show()
-        val sent = routeTo(navi, place)
-        if (sent && cold) {
-            delay(WARM_UP_MS)
+        val reply = CompletableDeferred<Unit>().also { answered = it }
+        if (!routeTo(navi, place)) return false
+        if (withTimeoutOrNull(WARM_UP_MS) { reply.await() } == null) {
+            Log.i(TAG, "el navegador no responde: se repite la ruta")
             routeTo(navi, place)
         }
-        warmedUp = sent
-        return sent
+        return true
     }
 
     /** Cancela la ruta que esté guiando. */
@@ -163,6 +177,7 @@ class PleosNavigation(private val context: Context) {
         /** Los navegadores conocidos: el de la v2.1.5 y el de Waterfall. */
         val NAVIGATORS = listOf("ai.umos.maps.android.navigation.app", "com.autoever.navi")
         const val CONNECT_MS = 5_000L
-        const val WARM_UP_MS = 10_000L
+        /** Lo que se espera su primera señal: arrancar una ruta tarda unos nueve segundos. */
+        const val WARM_UP_MS = 20_000L
     }
 }

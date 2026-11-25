@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.withContext
@@ -106,15 +107,21 @@ class NarrationController(
      * Comprueba al arrancar si la voz de la plataforma habla de verdad, diciendo
      * [text]. Esperar a la primera respuesta era descubrirlo tarde: entretanto
      * se escuchaba y se prometían respuestas que nunca iban a sonar.
+     *
+     * Varios intentos: recién arrancado, Pleos tarda minutos en preparar sus
+     * modelos, y darla por muda al primero dejaba la sesión entera sin voz.
      */
     fun probe(text: String) {
         val live = speaker ?: return
         if (_silent.value) return
         scope.launch {
-            if (!live.speak(text, language)) {
-                Log.w(TAG, "la voz de la plataforma no habla: sin voz, se usa tocando")
-                _silent.value = true
+            repeat(PROBE_ATTEMPTS) { attempt ->
+                if (live.speak(text, language)) return@launch
+                Log.w(TAG, "la voz de la plataforma no habla (intento ${attempt + 1})")
+                if (attempt < PROBE_ATTEMPTS - 1) delay(PROBE_PAUSE_MS)
             }
+            Log.w(TAG, "la voz de la plataforma no habla: sin voz, se usa tocando")
+            _silent.value = true
         }
     }
 
@@ -319,7 +326,8 @@ class NarrationController(
     private suspend fun speakLive(live: LiveSpeaker, text: String) {
         try {
             for (sentence in sentences(text)) {
-                if (!live.speak(sentence, language)) {
+                // Un tropiezo se repite; dos seguidos son que no hay voz.
+                if (!live.speak(sentence, language) && !live.speak(sentence, language)) {
                     Log.w(TAG, "la voz de la plataforma no pudo decir: «$sentence»: sin voz, se usa tocando")
                     _silent.value = true
                     break
@@ -451,6 +459,10 @@ class NarrationController(
     val isPlaying: Boolean get() = player.isPlaying
 
     private companion object {
+        /** Intentos de la comprobación de la voz de la plataforma, y lo que se espera entre ellos. */
+        const val PROBE_ATTEMPTS = 4
+        const val PROBE_PAUSE_MS = 40_000L
+
         const val TAG = "SWNarration"
     }
 }

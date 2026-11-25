@@ -48,6 +48,9 @@ object PleosCaas {
     fun installed(context: Context): Boolean =
         runCatching { context.packageManager.getPackageInfo(PACKAGE, 0) }.isSuccess
 
+    /** Si la voz de Pleos habla [language]. Los demás los dice la nuestra. */
+    fun speaks(language: VoiceLanguage): Boolean = language == VoiceLanguage.ENGLISH || language == VoiceLanguage.SPANISH
+
     /** El idioma que entiende Pleos: español de América, no de España. */
     fun localeOf(language: VoiceLanguage): Locale = when (language) {
         VoiceLanguage.SPANISH -> Locale.forLanguageTag("es-US")

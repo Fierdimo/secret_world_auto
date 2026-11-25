@@ -31,6 +31,7 @@ android {
             abiFilters += "arm64-v8a"
         }
 
+        buildConfigField("boolean", "PLEOS_VOICE", "false")
         buildConfigField("String", "PLEOS_CLIENT_ID", "\"\"")
         buildConfigField("String", "PLEOS_CLIENT_SECRET", "\"\"")
     }
@@ -68,15 +69,16 @@ android {
             // y no debug porque Compose en debug va a tirones.
             signingConfig = signingConfigs.getByName("debug")
         }
-        // Para probar en el emulador de Pleos —la imagen Connect-W, x86_64—: la
-        // demo sin nada de voz ni de IA dentro. Habla, escucha y piensa con los
-        // servicios de la plataforma (ver docs/PLEOS-SDK-SURFACE.md), así que el
-        // APK no lleva modelos ni los motores nativos que los ejecutan.
+        // Para Pleos: la demo en un coche. La voz, de Pleos en inglés y español
+        // (`PLEOS_VOICE`) y nuestra en italiano, que Pleos no tiene; la escucha,
+        // nuestra; sin LLM (tools/fetch-pleos-assets.sh). `PLEOS_SERVICES` a true
+        // usa también la escucha y el LLM de Pleos.
         create("pleos") {
             dimension = "target"
             applicationIdSuffix = ".pleos"
             versionNameSuffix = "-pleos"
-            buildConfigField("boolean", "PLEOS_SERVICES", "true")
+            buildConfigField("boolean", "PLEOS_SERVICES", "false")
+            buildConfigField("boolean", "PLEOS_VOICE", "true")
             buildConfigField("String", "PLEOS_CLIENT_ID", pleosKey("clientId"))
             buildConfigField("String", "PLEOS_CLIENT_SECRET", pleosKey("clientSecret"))
             ndk {
@@ -143,15 +145,13 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
 }
 
-// Sin los motores nativos de voz y de LLM en el sabor pleos: allí no se usan y
-// son la mayor parte del peso. Sus clases siguen en el APK, pero nunca se cargan.
+// Sin el motor nativo del LLM en el sabor pleos, ni las API de sherpa que no se
+// usan (la voz y la escucha van por la de JNI).
 androidComponents {
     onVariants(selector().withFlavor("target" to "pleos")) { variant ->
         variant.packaging.jniLibs.excludes.addAll(
             listOf(
                 "**/libllm_inference_engine_jni.so",
-                "**/libonnxruntime.so",
-                "**/libsherpa-onnx-jni.so",
                 "**/libsherpa-onnx-c-api.so",
                 "**/libsherpa-onnx-cxx-api.so",
             ),

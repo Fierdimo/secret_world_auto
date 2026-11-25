@@ -30,6 +30,8 @@ spikes/voice/*.wav
 # Todo lo que la demo lleva dentro del APK: ~520 MB, lo reune
 # tools/fetch-demo-assets.sh
 app/src/demo/assets/
+# tools/fetch-pleos-assets.sh
+app/src/pleos/assets/
 
 # Vídeos de demostración: pesan demasiado para el repositorio.
 videos/

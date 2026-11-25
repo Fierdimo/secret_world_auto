@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <!--
-      Para el emulador de Pleos: una app de coche que habla, escucha y piensa con
+      Para el emulador de Pleos: una app de coche; la voz en inglés y español y Pleos check usan
       los servicios de la plataforma (caas). Los permisos son de nivel normal y se
       conceden al instalar. Ver docs/PLEOS-SDK-SURFACE.md.
     -->
