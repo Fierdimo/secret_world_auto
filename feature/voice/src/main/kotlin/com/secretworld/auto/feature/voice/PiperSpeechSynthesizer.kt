@@ -7,6 +7,7 @@ import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import com.secretworld.auto.domain.SpeechSynthesizer
+import com.secretworld.auto.domain.SpokenText
 import com.secretworld.auto.domain.Synthesis
 import com.secretworld.auto.domain.VoiceLanguage
 import java.io.File
@@ -47,7 +48,7 @@ class PiperSpeechSynthesizer(private val installer: VoiceInstaller) : SpeechSynt
         // van cuatro veces mas lentas, y el motor no promete ser seguro entre hilos.
         // Y un texto largo, frase a frase, soltando el turno entre una y otra:
         // así lo que hay que decir ya no espera a una narración entera.
-        val pieces = sentences(text).map { sentence -> turn.withLock { tts.generate(sentence, 0, 1.0f) } }
+        val pieces = sentences(SpokenText.forSpeech(text, language)).map { sentence -> turn.withLock { tts.generate(sentence, 0, 1.0f) } }
         val audio = pieces.singleOrNull() ?: GeneratedAudio(
             FloatArray(pieces.sumOf { it.samples.size }).also { all ->
                 var at = 0

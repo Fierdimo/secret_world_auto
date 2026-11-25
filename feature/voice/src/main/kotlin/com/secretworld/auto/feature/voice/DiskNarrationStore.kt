@@ -14,7 +14,9 @@ import java.io.File
  */
 class DiskNarrationStore(root: File) : NarrationStore {
 
-    private val root = File(root, "narration").apply { mkdirs() }
+    // Con número: al cambiar cómo se sintetiza, lo guardado con la forma anterior
+    // —frases ininteligibles en italiano— no se vuelve a reproducir.
+    private val root = File(root, "narration-2").apply { mkdirs() }.also { File(root, "narration").deleteRecursively() }
 
     override fun has(placeId: String, language: VoiceLanguage): Boolean =
         file(placeId, language).let { it.isFile && it.length() > 0 }

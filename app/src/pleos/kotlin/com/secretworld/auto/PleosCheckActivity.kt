@@ -76,7 +76,7 @@ class PleosCheckActivity : Activity() {
         }
         scroll = ScrollView(this).apply { addView(output) }
         val buttons = LinearLayout(this).apply {
-            listOf("ALL" to "all", "TTS" to "tts", "STT" to "stt", "LLM" to "llm", "NAV" to "nav").forEach { (label, key) ->
+            listOf("ALL" to "all", "TTS" to "tts", "STT" to "stt", "LLM" to "llm", "NAV" to "nav", "OWN" to "own").forEach { (label, key) ->
                 addView(
                     Button(this@PleosCheckActivity).apply {
                         text = label
@@ -175,6 +175,10 @@ class PleosCheckActivity : Activity() {
             }
             if (what == "llm" || what == "all") step("LLM") { llm() }
             if (what == "nav" || what == "all") step("NAV") { nav() }
+            if (what == "own") {
+                step("OWN it media") { own(android.media.AudioAttributes.USAGE_MEDIA) }
+                step("OWN it assistant") { own(android.media.AudioAttributes.USAGE_ASSISTANT) }
+            }
             say("=== RESULT")
             results.forEach { (name, verdict) -> say("$name: $verdict") }
             say("=== END")
@@ -331,6 +335,38 @@ class PleosCheckActivity : Activity() {
         }
     }
 
+    /** Nuestra voz italiana: la sintetiza, deja el audio a mano para sacarlo con adb y lo reproduce por [usage]. */
+    private suspend fun own(usage: Int): String {
+        val file = java.io.File(getExternalFilesDir(null), "own-it.wav")
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            val italian = com.secretworld.auto.domain.VoiceLanguage.ITALIAN
+            val installer = com.secretworld.auto.feature.voice.VoiceInstaller(this@PleosCheckActivity)
+            installer.install(italian).getOrThrow()
+            if (!file.isFile) {
+                val voice = com.secretworld.auto.feature.voice.PiperSpeechSynthesizer(installer)
+                val done = voice.synthesizeToFile(OWN_TEXT, italian, file.absolutePath)
+                say("own synthesis: $done")
+                voice.release()
+            }
+        }
+        val ended = CompletableDeferred<Unit>()
+        val player = android.media.MediaPlayer()
+        try {
+            player.setAudioAttributes(
+                android.media.AudioAttributes.Builder().setUsage(usage).setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build(),
+            )
+            player.setDataSource(file.absolutePath)
+            player.prepare()
+            player.setOnCompletionListener { ended.complete(Unit) }
+            say("own playing ${player.duration} ms")
+            player.start()
+            withTimeoutOrNull(30_000) { ended.await() } ?: return "FAIL did not end"
+            return "OK played, confirm by ear"
+        } finally {
+            player.release()
+        }
+    }
+
     private suspend fun nav(): String {
         val helper = NaviHelper(this)
         val init = CompletableDeferred<String?>()
@@ -385,6 +421,8 @@ class PleosCheckActivity : Activity() {
 
     private companion object {
         const val TAG = "SWCheck"
+        const val OWN_TEXT = "Il Colosseo, originariamente conosciuto come Anfiteatro Flavio, è il più grande anfiteatro romano del mondo. " +
+            "Si trova nel centro della città di Roma."
         const val NAVI_SERVICE = "ai.pleos.playground.service.navi"
         val NAVIGATORS = listOf("ai.umos.maps.android.navigation.app", "com.autoever.navi")
         const val INIT_MS = 10_000L

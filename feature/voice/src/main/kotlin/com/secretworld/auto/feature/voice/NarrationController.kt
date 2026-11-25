@@ -57,7 +57,7 @@ class NarrationController(
      * que conteste con medio segundo de retraso. Se sintetizan una vez y se
      * reproducen al instante.
      */
-    private val replies = File(context.cacheDir, "replies").apply { mkdirs() }
+    private val replies = File(context.cacheDir, "replies-2").apply { mkdirs() }.also { File(context.cacheDir, "replies").deleteRecursively() }
 
     private val installer = VoiceInstaller(context)
     // Perezosos: con la voz de la plataforma no se llegan a crear, y así no se
